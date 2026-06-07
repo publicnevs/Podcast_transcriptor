@@ -85,6 +85,53 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE NOT NULL,
+    label TEXT NOT NULL,
+    kind TEXT DEFAULT 'topic',
+    episode_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tag_aliases (
+    alias_slug TEXT PRIMARY KEY,
+    tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS episode_tags (
+    episode_id INTEGER REFERENCES episodes(id) ON DELETE CASCADE,
+    tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+    source TEXT DEFAULT 'auto',
+    confidence REAL DEFAULT 1.0,
+    PRIMARY KEY (episode_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_episode_tags_tag ON episode_tags(tag_id);
+
+CREATE TABLE IF NOT EXISTS issue_recipes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    format TEXT DEFAULT 'newsletter',
+    date_window_days INTEGER DEFAULT 7,
+    date_from TIMESTAMP,
+    date_to TIMESTAMP,
+    podcast_ids_json TEXT DEFAULT '[]',
+    tag_ids_json TEXT DEFAULT '[]',
+    match_mode TEXT DEFAULT 'any',
+    length INTEGER DEFAULT 3,
+    style INTEGER DEFAULT 3,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS scheduled_issues (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_id INTEGER REFERENCES issue_recipes(id) ON DELETE CASCADE,
+    cron_dow INTEGER DEFAULT 0,
+    cron_hour INTEGER DEFAULT 7,
+    enabled INTEGER DEFAULT 1,
+    last_run_at TIMESTAMP
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
     episode_id,
     content,
@@ -104,6 +151,15 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('gemini_api_key', '');
 _MIGRATIONS = [
     "ALTER TABLE episodes ADD COLUMN transcript_url TEXT",
     "ALTER TABLE episodes ADD COLUMN transcript_type TEXT",
+    # Zeitung 2.0
+    "ALTER TABLE digests ADD COLUMN format TEXT DEFAULT 'zeitung'",
+    "ALTER TABLE digests ADD COLUMN length INTEGER DEFAULT 3",
+    "ALTER TABLE digests ADD COLUMN style INTEGER DEFAULT 3",
+    "ALTER TABLE digests ADD COLUMN sections_json TEXT DEFAULT '[]'",
+    "ALTER TABLE digests ADD COLUMN tldr_md TEXT DEFAULT ''",
+    "ALTER TABLE digests ADD COLUMN subtitle TEXT DEFAULT ''",
+    "ALTER TABLE digests ADD COLUMN recipe_json TEXT DEFAULT ''",
+    "ALTER TABLE digests ADD COLUMN share_token TEXT",
 ]
 
 

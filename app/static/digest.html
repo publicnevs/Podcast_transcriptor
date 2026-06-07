@@ -12,82 +12,154 @@
 <link rel="apple-touch-icon" href="/static/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#7c6ff7">
+<style>
+  .chip { display:inline-block; padding:.3rem .7rem; border-radius:20px; font-size:.78rem;
+    background:var(--bg-card2); border:1px solid var(--border); color:var(--text-muted);
+    cursor:pointer; transition:var(--transition); user-select:none; }
+  .chip:hover { border-color:var(--accent); color:var(--text); }
+  .chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .chip .cnt { opacity:.6; font-size:.7rem; margin-left:.25rem; }
+  .slider-row { display:flex; align-items:center; gap:1rem; }
+  .slider-row input[type=range] { flex:1; accent-color:var(--accent); }
+  .slider-val { min-width:120px; text-align:right; font-weight:600; font-size:.85rem; color:var(--accent); }
+  .tabs { display:flex; gap:.25rem; margin-bottom:1.25rem; border-bottom:1px solid var(--border); }
+  .tabs button { background:none; border:none; color:var(--text-muted); padding:.6rem 1rem;
+    font-size:.9rem; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; }
+  .tabs button.active { color:var(--accent); border-bottom-color:var(--accent); }
+</style>
 </head>
 <body>
 <div id="nav-mount"></div>
 
 <div class="main-content">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.75rem">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:.75rem">
     <h1 style="font-size:1.4rem">📰 PodScribe Zeitung</h1>
-    <button class="btn btn-primary" onclick="openNewDigest()">✍️ Neuen Artikel erstellen</button>
+    <button class="btn btn-primary" onclick="openNewDigest()">✍️ Neue Ausgabe</button>
   </div>
 
-  <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:1.5rem">
-    Wähle Podcast-Folgen aus und lass Gemini daraus einen ausführlichen journalistischen Artikel (1000–2000 Wörter) erstellen.
-  </p>
-
-  <!-- Digest List -->
-  <div id="digest-list" class="episode-list">
-    <div class="empty-state"><div class="spinner"></div></div>
+  <div class="tabs">
+    <button id="tab-issues" class="active" onclick="switchTab('issues')">📰 Ausgaben</button>
+    <button id="tab-week" onclick="switchTab('week')">📅 Diese Woche</button>
+    <button id="tab-recipes" onclick="switchTab('recipes')">🔁 Rezepte & Automatik</button>
   </div>
 
-  <!-- Digest Reader Modal -->
+  <!-- TAB: Ausgaben -->
+  <div id="view-issues">
+    <div id="digest-list" class="episode-list">
+      <div class="empty-state"><div class="spinner"></div></div>
+    </div>
+  </div>
+
+  <!-- TAB: Diese Woche -->
+  <div id="view-week" style="display:none">
+    <div id="week-content"><div class="empty-state"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- TAB: Rezepte -->
+  <div id="view-recipes" style="display:none">
+    <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:1rem">
+      Gespeicherte Rezepte laufen auf Knopfdruck oder automatisch nach Zeitplan (mit Push aufs Handy).
+    </p>
+    <div id="recipe-list" class="episode-list"><div class="empty-state"><div class="spinner"></div></div></div>
+  </div>
+
+  <!-- Reader Modal -->
   <div id="reader-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeReader()">
-    <div class="modal" style="max-width:760px;width:100%">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;gap:.5rem">
+    <div class="modal" style="max-width:780px;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;gap:.5rem">
         <h2 id="reader-title" class="modal-title" style="margin:0;flex:1"></h2>
-        <div style="display:flex;gap:.375rem">
-          <button class="btn btn-secondary btn-sm" onclick="copyDigest()">📋 Kopieren</button>
-          <button class="btn btn-secondary btn-sm" onclick="printDigest()">🖨️ Drucken</button>
-          <button class="btn btn-ghost btn-sm" onclick="closeReader()">✕</button>
+        <button class="btn btn-ghost btn-sm" onclick="closeReader()">✕</button>
+      </div>
+      <div style="display:flex;gap:.375rem;flex-wrap:wrap;margin-bottom:1rem">
+        <div class="segmented" style="margin-right:auto">
+          <button id="rv-long" class="active" onclick="setReaderView('long')">Langfassung</button>
+          <button id="rv-short" onclick="setReaderView('short')">Kurzfassung</button>
         </div>
+        <button class="btn btn-secondary btn-sm" onclick="copyDigest()">📋 Kopieren</button>
+        <button class="btn btn-secondary btn-sm" onclick="shareDigest()">🔗 Teilen</button>
+        <button class="btn btn-secondary btn-sm" onclick="printDigest()">🖨️</button>
       </div>
       <div id="reader-body" class="digest-body"></div>
     </div>
   </div>
 
-  <!-- New Digest Modal -->
+  <!-- New Issue Modal -->
   <div id="new-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeNewDigest()">
-    <div class="modal" style="max-width:680px;width:100%">
-      <h2 class="modal-title">✍️ Neuen Artikel erstellen</h2>
-
-      <div style="display:flex;flex-direction:column;gap:1rem">
-        <div class="form-group">
-          <label class="form-label">Artikel-Titel</label>
-          <input type="text" id="digest-title" placeholder="z.B. KI-Entwicklungen diese Woche">
-        </div>
+    <div class="modal" style="max-width:720px;width:100%;max-height:90vh;overflow-y:auto">
+      <h2 class="modal-title">✍️ Neue Ausgabe</h2>
+      <div style="display:flex;flex-direction:column;gap:1.1rem">
 
         <div class="form-group">
-          <label class="form-label">Modus</label>
-          <select id="digest-mode">
-            <option value="theme">Thematischer Report (ausgewählte Folgen zu einem Thema)</option>
-            <option value="weekly">Wochenrückblick (alle Folgen der letzten 7 Tage)</option>
-            <option value="portrait">Podcast-Portrait (alle Folgen eines Podcasts)</option>
-          </select>
+          <label class="form-label">Format</label>
+          <div class="segmented" id="fmt-seg">
+            <button data-fmt="zeitung" class="active" onclick="setFormat('zeitung')">📰 Zeitung (Langform)</button>
+            <button data-fmt="newsletter" onclick="setFormat('newsletter')">✉️ Newsletter (kurz & teilbar)</button>
+          </div>
         </div>
 
-        <div id="episode-picker">
-          <div class="form-label" style="margin-bottom:.5rem">Folgen auswählen</div>
-          <div id="episode-picker-filter" style="display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
-            <input type="text" id="picker-search" placeholder="Folge suchen…" style="flex:1;min-width:160px" oninput="filterPicker()">
-            <select id="picker-podcast" onchange="filterPicker()" style="flex:1;min-width:140px">
-              <option value="">Alle Podcasts</option>
-            </select>
-          </div>
-          <div id="picker-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
-            <div class="empty-state"><div class="spinner"></div></div>
-          </div>
-          <div id="picker-selection" style="margin-top:.5rem;font-size:.8rem;color:var(--text-muted)">0 Folgen ausgewählt</div>
+        <div class="form-group">
+          <label class="form-label">Titel</label>
+          <input type="text" id="digest-title" placeholder="z.B. KI-Woche: Copilot & Prompting">
         </div>
 
-        <div id="weekly-hint" style="display:none;padding:.75rem;background:var(--accent-dim);border-radius:var(--radius-sm);font-size:.875rem">
-          Im Wochenrückblick werden automatisch alle Folgen der letzten 7 Tage mit fertigen Transkripten verwendet.
+        <div class="form-group">
+          <label class="form-label">Zeitraum</label>
+          <div class="segmented" id="tf-seg">
+            <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
+            <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
+            <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
+            <button data-tf="all" onclick="setTimeframe('all')">Alles</button>
+            <button data-tf="manual" onclick="setTimeframe('manual')">Eigene Auswahl</button>
+          </div>
         </div>
+
+        <!-- Tag chips -->
+        <div class="form-group" id="tag-group">
+          <label class="form-label">Themen / Tags <span style="color:var(--text-muted);font-weight:400">(optional — leer = alle)</span></label>
+          <div id="tag-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;max-height:120px;overflow-y:auto">
+            <span style="color:var(--text-muted);font-size:.8rem">Lade Tags…</span>
+          </div>
+          <label style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem;font-size:.8rem;color:var(--text-muted);cursor:pointer">
+            <input type="checkbox" id="match-all" style="width:auto" onchange="updateCount()"> alle gewählten Tags müssen zutreffen (sonst: mindestens einer)
+          </label>
+        </div>
+
+        <!-- Podcast filter -->
+        <div class="form-group" id="pod-group">
+          <label class="form-label">Podcasts <span style="color:var(--text-muted);font-weight:400">(optional — leer = alle)</span></label>
+          <div id="pod-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;max-height:110px;overflow-y:auto"></div>
+        </div>
+
+        <!-- Manual episode picker -->
+        <div id="episode-picker" style="display:none">
+          <label class="form-label" style="margin-bottom:.5rem">Folgen auswählen</label>
+          <input type="text" id="picker-search" placeholder="Folge suchen…" style="width:100%;margin-bottom:.5rem" oninput="filterPicker()">
+          <div id="picker-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"></div>
+        </div>
+
+        <!-- Sliders -->
+        <div class="form-group">
+          <label class="form-label">Länge</label>
+          <div class="slider-row">
+            <input type="range" id="len-slider" min="1" max="5" value="3" oninput="updateSliderLabels()">
+            <span class="slider-val" id="len-val">Standard</span>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Stil</label>
+          <div class="slider-row">
+            <input type="range" id="style-slider" min="1" max="5" value="3" oninput="updateSliderLabels()">
+            <span class="slider-val" id="style-val">Journalistisch</span>
+          </div>
+        </div>
+
+        <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line">…</div>
       </div>
 
-      <div class="modal-actions">
+      <div class="modal-actions" style="flex-wrap:wrap;gap:.5rem">
         <button class="btn btn-secondary" onclick="closeNewDigest()">Abbrechen</button>
-        <button class="btn btn-primary" id="create-btn" onclick="createDigest()">🤖 Artikel generieren</button>
+        <button class="btn btn-ghost" onclick="saveAsRecipe()">💾 Als Rezept speichern</button>
+        <button class="btn btn-primary" id="create-btn" onclick="createDigest()">🤖 Generieren</button>
       </div>
     </div>
   </div>
@@ -101,27 +173,41 @@ document.getElementById('nav-mount').innerHTML = renderNav('/digests');
 initGlobalSearch();
 initReadProgress();
 
-let allEpisodes = [];
-let selectedIds = new Set();
-let currentDigestMd = '';
+// ── State ─────────────────────────────────────────────────────────────────
+let LEN_LABELS = {1:'Kompakt',2:'Knapp',3:'Standard',4:'Ausführlich',5:'Magazin'};
+let STYLE_LABELS = {1:'Technisch',2:'Analytisch',3:'Journalistisch',4:'Erzählend',5:'Leicht verständlich'};
+let allEpisodes = [], selectedIds = new Set();
+let allTags = [], selTags = new Set(), selPods = new Set();
+let timeframe = '7';      // 7|14|30|all|manual
+let format = 'zeitung';
+let currentDigest = null, readerView = 'long';
+let countTimer = null;
 
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function switchTab(t) {
+  for (const x of ['issues','week','recipes']) {
+    document.getElementById('view-'+x).style.display = x===t ? '' : 'none';
+    document.getElementById('tab-'+x).classList.toggle('active', x===t);
+  }
+  if (t==='week') loadWeek();
+  if (t==='recipes') loadRecipes();
+}
+
+// ── Issues list ─────────────────────────────────────────────────────────────
 async function loadDigests() {
   const list = document.getElementById('digest-list');
   try {
     const digests = await API.get('/api/digests');
     if (!digests.length) {
-      list.innerHTML = `<div class="empty-state">
-        <div class="icon">📰</div>
-        <p>Noch keine Artikel erstellt.<br>Klicke auf "Neuen Artikel erstellen" um zu starten.</p>
-      </div>`;
+      list.innerHTML = `<div class="empty-state"><div class="icon">📰</div><p>Noch keine Ausgaben.<br>Erstelle deine erste mit „Neue Ausgabe".</p></div>`;
       return;
     }
     list.innerHTML = digests.map(d => `
       <div class="episode-item" onclick="openDigest(${d.id})">
         <div>
-          <div class="episode-title">${escHtml(d.title)}</div>
+          <div class="episode-title">${(d.format==='newsletter'?'✉️ ':'📰 ')}${escHtml(d.title)}</div>
           <div class="episode-meta">
-            <span>${modeLabel(d.mode)}</span>
+            ${d.subtitle ? `<span>${escHtml(d.subtitle)}</span>` : ''}
             <span>${fmtDate(d.created_at)}</span>
             ${d.status==='generating' ? statusBadge('transcribing') : d.status==='error' ? statusBadge('error') : statusBadge('done')}
           </div>
@@ -130,196 +216,352 @@ async function loadDigests() {
           <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="deleteDigest(${d.id})">🗑️</button>
         </div>
       </div>`).join('');
-    // Auto-poll generating ones
-    if (digests.some(d => d.status === 'generating')) {
-      setTimeout(loadDigests, 6000);
-    }
+    if (digests.some(d => d.status === 'generating')) setTimeout(loadDigests, 6000);
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
   }
 }
 
-function modeLabel(m) {
-  return { theme:'Thematischer Report', weekly:'Wochenrückblick', portrait:'Podcast-Portrait' }[m] || m;
-}
-
+// ── Reader ──────────────────────────────────────────────────────────────────
 async function openDigest(id) {
   const modal = document.getElementById('reader-modal');
   const body = document.getElementById('reader-body');
-  const title = document.getElementById('reader-title');
   body.innerHTML = '<div class="spinner" style="margin:2rem auto;display:block"></div>';
-  modal.style.display = '';
+  modal.style.display = ''; readerView = 'long';
+  document.getElementById('rv-long').classList.add('active');
+  document.getElementById('rv-short').classList.remove('active');
   try {
     const d = await API.get(`/api/digests/${id}`);
-    title.textContent = d.title;
-    currentDigestMd = d.content_md || '';
+    currentDigest = d;
+    document.getElementById('reader-title').textContent = d.title;
     if (d.status === 'generating') {
-      body.innerHTML = `<div style="text-align:center;padding:2rem">
-        <div class="spinner" style="width:36px;height:36px;margin:0 auto 1rem"></div>
-        <p>Artikel wird generiert… (ca. 1-2 Min)</p>
-      </div>`;
-      setTimeout(() => openDigest(id), 5000);
+      body.innerHTML = `<div style="text-align:center;padding:2rem"><div class="spinner" style="width:36px;height:36px;margin:0 auto 1rem"></div><p>Ausgabe wird generiert… (ca. 1–2 Min)</p></div>`;
+      setTimeout(() => { if (document.getElementById('reader-modal').style.display !== 'none') openDigest(id); }, 5000);
     } else if (d.status === 'error') {
-      body.innerHTML = `<div style="color:var(--error)">Fehler beim Generieren des Artikels.</div>`;
+      body.innerHTML = `<div style="color:var(--error)">Fehler beim Generieren.</div>`;
     } else {
-      body.innerHTML = d.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
+      renderReader();
     }
-  } catch(e) {
-    body.innerHTML = `<div style="color:var(--error)">${escHtml(e.message)}</div>`;
+  } catch(e) { body.innerHTML = `<div style="color:var(--error)">${escHtml(e.message)}</div>`; }
+}
+
+function renderReader() {
+  const body = document.getElementById('reader-body');
+  if (!currentDigest) return;
+  if (readerView === 'short') {
+    body.innerHTML = `<div style="background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem">
+      ${miniMd(currentDigest.tldr_md || 'Keine Kurzfassung verfügbar.')}</div>`;
+  } else {
+    body.innerHTML = currentDigest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
   }
 }
 
-function closeReader() {
-  document.getElementById('reader-modal').style.display = 'none';
-  currentDigestMd = '';
+function setReaderView(v) {
+  readerView = v;
+  document.getElementById('rv-long').classList.toggle('active', v==='long');
+  document.getElementById('rv-short').classList.toggle('active', v==='short');
+  renderReader();
 }
+
+// tiny markdown for bullet tldr
+function miniMd(md) {
+  const lines = (md||'').split('\n').map(l => l.trim()).filter(Boolean);
+  let html = '', inList = false;
+  for (let l of lines) {
+    if (l.startsWith('- ') || l.startsWith('* ')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      html += '<li>' + escHtml(l.slice(2)) + '</li>';
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<p>' + escHtml(l) + '</p>';
+    }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+function closeReader() { document.getElementById('reader-modal').style.display = 'none'; currentDigest = null; }
 
 async function copyDigest() {
-  if (currentDigestMd) {
-    await copyText(currentDigestMd, '📋 Artikel kopiert (Markdown)');
-  } else {
-    const text = document.getElementById('reader-body').innerText;
-    await copyText(text, '📋 Artikel kopiert');
-  }
+  const txt = readerView === 'short'
+    ? (currentDigest?.tldr_md || '')
+    : (currentDigest?.content_md || document.getElementById('reader-body').innerText);
+  await copyText(txt, '📋 Kopiert' + (readerView==='short'?' (Kurzfassung)':' (Markdown)'));
 }
 
-function printDigest() {
-  window.print();
+function printDigest() { window.print(); }
+
+async function shareDigest() {
+  if (!currentDigest) return;
+  try {
+    const r = await API.post(`/api/digests/${currentDigest.id}/share`, {});
+    const url = location.origin + r.url;
+    await copyText(url, '🔗 Teil-Link kopiert');
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteDigest(id) {
-  if (!confirm('Artikel löschen?')) return;
-  try {
-    await API.del(`/api/digests/${id}`);
-    toast('Gelöscht','success');
-    loadDigests();
-  } catch(e) { toast(e.message,'error'); }
+  if (!confirm('Ausgabe löschen?')) return;
+  try { await API.del(`/api/digests/${id}`); toast('Gelöscht','success'); loadDigests(); }
+  catch(e) { toast(e.message,'error'); }
 }
 
-// ── New Digest ──────────────────────────────────────────────────────────────
-
+// ── New issue builder ─────────────────────────────────────────────────────
 async function openNewDigest() {
-  selectedIds.clear();
+  selectedIds.clear(); selTags.clear(); selPods.clear();
+  timeframe = '7'; format = 'zeitung';
   document.getElementById('digest-title').value = '';
+  document.getElementById('match-all').checked = false;
+  document.getElementById('len-slider').value = 3;
+  document.getElementById('style-slider').value = 3;
+  setFormat('zeitung'); setTimeframe('7'); updateSliderLabels();
   document.getElementById('new-modal').style.display = '';
-  await loadPickerEpisodes();
-  await loadPickerPodcasts();
-  document.getElementById('digest-mode').addEventListener('change', onModeChange);
-  onModeChange();
+  await Promise.all([loadTags(), loadPods(), loadPickerEpisodes()]);
+  updateCount();
+}
+function closeNewDigest() { document.getElementById('new-modal').style.display = 'none'; }
+
+function setFormat(f) {
+  format = f;
+  document.querySelectorAll('#fmt-seg button').forEach(b => b.classList.toggle('active', b.dataset.fmt===f));
+  // sensible defaults
+  if (f==='newsletter') { document.getElementById('len-slider').value=2; document.getElementById('style-slider').value=5; }
+  else { document.getElementById('len-slider').value=4; document.getElementById('style-slider').value=3; }
+  updateSliderLabels();
 }
 
-function closeNewDigest() {
-  document.getElementById('new-modal').style.display = 'none';
+function setTimeframe(tf) {
+  timeframe = tf;
+  document.querySelectorAll('#tf-seg button').forEach(b => b.classList.toggle('active', b.dataset.tf===tf));
+  const manual = tf==='manual';
+  document.getElementById('episode-picker').style.display = manual ? '' : 'none';
+  document.getElementById('tag-group').style.display = manual ? 'none' : '';
+  document.getElementById('pod-group').style.display = manual ? 'none' : '';
+  updateCount();
 }
 
-function onModeChange() {
-  const mode = document.getElementById('digest-mode').value;
-  document.getElementById('episode-picker').style.display = mode === 'weekly' ? 'none' : '';
-  document.getElementById('weekly-hint').style.display = mode === 'weekly' ? '' : 'none';
+function updateSliderLabels() {
+  document.getElementById('len-val').textContent = LEN_LABELS[document.getElementById('len-slider').value];
+  document.getElementById('style-val').textContent = STYLE_LABELS[document.getElementById('style-slider').value];
 }
 
-async function loadPickerPodcasts() {
+async function loadTags() {
   try {
-    const pods = await API.get('/api/podcasts');
-    const sel = document.getElementById('picker-podcast');
-    sel.innerHTML = '<option value="">Alle Podcasts</option>' +
-      pods.map(p => `<option value="${p.id}">${escHtml(p.title)}</option>`).join('');
+    allTags = await API.get('/api/tags');
+    const box = document.getElementById('tag-chips');
+    if (!allTags.length) { box.innerHTML = '<span style="color:var(--text-muted);font-size:.8rem">Noch keine Tags. Transkribiere Folgen oder nutze „Tags nachtragen" in den Rezepten.</span>'; return; }
+    box.innerHTML = allTags.map(t =>
+      `<span class="chip" data-tag="${t.id}" onclick="toggleTag(${t.id}, this)">${escHtml(t.label)}<span class="cnt">${t.episode_count}</span></span>`).join('');
   } catch {}
 }
+function toggleTag(id, el) {
+  if (selTags.has(id)) { selTags.delete(id); el.classList.remove('active'); }
+  else { selTags.add(id); el.classList.add('active'); }
+  updateCount();
+}
 
-async function loadPickerEpisodes() {
-  const list = document.getElementById('picker-list');
-  list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+async function loadPods() {
   try {
-    // Fetch all done episodes from all podcasts
+    const pods = await API.get('/api/podcasts');
+    document.getElementById('pod-chips').innerHTML = pods.map(p =>
+      `<span class="chip" data-pod="${p.id}" onclick="togglePod(${p.id}, this)">${escHtml(p.title)}</span>`).join('');
+  } catch {}
+}
+function togglePod(id, el) {
+  if (selPods.has(id)) { selPods.delete(id); el.classList.remove('active'); }
+  else { selPods.add(id); el.classList.add('active'); }
+  updateCount();
+}
+
+function currentRecipe() {
+  return {
+    date_window_days: (timeframe==='all'||timeframe==='manual') ? null : parseInt(timeframe),
+    podcast_ids: [...selPods],
+    tag_ids: [...selTags],
+    match: document.getElementById('match-all').checked ? 'all' : 'any',
+  };
+}
+
+function updateCount() {
+  const line = document.getElementById('count-line');
+  if (timeframe === 'manual') { line.textContent = `${selectedIds.size} Folge(n) ausgewählt`; return; }
+  line.textContent = 'Zähle passende Folgen…';
+  clearTimeout(countTimer);
+  countTimer = setTimeout(async () => {
+    try {
+      const r = await API.post('/api/issues/select', currentRecipe());
+      line.textContent = `${r.count} Folge(n) treffen zu`;
+    } catch { line.textContent = ''; }
+  }, 350);
+}
+
+// manual picker
+async function loadPickerEpisodes() {
+  try {
     const pods = await API.get('/api/podcasts');
     allEpisodes = [];
     for (const p of pods) {
       const eps = await API.get(`/api/podcasts/${p.id}/episodes?status=done&limit=50`);
-      eps.forEach(e => { e._podcast_title = p.title; e._podcast_id = p.id; });
+      eps.forEach(e => { e._pt = p.title; });
       allEpisodes.push(...eps);
     }
     renderPickerList(allEpisodes);
-  } catch(e) {
-    list.innerHTML = `<div style="padding:1rem;color:var(--error)">${escHtml(e.message)}</div>`;
-  }
+  } catch {}
 }
-
 function renderPickerList(eps) {
   const list = document.getElementById('picker-list');
-  if (!eps.length) {
-    list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:.85rem">Keine fertigen Transkripte gefunden</div>';
-    return;
-  }
+  if (!eps.length) { list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:.85rem">Keine fertigen Transkripte</div>'; return; }
   list.innerHTML = eps.map(e => `
-    <label style="display:flex;align-items:center;gap:.625rem;padding:.5rem .75rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem">
-      <input type="checkbox" data-id="${e.id}" style="width:auto;flex-shrink:0" ${selectedIds.has(e.id)?'checked':''} onchange="toggleEp(${e.id}, this.checked)">
-      <div style="flex:1;overflow:hidden">
-        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title)}</div>
-        <div style="color:var(--text-muted);font-size:.75rem">${escHtml(e._podcast_title)} · ${fmtDate(e.pub_date)}</div>
-      </div>
+    <label style="display:flex;align-items:center;gap:.6rem;padding:.5rem .75rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem">
+      <input type="checkbox" style="width:auto" ${selectedIds.has(e.id)?'checked':''} onchange="toggleEp(${e.id},this.checked)">
+      <div style="flex:1;overflow:hidden"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title)}</div>
+      <div style="color:var(--text-muted);font-size:.75rem">${escHtml(e._pt)} · ${fmtDate(e.pub_date)}</div></div>
     </label>`).join('');
-  updateSelectionCount();
 }
-
-function toggleEp(id, checked) {
-  if (checked) selectedIds.add(id);
-  else selectedIds.delete(id);
-  updateSelectionCount();
-}
-
-function updateSelectionCount() {
-  document.getElementById('picker-selection').textContent =
-    `${selectedIds.size} Folge${selectedIds.size!==1?'n':''} ausgewählt`;
-}
-
+function toggleEp(id, c) { c ? selectedIds.add(id) : selectedIds.delete(id); updateCount(); }
 function filterPicker() {
   const q = document.getElementById('picker-search').value.toLowerCase();
-  const podId = document.getElementById('picker-podcast').value;
-  const filtered = allEpisodes.filter(e => {
-    const matchesText = !q || e.title.toLowerCase().includes(q) || e._podcast_title.toLowerCase().includes(q);
-    const matchesPod = !podId || String(e._podcast_id) === podId;
-    return matchesText && matchesPod;
-  });
-  renderPickerList(filtered);
+  renderPickerList(allEpisodes.filter(e => !q || e.title.toLowerCase().includes(q) || e._pt.toLowerCase().includes(q)));
 }
 
 async function createDigest() {
   const title = document.getElementById('digest-title').value.trim();
-  const mode = document.getElementById('digest-mode').value;
-  if (!title) return toast('Bitte einen Artikel-Titel eingeben', 'error');
-
-  let episodeIds = [...selectedIds];
-
-  if (mode === 'weekly') {
-    // Get all done episodes from last 7 days
-    const cutoff = new Date(Date.now() - 7*24*60*60*1000).toISOString();
-    episodeIds = allEpisodes
-      .filter(e => e.pub_date && e.pub_date >= cutoff)
-      .map(e => e.id);
-    if (!episodeIds.length) {
-      return toast('Keine Folgen in den letzten 7 Tagen gefunden', 'error');
-    }
-  } else if (!episodeIds.length) {
-    return toast('Bitte mindestens eine Folge auswählen', 'error');
+  if (!title) return toast('Bitte einen Titel eingeben', 'error');
+  const length = parseInt(document.getElementById('len-slider').value);
+  const style = parseInt(document.getElementById('style-slider').value);
+  const payload = { title, format, length, style };
+  if (timeframe === 'manual') {
+    if (!selectedIds.size) return toast('Bitte mindestens eine Folge wählen', 'error');
+    payload.episode_ids = [...selectedIds];
+  } else {
+    payload.recipe = currentRecipe();
   }
-
   const btn = document.getElementById('create-btn');
   btn.disabled = true; btn.textContent = '⏳ Generiere…';
   try {
-    const r = await API.post('/api/digests', { title, mode, episode_ids: episodeIds });
-    toast('✍️ Artikel wird generiert (ca. 1-2 Min)…', 'info');
-    closeNewDigest();
-    await loadDigests();
+    const r = await API.post('/api/digests', payload);
+    toast('✍️ Ausgabe wird generiert…', 'info');
+    closeNewDigest(); switchTab('issues'); await loadDigests();
     setTimeout(() => openDigest(r.id), 2000);
-  } catch(e) {
-    toast(e.message, 'error');
-  } finally {
-    btn.disabled = false; btn.textContent = '🤖 Artikel generieren';
-  }
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = '🤖 Generieren'; }
 }
 
-loadDigests();
+async function saveAsRecipe() {
+  const name = prompt('Name des Rezepts (z.B. „Copilot-Tipps wöchentlich"):',
+    document.getElementById('digest-title').value || '');
+  if (!name) return;
+  const rec = currentRecipe();
+  try {
+    await API.post('/api/recipes', {
+      name, format,
+      date_window_days: rec.date_window_days, podcast_ids: rec.podcast_ids,
+      tag_ids: rec.tag_ids, match: rec.match,
+      length: parseInt(document.getElementById('len-slider').value),
+      style: parseInt(document.getElementById('style-slider').value),
+    });
+    toast('💾 Rezept gespeichert', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// ── Weekly overview ─────────────────────────────────────────────────────────
+async function loadWeek() {
+  const box = document.getElementById('week-content');
+  box.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    const w = await API.get('/api/overview/week?days=7');
+    if (!w.episode_count) { box.innerHTML = '<div class="empty-state"><div class="icon">📅</div><p>Diese Woche noch keine fertigen Folgen.</p></div>'; return; }
+    let html = '';
+    if (w.top_tags.length) {
+      html += `<div style="margin-bottom:1.25rem"><div class="form-label" style="margin-bottom:.5rem">Top-Themen der Woche (klicken → Newsletter)</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem">${w.top_tags.map(t =>
+          `<span class="chip" onclick="newsletterFromTag('${escHtml(t.label).replace(/'/g,"\\'")}')">${escHtml(t.label)}<span class="cnt">${t.count}</span></span>`).join('')}</div></div>`;
+    }
+    for (const grp of w.by_podcast) {
+      html += `<div class="section-title" style="margin-top:1rem">${escHtml(grp.podcast_title)}</div>`;
+      html += grp.episodes.map(e => `
+        <div class="episode-item" onclick="location.href='/episode/${e.id}'">
+          <div>
+            <div class="episode-title">${escHtml(e.title)}</div>
+            <div style="font-size:.8rem;color:var(--text-muted);margin:.25rem 0">${escHtml((e.summary||'').slice(0,180))}${(e.summary||'').length>180?'…':''}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:.3rem">${(e.tags||[]).map(t=>`<span class="chip" style="cursor:default;padding:.15rem .5rem;font-size:.7rem">${escHtml(t)}</span>`).join('')}</div>
+          </div>
+        </div>`).join('');
+    }
+    box.innerHTML = html;
+  } catch(e) { box.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`; }
+}
+
+async function newsletterFromTag(label) {
+  await openNewDigest();
+  setFormat('newsletter'); setTimeframe('7');
+  document.getElementById('digest-title').value = `${label} — diese Woche`;
+  // select the matching tag chip
+  const t = allTags.find(x => x.label === label);
+  if (t) { selTags.add(t.id); const el = document.querySelector(`#tag-chips .chip[data-tag="${t.id}"]`); if (el) el.classList.add('active'); }
+  updateCount();
+}
+
+// ── Recipes ──────────────────────────────────────────────────────────────────
+const DOW = ['Mo','Di','Mi','Do','Fr','Sa','So'];
+async function loadRecipes() {
+  const box = document.getElementById('recipe-list');
+  box.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    const recs = await API.get('/api/recipes');
+    let head = `<div style="margin-bottom:1rem"><button class="btn btn-secondary btn-sm" onclick="backfillTags()">🏷️ Tags für alle Folgen nachtragen</button></div>`;
+    if (!recs.length) { box.innerHTML = head + '<div class="empty-state"><div class="icon">🔁</div><p>Noch keine Rezepte. Erstelle eines über „Neue Ausgabe → Als Rezept speichern".</p></div>'; return; }
+    box.innerHTML = head + recs.map(r => `
+      <div class="episode-item">
+        <div style="flex:1">
+          <div class="episode-title">${(r.format==='newsletter'?'✉️ ':'📰 ')}${escHtml(r.name)}</div>
+          <div class="episode-meta">
+            <span>${r.date_window_days ? 'letzte '+r.date_window_days+' Tage' : 'alle'}</span>
+            <span>Länge ${LEN_LABELS[r.length]}</span><span>Stil ${STYLE_LABELS[r.style]}</span>
+            ${r.schedule_id && r.enabled ? `<span style="color:var(--success)">⏰ ${DOW[r.cron_dow]} ${String(r.cron_hour).padStart(2,'0')}:00</span>` : ''}
+          </div>
+          <div style="display:flex;gap:.4rem;align-items:center;margin-top:.5rem;flex-wrap:wrap">
+            <select id="dow-${r.id}" style="padding:.2rem">${DOW.map((d,i)=>`<option value="${i}" ${r.cron_dow===i?'selected':''}>${d}</option>`).join('')}</select>
+            <select id="hour-${r.id}" style="padding:.2rem">${Array.from({length:24},(_,h)=>`<option value="${h}" ${r.cron_hour===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select>
+            <button class="btn btn-ghost btn-sm" onclick="saveSchedule(${r.id}, ${r.enabled && r.schedule_id ? 0 : 1})">${r.enabled && r.schedule_id ? '⏸ Automatik aus' : '⏰ Automatik an'}</button>
+          </div>
+        </div>
+        <div class="episode-actions" style="flex-direction:column;gap:.375rem">
+          <button class="btn btn-primary btn-sm" onclick="runRecipe(${r.id})">▶ Jetzt</button>
+          <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteRecipe(${r.id})">🗑️</button>
+        </div>
+      </div>`).join('');
+  } catch(e) { box.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`; }
+}
+async function runRecipe(id) {
+  try { const r = await API.post(`/api/recipes/${id}/run`, {}); toast('▶ Ausgabe wird erzeugt…','info'); switchTab('issues'); await loadDigests(); setTimeout(()=>openDigest(r.id),2000); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function saveSchedule(id, enabled) {
+  const dow = parseInt(document.getElementById('dow-'+id).value);
+  const hour = parseInt(document.getElementById('hour-'+id).value);
+  try { await API.post('/api/scheduled-issues', { recipe_id:id, cron_dow:dow, cron_hour:hour, enabled: !!enabled });
+    toast(enabled?'⏰ Automatik aktiviert':'⏸ Automatik deaktiviert','success'); loadRecipes(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function deleteRecipe(id) {
+  if (!confirm('Rezept löschen?')) return;
+  try { await API.del(`/api/recipes/${id}`); toast('Gelöscht','success'); loadRecipes(); } catch(e){ toast(e.message,'error'); }
+}
+async function backfillTags() {
+  try { await API.post('/api/tags/backfill', {}); toast('🏷️ Tagging gestartet — läuft im Hintergrund. Du bekommst eine Push wenn fertig.','info'); }
+  catch(e){ toast(e.message,'error'); }
+}
+
+// init
+(async () => {
+  try {
+    const opt = await API.get('/api/issue-options');
+    LEN_LABELS = Object.fromEntries(opt.length.map(x => [x.value, x.label]));
+    STYLE_LABELS = Object.fromEntries(opt.style.map(x => [x.value, x.label]));
+  } catch {}
+  loadDigests();
+})();
 </script>
 </body>
 </html>

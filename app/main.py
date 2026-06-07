@@ -1,7 +1,9 @@
 import json
 import logging
 import os
+import secrets
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -22,7 +24,9 @@ from .feed_parser import parse_rss_feed, parse_opml
 from .processor import process_episode, process_queued
 from .scheduler import start_scheduler
 from . import transcriber
-from .transcriber import generate_digest, translate_to_german
+from .transcriber import (generate_digest, generate_issue, translate_to_german,
+                          extract_tags, _LENGTH_MAP, _STYLE_MAP)
+from . import tagging
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +90,51 @@ class SettingsUpdate(BaseModel):
 
 
 class DigestRequest(BaseModel):
-    episode_ids: List[int]
+    episode_ids: List[int] = []
     title: str
-    mode: str = "theme"
+    mode: str = "theme"          # legacy
+    format: str = "zeitung"      # zeitung | newsletter
+    length: int = 3              # 1..5
+    style: int = 3               # 1..5
+    recipe: Optional[dict] = None  # {date_window_days?, date_from?, date_to?, podcast_ids[], tag_ids[], match}
+
+
+class IssueSelect(BaseModel):
+    date_window_days: Optional[int] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    podcast_ids: List[int] = []
+    tag_ids: List[int] = []
+    match: str = "any"           # any | all
+
+
+class RecipeCreate(BaseModel):
+    name: str
+    format: str = "newsletter"
+    date_window_days: Optional[int] = 7
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    podcast_ids: List[int] = []
+    tag_ids: List[int] = []
+    match: str = "any"
+    length: int = 3
+    style: int = 3
+
+
+class ScheduleUpsert(BaseModel):
+    recipe_id: int
+    cron_dow: int = 0
+    cron_hour: int = 7
+    enabled: bool = True
+
+
+class TagRename(BaseModel):
+    label: str
+
+
+class EpisodeTagsUpdate(BaseModel):
+    add: List[str] = []
+    remove: List[int] = []
 
 
 # ── Health ─────────────────────────────────────────────────────────────────────
@@ -729,62 +775,167 @@ async def list_digests():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id, title, mode, status, created_at FROM digests ORDER BY created_at DESC"
+            "SELECT id, title, subtitle, mode, format, status, created_at FROM digests ORDER BY created_at DESC"
         ) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
 
 
+def _now_iso():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+async def _select_episode_ids(db, *, date_window_days=None, date_from=None, date_to=None,
+                              podcast_ids=None, tag_ids=None, match="any"):
+    """Resolve a recipe/selection into ordered episode rows (status='done')."""
+    if date_window_days:
+        cutoff = (datetime.now() - timedelta(days=int(date_window_days))).strftime("%Y-%m-%d %H:%M:%S")
+        date_from = date_from or cutoff
+    where = ["e.status='done'"]
+    params: list = []
+    if date_from:
+        where.append("e.pub_date >= ?"); params.append(date_from)
+    if date_to:
+        where.append("e.pub_date <= ?"); params.append(date_to)
+    if podcast_ids:
+        where.append(f"e.podcast_id IN ({','.join('?'*len(podcast_ids))})"); params += list(podcast_ids)
+    join = ""
+    having = ""
+    if tag_ids:
+        join = "JOIN episode_tags et ON et.episode_id = e.id"
+        where.append(f"et.tag_id IN ({','.join('?'*len(tag_ids))})"); params += list(tag_ids)
+        if match == "all":
+            having = "HAVING COUNT(DISTINCT et.tag_id) = ?"
+    sql = f"""
+        SELECT e.id, e.title, e.pub_date, p.title AS podcast_title
+        FROM episodes e
+        LEFT JOIN podcasts p ON p.id = e.podcast_id
+        {join}
+        WHERE {' AND '.join(where)}
+        GROUP BY e.id
+        {having}
+        ORDER BY e.pub_date DESC NULLS LAST, e.created_at DESC
+    """
+    if having:
+        params.append(len(tag_ids))
+    db.row_factory = aiosqlite.Row
+    async with db.execute(sql, params) as cur:
+        return [dict(r) for r in await cur.fetchall()]
+
+
+@app.post("/api/issues/select")
+async def issues_select(data: IssueSelect):
+    async with aiosqlite.connect(DB_PATH) as db:
+        eps = await _select_episode_ids(
+            db, date_window_days=data.date_window_days, date_from=data.date_from,
+            date_to=data.date_to, podcast_ids=data.podcast_ids, tag_ids=data.tag_ids,
+            match=data.match)
+        ids = [e["id"] for e in eps]
+        tag_breakdown = []
+        if ids:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(f"""
+                SELECT t.id, t.label, COUNT(*) AS count
+                FROM episode_tags et JOIN tags t ON t.id = et.tag_id
+                WHERE et.episode_id IN ({','.join('?'*len(ids))})
+                GROUP BY t.id ORDER BY count DESC LIMIT 30
+            """, ids) as cur:
+                tag_breakdown = [dict(r) for r in await cur.fetchall()]
+    return {"count": len(eps), "episodes": eps, "tag_breakdown": tag_breakdown}
+
+
+@app.get("/api/issue-options")
+async def issue_options():
+    return {
+        "length": [{"value": k, "label": v["label"]} for k, v in _LENGTH_MAP.items()],
+        "style": [{"value": k, "label": v[0]} for k, v in _STYLE_MAP.items()],
+    }
+
+
 @app.post("/api/digests", status_code=201)
 async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
+    # Resolve episode set: explicit ids, or a recipe selection
+    episode_ids = list(data.episode_ids)
+    recipe = data.recipe
+    if not episode_ids and recipe:
+        async with aiosqlite.connect(DB_PATH) as db:
+            eps = await _select_episode_ids(
+                db, date_window_days=recipe.get("date_window_days"),
+                date_from=recipe.get("date_from"), date_to=recipe.get("date_to"),
+                podcast_ids=recipe.get("podcast_ids"), tag_ids=recipe.get("tag_ids"),
+                match=recipe.get("match", "any"))
+            episode_ids = [e["id"] for e in eps]
+    if not episode_ids:
+        raise HTTPException(400, "Keine passenden Folgen gefunden")
+
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT INTO digests (title, mode, episode_ids_json) VALUES (?, ?, ?)",
-            (data.title, data.mode, json.dumps(data.episode_ids)),
+            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, recipe_json, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'generating')""",
+            (data.title, data.mode, data.format, data.length, data.style,
+             json.dumps(episode_ids), json.dumps(recipe or {})),
         )
         await db.commit()
         async with db.execute("SELECT last_insert_rowid()") as cur:
             digest_id = (await cur.fetchone())[0]
 
-    background_tasks.add_task(_build_digest, digest_id, data.episode_ids, data.mode, data.title)
+    background_tasks.add_task(_build_issue, digest_id, episode_ids,
+                              data.format, data.length, data.style, data.title)
     return {"id": digest_id, "status": "generating"}
 
 
-async def _build_digest(digest_id: int, episode_ids: list, mode: str, title: str):
+def _sections_to_md(result: dict) -> str:
+    parts = []
+    for s in result.get("sections", []):
+        heading = s.get("heading", "")
+        body = s.get("body_md", "")
+        if heading and not heading.lstrip().startswith("#"):
+            heading = f"## {heading}"
+        if heading:
+            parts.append(heading)
+        if body:
+            parts.append(body)
+    return "\n\n".join(parts).strip()
+
+
+async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
+                       style: int, title: str):
     try:
         episode_data = []
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             for ep_id in episode_ids:
                 async with db.execute("""
-                    SELECT e.title, e.pub_date, p.title AS podcast_title, t.content AS transcript
+                    SELECT e.title, e.pub_date, p.title AS podcast_title,
+                           t.content AS transcript, s.summary
                     FROM episodes e
                     LEFT JOIN podcasts p ON p.id=e.podcast_id
                     LEFT JOIN transcripts t ON t.episode_id=e.id
+                    LEFT JOIN summaries s ON s.episode_id=e.id
                     WHERE e.id=?
                 """, (ep_id,)) as cur:
                     row = await cur.fetchone()
                     if row:
                         episode_data.append(dict(row))
 
-        result = await generate_digest(episode_data, mode, title)
-        content_md = result.get("content_md", "")
+        result = await generate_issue(episode_data, fmt=fmt, length=length,
+                                      style=style, title=title)
+        content_md = _sections_to_md(result)
         content_html = markdown2.markdown(
-            content_md, extras=["fenced-code-blocks", "tables", "header-ids"]
-        )
+            content_md, extras=["fenced-code-blocks", "tables", "header-ids"])
 
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                "UPDATE digests SET content_html=?, content_md=?, status='done' WHERE id=?",
-                (content_html, content_md, digest_id),
+                """UPDATE digests SET content_html=?, content_md=?, sections_json=?,
+                   tldr_md=?, subtitle=?, status='done' WHERE id=?""",
+                (content_html, content_md, json.dumps(result.get("sections", [])),
+                 result.get("tldr_md", ""), result.get("subtitle", ""), digest_id),
             )
             await db.commit()
     except Exception as e:
-        logger.error(f"Digest {digest_id} failed: {e}")
+        logger.error(f"Issue {digest_id} failed: {e}", exc_info=True)
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute(
-                "UPDATE digests SET status='error' WHERE id=?", (digest_id,)
-            )
+            await db.execute("UPDATE digests SET status='error' WHERE id=?", (digest_id,))
             await db.commit()
 
 
@@ -805,3 +956,258 @@ async def delete_digest(digest_id: int):
         await db.execute("DELETE FROM digests WHERE id=?", (digest_id,))
         await db.commit()
     return {"ok": True}
+
+
+# ── Tags ─────────────────────────────────────────────────────────────────────
+
+@app.get("/api/tags")
+async def list_tags(q: Optional[str] = None):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        sql = "SELECT id, label, kind, episode_count FROM tags WHERE episode_count > 0"
+        params: list = []
+        if q:
+            sql += " AND label LIKE ?"; params.append(f"%{q}%")
+        sql += " ORDER BY episode_count DESC, label ASC"
+        async with db.execute(sql, params) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+@app.put("/api/tags/{tag_id}")
+async def rename_tag_route(tag_id: int, data: TagRename):
+    await tagging.rename_tag(tag_id, data.label.strip())
+    return {"ok": True}
+
+
+@app.put("/api/episodes/{episode_id}/tags")
+async def update_episode_tags(episode_id: int, data: EpisodeTagsUpdate):
+    for label in data.add:
+        await tagging.add_manual_tag(episode_id, label)
+    for tag_id in data.remove:
+        await tagging.remove_tag(episode_id, tag_id)
+    return {"ok": True}
+
+
+@app.post("/api/tags/backfill", status_code=202)
+async def backfill_tags(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_run_backfill)
+    return {"status": "started"}
+
+
+async def _run_backfill():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.id, s.summary, s.takeaways_json, s.chapters_json
+            FROM episodes e JOIN summaries s ON s.episode_id = e.id
+            WHERE e.id NOT IN (SELECT DISTINCT episode_id FROM episode_tags)
+        """) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    count = 0
+    for r in rows:
+        try:
+            tk = json.loads(r.get("takeaways_json") or "[]")
+            ch = json.loads(r.get("chapters_json") or "[]")
+            raw = await extract_tags(r.get("summary", ""), tk, ch)
+            if raw:
+                await tagging.upsert_tags(r["id"], raw)
+                count += 1
+        except Exception as e:
+            logger.warning(f"Backfill tag for episode {r['id']} failed: {e}")
+    try:
+        from .notifier import send_notification
+        await send_notification("🏷️ Tagging fertig", f"{count} Folgen verschlagwortet.")
+    except Exception:
+        pass
+    logger.info(f"Tag backfill done: {count} episodes")
+
+
+# ── Recipes + scheduling ──────────────────────────────────────────────────────
+
+@app.get("/api/recipes")
+async def list_recipes():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT r.*, s.id AS schedule_id, s.cron_dow, s.cron_hour, s.enabled, s.last_run_at
+            FROM issue_recipes r
+            LEFT JOIN scheduled_issues s ON s.recipe_id = r.id
+            ORDER BY r.created_at DESC
+        """) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+
+@app.post("/api/recipes", status_code=201)
+async def create_recipe(data: RecipeCreate):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute("""
+            INSERT INTO issue_recipes
+              (name, format, date_window_days, date_from, date_to,
+               podcast_ids_json, tag_ids_json, match_mode, length, style)
+            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (data.name, data.format, data.date_window_days, data.date_from, data.date_to,
+             json.dumps(data.podcast_ids), json.dumps(data.tag_ids), data.match,
+             data.length, data.style))
+        await db.commit()
+        return {"id": cur.lastrowid}
+
+
+@app.delete("/api/recipes/{recipe_id}")
+async def delete_recipe(recipe_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM issue_recipes WHERE id=?", (recipe_id,))
+        await db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/recipes/{recipe_id}/run", status_code=201)
+async def run_recipe_route(recipe_id: int, background_tasks: BackgroundTasks):
+    digest_id = await run_recipe(recipe_id, background_tasks)
+    if digest_id is None:
+        raise HTTPException(404, "Rezept nicht gefunden")
+    return {"id": digest_id, "status": "generating"}
+
+
+async def run_recipe(recipe_id: int, background_tasks: BackgroundTasks = None):
+    """Resolve a recipe to a new generating digest. Returns digest_id or None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM issue_recipes WHERE id=?", (recipe_id,)) as cur:
+            r = await cur.fetchone()
+        if not r:
+            return None
+        r = dict(r)
+        eps = await _select_episode_ids(
+            db, date_window_days=r["date_window_days"], date_from=r["date_from"],
+            date_to=r["date_to"], podcast_ids=json.loads(r["podcast_ids_json"] or "[]"),
+            tag_ids=json.loads(r["tag_ids_json"] or "[]"), match=r["match_mode"])
+        episode_ids = [e["id"] for e in eps]
+        if not episode_ids:
+            return None
+        title = f"{r['name']} — {datetime.now():%d.%m.%Y}"
+        cur = await db.execute(
+            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, status)
+               VALUES (?, 'recipe', ?, ?, ?, ?, 'generating')""",
+            (title, r["format"], r["length"], r["style"], json.dumps(episode_ids)))
+        await db.commit()
+        digest_id = cur.lastrowid
+
+    coro_args = (digest_id, episode_ids, r["format"], r["length"], r["style"], title)
+    if background_tasks is not None:
+        background_tasks.add_task(_build_issue, *coro_args)
+    else:
+        import asyncio
+        asyncio.create_task(_build_issue(*coro_args))
+    return digest_id
+
+
+@app.post("/api/scheduled-issues")
+async def upsert_schedule(data: ScheduleUpsert):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM scheduled_issues WHERE recipe_id=?",
+                              (data.recipe_id,)) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            await db.execute(
+                "UPDATE scheduled_issues SET cron_dow=?, cron_hour=?, enabled=? WHERE recipe_id=?",
+                (data.cron_dow, data.cron_hour, int(data.enabled), data.recipe_id))
+        else:
+            await db.execute(
+                "INSERT INTO scheduled_issues (recipe_id, cron_dow, cron_hour, enabled) VALUES (?,?,?,?)",
+                (data.recipe_id, data.cron_dow, data.cron_hour, int(data.enabled)))
+        await db.commit()
+    return {"ok": True}
+
+
+# ── Weekly overview / TOC ─────────────────────────────────────────────────────
+
+@app.get("/api/overview/week")
+async def overview_week(days: int = 7):
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.id, e.title, e.pub_date, p.title AS podcast_title, p.id AS podcast_id,
+                   s.summary, s.chapters_json
+            FROM episodes e
+            LEFT JOIN podcasts p ON p.id = e.podcast_id
+            LEFT JOIN summaries s ON s.episode_id = e.id
+            WHERE e.status='done' AND e.pub_date >= ?
+            ORDER BY p.title, e.pub_date DESC
+        """, (cutoff,)) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+        # tags per episode
+        ep_ids = [r["id"] for r in rows]
+        tags_by_ep = {}
+        if ep_ids:
+            async with db.execute(f"""
+                SELECT et.episode_id, t.label FROM episode_tags et
+                JOIN tags t ON t.id = et.tag_id
+                WHERE et.episode_id IN ({','.join('?'*len(ep_ids))})
+            """, ep_ids) as cur:
+                for r in await cur.fetchall():
+                    tags_by_ep.setdefault(r["episode_id"], []).append(r["label"])
+
+    by_podcast = {}
+    top_tags = {}
+    for r in rows:
+        r["tags"] = tags_by_ep.get(r["id"], [])
+        for t in r["tags"]:
+            top_tags[t] = top_tags.get(t, 0) + 1
+        try:
+            r["chapters"] = json.loads(r.get("chapters_json") or "[]")
+        except Exception:
+            r["chapters"] = []
+        r.pop("chapters_json", None)
+        by_podcast.setdefault(r["podcast_title"] or "—", []).append(r)
+    return {
+        "range_from": cutoff, "episode_count": len(rows),
+        "by_podcast": [{"podcast_title": k, "episodes": v} for k, v in by_podcast.items()],
+        "top_tags": sorted(({"label": k, "count": v} for k, v in top_tags.items()),
+                           key=lambda x: -x["count"])[:20],
+    }
+
+
+# ── Sharing ───────────────────────────────────────────────────────────────────
+
+@app.post("/api/digests/{digest_id}/share")
+async def share_digest(digest_id: int):
+    token = secrets.token_urlsafe(10)
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM digests WHERE id=?", (digest_id,)) as cur:
+            if not await cur.fetchone():
+                raise HTTPException(404)
+        await db.execute("UPDATE digests SET share_token=? WHERE id=?", (token, digest_id))
+        await db.commit()
+    return {"token": token, "url": f"/s/{token}"}
+
+
+@app.get("/s/{token}", response_class=HTMLResponse)
+async def public_share(token: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT title, subtitle, content_html FROM digests WHERE share_token=?", (token,)) as cur:
+            row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404)
+    return HTMLResponse(_share_html(row["title"], row["subtitle"] or "", row["content_html"] or ""))
+
+
+def _share_html(title: str, subtitle: str, body_html: str) -> str:
+    return f"""<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+  body{{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:720px;margin:0 auto;
+       padding:2rem 1.2rem;line-height:1.7;color:#1a1a2e;background:#fff}}
+  h1{{font-size:1.8rem;margin-bottom:.2rem}} .sub{{color:#666;margin-bottom:2rem}}
+  h2{{margin-top:2rem;border-bottom:1px solid #eee;padding-bottom:.3rem}}
+  blockquote{{border-left:3px solid #7c6ff7;margin:1rem 0;padding:.3rem 1rem;color:#444;font-style:italic}}
+  code{{background:#f4f4f8;padding:.1rem .3rem;border-radius:3px}}
+  footer{{margin-top:3rem;padding-top:1rem;border-top:1px solid #eee;color:#999;font-size:.8rem}}
+</style></head><body>
+<h1>{title}</h1><div class="sub">{subtitle}</div>
+{body_html}
+<footer>Erstellt mit PodScribe · © 2026 Sven Kompe</footer>
+</body></html>"""

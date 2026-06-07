@@ -129,6 +129,80 @@ TRANSKRIPTE:
 {episodes_text}"""
 
 
+# ── Zeitung 2.0: tagging + multi-section issues ───────────────────────────────
+
+TAG_EXTRACT_PROMPT = """Du bist ein Wissens-Kurator. Extrahiere aus dieser Podcast-Zusammenfassung 4–8 normalisierte Themen-Tags.
+
+Regeln:
+- label: kanonische Schreibweise (Eigennamen korrekt, Singular bevorzugt, z.B. "Prompt Engineering" statt "Prompts schreiben", "GitHub Copilot" statt "Copilot")
+- kind: eines von topic | tool | person | company | product
+- KEINE zu allgemeinen Begriffe wie "KI", "Technologie", "Podcast"
+
+Gib AUSSCHLIESSLICH JSON zurück:
+{{"tags": [{{"label": "Prompt Engineering", "kind": "topic"}}, {{"label": "GitHub Copilot", "kind": "tool"}}]}}
+
+ZUSAMMENFASSUNG:
+{summary}
+
+TAKEAWAYS:
+{takeaways}
+
+KAPITEL:
+{chapters}"""
+
+# Length slider 1-5 → target words + section count
+_LENGTH_MAP = {
+    1: {"label": "Kompakt",     "words": 700,  "sections": 3, "tokens": 8192},
+    2: {"label": "Knapp",       "words": 1200, "sections": 3, "tokens": 12000},
+    3: {"label": "Standard",    "words": 1800, "sections": 4, "tokens": 16000},
+    4: {"label": "Ausführlich", "words": 2800, "sections": 5, "tokens": 24000},
+    5: {"label": "Magazin",     "words": 4000, "sections": 6, "tokens": 32000},
+}
+
+# Style slider 1-5 → German instruction block
+_STYLE_MAP = {
+    1: ("Technisch", "Fachlich präzise. Verwende korrekte Fachbegriffe ohne Vereinfachung, "
+        "nenne Tools, Modelle und Versionen exakt, gib konkrete Schritte/Konfigurationen wieder. "
+        "Zielgruppe: Profis."),
+    2: ("Analytisch", "Sachlich-analytisch. Einordnung, Pro und Contra, Zahlen und Belege betont, "
+        "ausgewogene Bewertung. Zielgruppe: Entscheider und Fachleute."),
+    3: ("Journalistisch", "Analytisch-journalistischer Stil. Kontext und Einordnung, ausgewogen, "
+        "mit wörtlichen Zitaten und Quellenbezug, fließende Prosa. Zielgruppe: informierte Leser."),
+    4: ("Erzählend", "Erzählender, szenischer Stil mit narrativem Bogen und Anekdoten aus den Folgen. "
+        "Sachlich korrekt, aber lebendig und unterhaltsam."),
+    5: ("Leicht verständlich", "Einfache, gut lesbare Sprache. Kurze Sätze, Fachbegriffe kurz erklären, "
+        "Analogien erlaubt, roter Faden wichtiger als Vollständigkeit. Zielgruppe: interessierte Einsteiger."),
+}
+
+ISSUE_PROMPT = """Du bist Chefredakteur*in einer {format_word}. Erstelle aus den folgenden Podcast-Transkripten KEINEN einzigen Artikel, sondern eine Ausgabe mit MEHREREN eigenständigen Abschnitten (Artikeln), thematisch geclustert.
+
+FORMAT: {format_desc}
+STIL ({style_name}): {style_instruction}
+GESAMTUMFANG: ca. {total_words} Wörter, verteilt auf {n_sections} thematische Abschnitte.
+{continuity}
+
+Erzeuge zusätzlich eine prägnante teilbare Kurzfassung (tldr_md): 5–8 Bullet-Punkte mit den Kernthemen, als eigenständiger weiterleitbarer Text.
+Erzeuge außerdem GENAU EINEN Abschnitt mit kind "quote": das prägnanteste wörtliche Zitat der Ausgabe mit Sprecher und Folge.
+
+Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
+{{
+  "title": "{title}",
+  "subtitle": "treffender Untertitel der Ausgabe",
+  "reading_time_min": <Zahl>,
+  "sections": [
+    {{"kind": "intro",   "heading": "", "body_md": "Editorial-Einstieg, der die Ausgabe einordnet"}},
+    {{"kind": "article", "heading": "## Thementitel", "body_md": "Vollständiger Abschnitt in Markdown"}},
+    {{"kind": "quote",   "heading": "Zitat der Woche", "body_md": "> „Zitat…“ — Sprecher, Folge"}}
+  ],
+  "tldr_md": "- Punkt 1\\n- Punkt 2 …"
+}}
+
+Sprache: Deutsch (fremdsprachige Zitate übersetzen, Original in Klammern).
+
+TRANSKRIPTE:
+{episodes_text}"""
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def transcribe_audio(audio_path: Path) -> dict:
@@ -183,6 +257,24 @@ async def generate_digest(episode_data: list, mode: str, title: str) -> dict:
         raise RuntimeError("Kein Gemini API Key konfiguriert")
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _digest_sync, episode_data, mode, title)
+
+
+async def extract_tags(summary: str, takeaways: list, chapters: list) -> list:
+    """Return [{'label','kind'}] canonical topic tags from compact episode metadata."""
+    if not _configure_gemini():
+        return []
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _extract_tags_sync, summary, takeaways, chapters)
+
+
+async def generate_issue(episode_data: list, *, fmt: str, length: int, style: int,
+                         title: str, prev_tldr: str = "") -> dict:
+    """Multi-section issue (Zeitung/Newsletter). Returns
+    {title, subtitle, reading_time_min, sections:[{kind,heading,body_md}], tldr_md}."""
+    if not _configure_gemini():
+        raise RuntimeError("Kein Gemini API Key konfiguriert")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _issue_sync, episode_data, fmt, length, style, title, prev_tldr)
 
 
 # ── Gemini implementations ────────────────────────────────────────────────────
@@ -269,6 +361,73 @@ def _digest_sync(episode_data: list, mode: str, title: str) -> dict:
     data = _parse_json(response.text)
     if "content_md" not in data:
         data = {"title": title, "subtitle": "", "content_md": response.text, "reading_time_min": 10}
+    return data
+
+
+def _extract_tags_sync(summary: str, takeaways: list, chapters: list) -> list:
+    chapter_titles = ", ".join(c.get("title", "") for c in (chapters or []) if isinstance(c, dict))
+    prompt = TAG_EXTRACT_PROMPT.format(
+        summary=(summary or "")[:4000],
+        takeaways="; ".join(takeaways or [])[:2000],
+        chapters=chapter_titles[:1000],
+    )
+    client = _client()
+    response = client.models.generate_content(
+        model=FLASH_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=1024),
+    )
+    data = _parse_json(response.text)
+    tags = data.get("tags", []) if isinstance(data, dict) else []
+    return [t for t in tags if isinstance(t, dict) and t.get("label")]
+
+
+def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
+                title: str, prev_tldr: str) -> dict:
+    lconf = _LENGTH_MAP.get(int(length), _LENGTH_MAP[3])
+    style_name, style_instruction = _STYLE_MAP.get(int(style), _STYLE_MAP[3])
+
+    if fmt == "newsletter":
+        format_word = "KI-Newsletter-Redaktion"
+        format_desc = ("Newsletter: kurze, scannbare Abschnitte mit je 2–4 Sätzen plus "
+                       "Bullet-Takeaways. Oben ein Inhaltsverzeichnis. Knapp und teilbar.")
+        model = FLASH_MODEL
+        temp = 0.6
+    else:
+        format_word = "KI-Zeitung"
+        format_desc = ("Zeitung: ausführliche, fließende Prosa-Artikel mit Analyse, "
+                       "Kontext und wörtlichen Zitaten. Ein redaktionelles Intro.")
+        model = PRO_MODEL
+        temp = 0.7
+
+    continuity = ""
+    if prev_tldr:
+        continuity = ("ANSCHLUSS: Beginne mit einem kurzen Abschnitt „Neu seit der letzten Ausgabe“, "
+                      "der auf folgende vorige Kurzfassung Bezug nimmt und nur das Neue hervorhebt:\n"
+                      + prev_tldr[:1500])
+
+    episodes_text = ""
+    for ep in episode_data:
+        episodes_text += f"\n\n### {ep.get('title','Folge')} ({ep.get('podcast_title','')}, {ep.get('pub_date','')})\n"
+        episodes_text += (ep.get("transcript") or ep.get("summary") or "")[:10000]
+
+    prompt = ISSUE_PROMPT.format(
+        format_word=format_word, format_desc=format_desc,
+        style_name=style_name, style_instruction=style_instruction,
+        total_words=lconf["words"], n_sections=lconf["sections"],
+        continuity=continuity, title=title, episodes_text=episodes_text[:120000],
+    )
+    client = _client()
+    response = client.models.generate_content(
+        model=model,
+        contents=[prompt],
+        config=types.GenerateContentConfig(temperature=temp, max_output_tokens=lconf["tokens"]),
+    )
+    data = _parse_json(response.text)
+    if not isinstance(data, dict) or "sections" not in data:
+        data = {"title": title, "subtitle": "", "reading_time_min": 10,
+                "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
+                "tldr_md": ""}
     return data
 
 

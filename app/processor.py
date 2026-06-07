@@ -7,8 +7,9 @@ import aiosqlite
 from .database import DB_PATH
 from .downloader import download_audio
 from .notifier import send_notification
-from .transcriber import transcribe_audio, enrich_text
+from .transcriber import transcribe_audio, enrich_text, extract_tags
 from .transcript_fetch import fetch_transcript
+from .tagging import upsert_tags
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,15 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
             )
             await db.execute("UPDATE episodes SET status='done' WHERE id=?", (episode_id,))
             await db.commit()
+
+        # Auto-tagging (best-effort, cheap FLASH call over compact metadata)
+        try:
+            raw_tags = await extract_tags(
+                data.get("summary", ""), data.get("takeaways", []), data.get("chapters", []))
+            if raw_tags:
+                await upsert_tags(episode_id, raw_tags)
+        except Exception as e:
+            logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
 
         await send_notification(
             f"Transkript fertig: {title[:50]}",
