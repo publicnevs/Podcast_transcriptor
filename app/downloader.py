@@ -11,14 +11,17 @@ async def download_audio(url: str) -> Path:
     output_id = str(uuid.uuid4())
     output_template = str(DOWNLOAD_DIR / f"{output_id}.%(ext)s")
 
+    # 32 kbps mono mp3 keeps long podcasts under Gemini's 20 MB inline limit
+    # (≈14 MB for a 60-min episode) — speech intelligibility stays excellent.
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": output_template,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
-            "preferredquality": "96",
+            "preferredquality": "32",
         }],
+        "postprocessor_args": ["-ac", "1", "-ar", "16000"],   # mono, 16 kHz
         "quiet": True,
         "no_warnings": True,
         "socket_timeout": 60,

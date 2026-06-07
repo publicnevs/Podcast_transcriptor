@@ -279,24 +279,45 @@ async def generate_issue(episode_data: list, *, fmt: str, length: int, style: in
 
 # ── Gemini implementations ────────────────────────────────────────────────────
 
+_INLINE_LIMIT = 18 * 1024 * 1024   # leave headroom under Gemini's 20 MB cap
+
+
 def _gemini_full_sync(audio_path: Path) -> dict:
+    """Transcribe audio with Gemini.
+
+    Always tries inline_data first because the FileService.CreateFile
+    endpoint rejects newer AQ.-prefix API keys (401 ACCESS_TOKEN_TYPE_UNSUPPORTED).
+    Files larger than the inline cap fall back to the upload path."""
     client = _client()
-    logger.info(f"Uploading {audio_path.name} to Gemini...")
+    size = audio_path.stat().st_size
+
+    if size <= _INLINE_LIMIT:
+        logger.info(f"Transcribing {audio_path.name} inline ({size//1024} KB)...")
+        audio_bytes = audio_path.read_bytes()
+        response = client.models.generate_content(
+            model=FLASH_MODEL,
+            contents=[
+                GEMINI_FULL_PROMPT,
+                types.Part.from_bytes(data=audio_bytes, mime_type="audio/mpeg"),
+            ],
+            config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=65536),
+        )
+        return _parse_json(response.text)
+
+    # Fallback for very long episodes — requires AIza-prefix key
+    logger.info(f"Audio too large for inline ({size//1024} KB), using File API...")
     uploaded = client.files.upload(
         file=str(audio_path),
         config=types.UploadFileConfig(mime_type="audio/mpeg"),
     )
-
     for _ in range(160):
         if uploaded.state.name != "PROCESSING":
             break
         time.sleep(3)
         uploaded = client.files.get(name=uploaded.name)
-
     if uploaded.state.name == "FAILED":
         raise RuntimeError("Gemini audio processing failed")
 
-    logger.info("Generating transcription...")
     response = client.models.generate_content(
         model=FLASH_MODEL,
         contents=[GEMINI_FULL_PROMPT, uploaded],
