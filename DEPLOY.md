@@ -92,6 +92,25 @@ http://192.168.1.100:7878
 
 ---
 
+## Lokales Whisper-Backend (optional)
+
+Standard ist Gemini (Cloud). Wer **offline/lokal** transkribieren will:
+
+```bash
+# Image mit faster-whisper bauen:
+docker-compose build --build-arg INSTALL_WHISPER=true
+docker-compose up -d
+```
+
+Dann in der App unter **Einstellungen → Transkriptions-Engine** auf "Whisper (lokal)" umstellen und Modell `base` wählen.
+
+⚠️ **Realität auf der DS218+:** Die Intel Celeron J3355 (kein AVX2) ist langsam.
+Eine 60-Min-Folge dauert mit `base` ca. **2-3 Stunden**. Für regelmäßige Nutzung
+ist Gemini deutlich praktikabler. Zusammenfassungen/Kapitel laufen auch im
+Whisper-Modus günstig über Gemini-Text (API-Key nötig).
+
+---
+
 ## Updates einspielen
 
 ```bash

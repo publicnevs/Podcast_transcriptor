@@ -4,8 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PodScribe — Episode</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
-<link rel="manifest" href="/static/manifest.json">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
 </head>
 <body>
 <div id="nav-mount"></div>
@@ -98,13 +104,18 @@ function render(ep) {
     <!-- Action Bar -->
     <div class="action-bar">
       ${ep.status==='done' ? `
-        <button class="btn btn-primary btn-sm" onclick="copyTranscript()">📋 Kopieren</button>
+        <button class="btn btn-primary btn-sm" id="listen-btn" onclick="toggleListen()">🎧 Anhören</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyTranscript()">📋 Kopieren</button>
         <button class="btn btn-secondary btn-sm" onclick="copyForAI()">🤖 Für KI kopieren</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=md','_blank')">⬇️ Markdown</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=md','_blank')">⬇️ MD</button>
         <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=txt','_blank')">⬇️ TXT</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Drucken/PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ PDF</button>
         ${ep.language && ep.language!=='de' ? `<button class="btn btn-secondary btn-sm" id="translate-btn" onclick="requestTranslation()">🇩🇪 Übersetzen</button>` : ''}
         <button class="btn btn-ghost btn-sm" id="watch-btn" onclick="toggleWatch()">${ep.watchlist?'⭐ Leseliste':'☆ Leseliste'}</button>
+        <div class="reader-tools">
+          <button class="btn btn-ghost btn-icon btn-sm" title="Schrift kleiner" onclick="changeFont(-1)">A−</button>
+          <button class="btn btn-ghost btn-icon btn-sm" title="Schrift größer" onclick="changeFont(1)">A+</button>
+        </div>
       ` : ''}
       ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">🔄 Erneut transkribieren</button>` : ''}
       ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">🎙️ Jetzt transkribieren</button>` : ''}
@@ -355,7 +366,48 @@ async function pollStatus() {
   }
 }
 
+// ── Audio player toggle ──────────────────────────────────────────────────
+let playerActive = false;
+function toggleListen() {
+  const btn = document.getElementById('listen-btn');
+  if (playerActive) {
+    AudioPlayer.destroy();
+    playerActive = false;
+    btn.textContent = '🎧 Anhören';
+    btn.className = 'btn btn-primary btn-sm';
+    return;
+  }
+  const segments = (() => { try { return JSON.parse(epData.segments_json||'[]'); } catch { return []; } })();
+  if (!segments.length) { toast('Keine Segmente zum Synchronisieren', 'info'); }
+  AudioPlayer.mount(episodeId, epData.title, segments);
+  playerActive = true;
+  btn.textContent = '🎧 Player schließen';
+  btn.className = 'btn btn-secondary btn-sm';
+}
+
+// ── Font size control ────────────────────────────────────────────────────
+const FONT_SIZES = ['fs-sm','fs-md','fs-lg','fs-xl'];
+function applyFont() {
+  const idx = parseInt(localStorage.getItem('ps-font')||'1');
+  const content = document.getElementById('transcript-content');
+  if (content) { FONT_SIZES.forEach(c => content.classList.remove(c)); content.classList.add(FONT_SIZES[idx]); }
+}
+function changeFont(dir) {
+  let idx = parseInt(localStorage.getItem('ps-font')||'1');
+  idx = Math.min(FONT_SIZES.length-1, Math.max(0, idx + dir));
+  localStorage.setItem('ps-font', idx);
+  applyFont();
+}
+
+// Re-apply font + clean player on each render
+const _origRender = render;
+render = function(ep) { _origRender(ep); applyFont(); };
+
+window.addEventListener('beforeunload', () => { if (playerActive) AudioPlayer.destroy(); });
+
+initReadProgress();
 load().then(() => {
+  applyFont();
   if (epData && ['queued','downloading','transcribing'].includes(epData.status)) pollStatus();
 });
 </script>

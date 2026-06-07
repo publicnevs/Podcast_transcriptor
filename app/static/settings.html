@@ -4,8 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PodScribe — Einstellungen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
-<link rel="manifest" href="/static/manifest.json">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
 </head>
 <body>
 <div id="nav-mount"></div>
@@ -61,16 +67,53 @@
     <button class="btn btn-ghost btn-sm" style="margin-top:.75rem" onclick="loadQueue()">Aktualisieren</button>
   </div>
 
-  <!-- Gemini Info -->
+  <!-- Transcription Backend -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:.5rem">🤖 Gemini API</h2>
-    <p style="font-size:.875rem;color:var(--text-muted)">
-      Der API-Key wird in der <code style="background:var(--bg-card2);padding:0 4px;border-radius:3px">.env</code> Datei konfiguriert
-      und nie im Browser angezeigt. Zum Ändern: SSH auf die Synology → <code style="background:var(--bg-card2);padding:0 4px;border-radius:3px">nano .env</code> → Container neu starten.
-    </p>
-    <div style="margin-top:1rem;padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
-      <strong style="color:var(--text)">Kosten-Hinweis:</strong> Gemini 1.5 Flash ist sehr günstig (ca. $0.075/h Audio im kostenpflichtigen Tier).
-      Der Free-Tier reicht für ~15 Folgen/Tag kostenlos. Gemini 1.5 Pro (für Zeitungs-Artikel) kostet mehr — nur bei Bedarf nutzen.
+    <h2 style="font-size:1rem;margin-bottom:1rem">🎙️ Transkriptions-Engine</h2>
+    <div style="display:flex;flex-direction:column;gap:1rem">
+      <div class="form-group">
+        <label class="form-label">Backend</label>
+        <div class="segmented" id="backend-seg">
+          <button data-backend="gemini" onclick="setBackend('gemini')">☁️ Gemini (Cloud)</button>
+          <button data-backend="whisper" onclick="setBackend('whisper')">💻 Whisper (lokal)</button>
+        </div>
+      </div>
+
+      <div id="gemini-config">
+        <div class="form-group">
+          <label class="form-label">Gemini API Key</label>
+          <div class="input-row">
+            <input type="password" id="gemini-key" placeholder="AIza… (leer lassen = .env wird genutzt)">
+            <button class="btn btn-secondary" onclick="saveBackend()">Speichern</button>
+          </div>
+          <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">
+            Status: <span id="key-status">…</span> · Key von
+            <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com</a>
+          </span>
+        </div>
+      </div>
+
+      <div id="whisper-config" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Whisper-Modell</label>
+          <select id="whisper-model">
+            <option value="tiny">tiny — am schnellsten, mäßige Qualität</option>
+            <option value="base" selected>base — empfohlen für DS218+ (2-3× Echtzeit)</option>
+            <option value="small">small — bessere Qualität, sehr langsam auf DS218+</option>
+          </select>
+        </div>
+        <div style="margin-top:.75rem;padding:.75rem;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+          <strong style="color:var(--warning)">⚠️ Hardware-Hinweis DS218+:</strong> Die Intel Celeron CPU (kein AVX2) transkribiert lokal langsam.
+          Eine 60-Min-Folge dauert mit <code>base</code> ca. 2-3 Stunden. Vorteil: kostenlos & offline.
+          Zusammenfassung/Kapitel werden weiterhin günstig per Gemini-Text erstellt (Key nötig).
+        </div>
+        <button class="btn btn-primary btn-sm" style="margin-top:.75rem" onclick="saveBackend()">💾 Speichern</button>
+      </div>
+
+      <div style="padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+        <strong style="color:var(--text)">Kosten Gemini:</strong> 1.5 Flash ist sehr günstig (~$0.075/h Audio).
+        Der Free-Tier reicht für ~15 Folgen/Tag kostenlos. 1.5 Pro (Zeitungs-Artikel) nur bei Bedarf.
+      </div>
     </div>
   </div>
 
@@ -102,13 +145,44 @@
 document.getElementById('nav-mount').innerHTML = renderNav('/settings');
 initGlobalSearch();
 
+let currentBackend = 'gemini';
+
 async function loadSettings() {
   try {
     const s = await API.get('/api/settings');
     document.getElementById('ntfy-url').value = s.ntfy_url || 'https://ntfy.sh';
     document.getElementById('ntfy-topic').value = s.ntfy_topic || '';
     document.getElementById('check-interval').value = s.check_interval_hours || '24';
+    currentBackend = s.transcription_backend || 'gemini';
+    document.getElementById('whisper-model').value = s.whisper_model || 'base';
+    document.getElementById('key-status').innerHTML = s.gemini_api_key_set
+      ? '<span style="color:var(--success)">✓ Key gesetzt</span>'
+      : '<span style="color:var(--warning)">kein Key</span>';
+    setBackend(currentBackend, false);
   } catch {}
+}
+
+function setBackend(backend, save=true) {
+  currentBackend = backend;
+  document.querySelectorAll('#backend-seg button').forEach(b =>
+    b.classList.toggle('active', b.dataset.backend === backend));
+  document.getElementById('whisper-config').style.display = backend === 'whisper' ? '' : 'none';
+  // Gemini key card stays visible always (whisper needs it for enrichment)
+}
+
+async function saveBackend() {
+  const payload = {
+    transcription_backend: currentBackend,
+    whisper_model: document.getElementById('whisper-model').value,
+  };
+  const key = document.getElementById('gemini-key').value.trim();
+  if (key) payload.gemini_api_key = key;
+  try {
+    await API.put('/api/settings', payload);
+    toast('✅ Engine-Einstellungen gespeichert', 'success');
+    document.getElementById('gemini-key').value = '';
+    loadSettings();
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 async function saveNtfy() {

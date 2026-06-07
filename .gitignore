@@ -1,4 +1,6 @@
 .env
+.venv/
+venv/
 data/
 downloads/
 __pycache__/

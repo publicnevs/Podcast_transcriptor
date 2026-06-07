@@ -7,8 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements.txt requirements-whisper.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Optional local Whisper backend:
+#   docker-compose build --build-arg INSTALL_WHISPER=true
+ARG INSTALL_WHISPER=false
+RUN if [ "$INSTALL_WHISPER" = "true" ]; then \
+        pip install --no-cache-dir -r requirements-whisper.txt; \
+    fi
 
 COPY app/ ./app/
 

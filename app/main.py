@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import List, Optional
 
 import aiosqlite
+import httpx
 import markdown2
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi import (BackgroundTasks, FastAPI, File, HTTPException, Query,
+                     Request, UploadFile)
+from fastapi.responses import (FileResponse, HTMLResponse, Response,
+                                StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +21,7 @@ from .exporter import (bulk_export_markdown, export_ai_copy,
 from .feed_parser import parse_rss_feed, parse_opml
 from .processor import process_episode, process_queued
 from .scheduler import start_scheduler
+from . import transcriber
 from .transcriber import generate_digest, translate_to_german
 
 logger = logging.getLogger(__name__)
@@ -25,9 +29,22 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+async def _apply_runtime_config():
+    """Push DB settings into the transcriber runtime (api key, backend, model)."""
+    api_key = await get_setting("gemini_api_key")
+    backend = await get_setting("transcription_backend")
+    whisper_model = await get_setting("whisper_model")
+    transcriber.configure(
+        gemini_api_key=api_key or os.getenv("GEMINI_API_KEY", ""),
+        backend=backend or os.getenv("TRANSCRIPTION_BACKEND", "gemini"),
+        whisper_model=whisper_model or os.getenv("WHISPER_MODEL", "base"),
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await _apply_runtime_config()
     start_scheduler()
     yield
 
@@ -63,6 +80,9 @@ class SettingsUpdate(BaseModel):
     ntfy_topic: Optional[str] = None
     ntfy_url: Optional[str] = None
     check_interval_hours: Optional[int] = None
+    transcription_backend: Optional[str] = None
+    whisper_model: Optional[str] = None
+    gemini_api_key: Optional[str] = None
 
 
 class DigestRequest(BaseModel):
@@ -103,6 +123,17 @@ async def page_settings():
 @app.get("/digests", response_class=HTMLResponse)
 async def page_digests():
     return FileResponse(STATIC_DIR / "digest.html")
+
+
+@app.get("/sw.js")
+async def service_worker():
+    # Served from root so the PWA scope covers the whole app
+    return FileResponse(STATIC_DIR / "sw.js", media_type="application/javascript")
+
+
+@app.get("/manifest.json")
+async def manifest():
+    return FileResponse(STATIC_DIR / "manifest.json", media_type="application/manifest+json")
 
 
 # ── Podcasts ───────────────────────────────────────────────────────────────────
@@ -326,6 +357,46 @@ async def get_episode(episode_id: int):
     return dict(row)
 
 
+@app.get("/api/episodes/{episode_id}/audio")
+async def stream_audio(episode_id: int, request: Request):
+    """Proxy the source audio so the in-app player works regardless of CORS,
+    forwarding Range headers so the browser can seek."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT audio_url FROM episodes WHERE id=?", (episode_id,)) as cur:
+            row = await cur.fetchone()
+    if not row or not row[0]:
+        raise HTTPException(404, "Keine Audio-URL")
+    audio_url = row[0]
+
+    fwd_headers = {}
+    if "range" in request.headers:
+        fwd_headers["Range"] = request.headers["range"]
+
+    client = httpx.AsyncClient(follow_redirects=True, timeout=None)
+    req = client.build_request("GET", audio_url, headers=fwd_headers)
+    upstream = await client.send(req, stream=True)
+
+    resp_headers = {"Accept-Ranges": "bytes"}
+    for h in ("content-length", "content-range", "content-type"):
+        if h in upstream.headers:
+            resp_headers[h] = upstream.headers[h]
+
+    async def body():
+        try:
+            async for chunk in upstream.aiter_bytes(65536):
+                yield chunk
+        finally:
+            await upstream.aclose()
+            await client.aclose()
+
+    return StreamingResponse(
+        body(),
+        status_code=upstream.status_code,
+        headers=resp_headers,
+        media_type=resp_headers.get("content-type", "audio/mpeg"),
+    )
+
+
 @app.patch("/api/episodes/{episode_id}/read")
 async def mark_read(episode_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -528,7 +599,10 @@ async def get_settings():
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT key, value FROM settings") as cur:
             rows = await cur.fetchall()
-    return {r[0]: r[1] for r in rows}
+    out = {r[0]: r[1] for r in rows}
+    # Never leak the raw API key — only signal whether one is set
+    out["gemini_api_key_set"] = bool(out.pop("gemini_api_key", "") or os.getenv("GEMINI_API_KEY", ""))
+    return out
 
 
 @app.put("/api/settings")
@@ -539,6 +613,13 @@ async def update_settings(data: SettingsUpdate):
         await set_setting("ntfy_url", data.ntfy_url)
     if data.check_interval_hours is not None:
         await set_setting("check_interval_hours", str(data.check_interval_hours))
+    if data.transcription_backend is not None:
+        await set_setting("transcription_backend", data.transcription_backend)
+    if data.whisper_model is not None:
+        await set_setting("whisper_model", data.whisper_model)
+    if data.gemini_api_key:  # only overwrite when a non-empty value is sent
+        await set_setting("gemini_api_key", data.gemini_api_key.strip())
+    await _apply_runtime_config()
     return {"ok": True}
 
 

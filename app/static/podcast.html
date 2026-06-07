@@ -4,8 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PodScribe — Podcast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css">
-<link rel="manifest" href="/static/manifest.json">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
 </head>
 <body>
 <div id="nav-mount"></div>
@@ -51,8 +57,9 @@
 <div id="toast-container"></div>
 <script src="/static/app.js"></script>
 <script>
-document.getElementById('nav-mount').innerHTML = renderNav('');
+document.getElementById('nav-mount').innerHTML = renderNav('/podcast');
 initGlobalSearch();
+initReadProgress();
 setInterval(pollQueue, 8000);
 
 const podcastId = pageId();
@@ -88,7 +95,7 @@ async function loadPodcast() {
 async function loadEpisodes(append=false) {
   if (!append) currentPage = 1;
   const list = document.getElementById('episode-list');
-  if (!append) list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  if (!append) list.innerHTML = skeletonRows(6);
   try {
     const url = `/api/podcasts/${podcastId}/episodes?page=${currentPage}&limit=30${currentFilter?'&status='+currentFilter:''}`;
     const episodes = await API.get(url);

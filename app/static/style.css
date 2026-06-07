@@ -23,15 +23,30 @@
 /* ── Base ──────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 16px; scroll-behavior: smooth; }
+html { font-size: 16px; scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--bg);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(124,111,247,0.10), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, rgba(124,111,247,0.06), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   min-height: 100vh;
   line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior-y: none;
 }
+
+::selection { background: rgba(124,111,247,0.35); }
+
+/* Custom scrollbars */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-dark); }
 
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-dark); }
@@ -49,13 +64,15 @@ img { max-width: 100%; height: auto; }
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--bg-card2);
+  background: rgba(18,18,42,0.78);
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
   border-bottom: 1px solid var(--border);
   padding: 0 1rem;
   display: flex;
   align-items: center;
   gap: 1rem;
-  height: 56px;
+  height: 58px;
 }
 
 .topbar-logo {
@@ -611,4 +628,229 @@ details[open] summary::before { transform: rotate(90deg); }
   .topbar-nav a span { display: none; }
   .episode-item { grid-template-columns: 1fr; }
   .episode-actions { margin-top: 0.5rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v2 — Premium UX layer
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Reading progress bar (top) ─────────────────────────────── */
+#read-progress {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #a78bfa);
+  z-index: 300;
+  transition: width 0.1s linear;
+  box-shadow: 0 0 8px rgba(124,111,247,0.6);
+}
+
+/* ── Mobile bottom navigation ───────────────────────────────── */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 150;
+  background: rgba(18,18,42,0.92);
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  border-top: 1px solid var(--border);
+  padding: 0.35rem 0.5rem calc(0.35rem + env(safe-area-inset-bottom));
+  justify-content: space-around;
+}
+
+.bottom-nav a {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 600;
+  transition: var(--transition);
+  min-width: 56px;
+}
+
+.bottom-nav a .bn-icon { font-size: 1.35rem; line-height: 1; }
+.bottom-nav a.active { color: var(--accent); }
+.bottom-nav a.active .bn-icon { transform: translateY(-1px); filter: drop-shadow(0 2px 6px rgba(124,111,247,0.5)); }
+
+/* ── Audio player (sticky bottom) ───────────────────────────── */
+.audio-player {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 1rem;
+  width: min(680px, calc(100% - 1.5rem));
+  z-index: 140;
+  background: rgba(26,26,46,0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+  padding: 0.75rem 1rem;
+  display: none;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.audio-player.visible { display: flex; animation: playerUp 0.25s ease; }
+@keyframes playerUp { from { transform: translate(-50%, 120%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+
+.ap-row { display: flex; align-items: center; gap: 0.75rem; }
+
+.ap-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.ap-btn:hover { background: var(--accent-dark); transform: scale(1.05); }
+.ap-btn.small { width: 34px; height: 34px; font-size: 0.85rem; background: var(--bg-card2); color: var(--text); border: 1px solid var(--border); }
+.ap-btn.small:hover { border-color: var(--accent); color: var(--accent); transform: scale(1.05); }
+
+.ap-time { font-family: monospace; font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+
+.ap-scrubber {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+}
+.ap-scrubber-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #a78bfa); border-radius: 10px; width: 0%; pointer-events: none; }
+.ap-scrubber-thumb {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 13px; height: 13px; background: #fff; border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4); left: 0%; pointer-events: none;
+}
+
+.ap-speed {
+  background: var(--bg-card2); border: 1px solid var(--border); color: var(--text-muted);
+  border-radius: 20px; padding: 0.2rem 0.6rem; font-size: 0.72rem; cursor: pointer; font-weight: 600;
+}
+.ap-speed:hover { border-color: var(--accent); color: var(--accent); }
+
+.ap-title { font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+/* segment currently playing */
+.segment.playing {
+  background: linear-gradient(90deg, var(--accent-dim), transparent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.segment { cursor: pointer; }
+
+/* ── Reader font-size scale (set on #transcript-content) ────── */
+.fs-sm .seg-text, .fs-sm.digest-body { font-size: 0.82rem; }
+.fs-md .seg-text, .fs-md.digest-body { font-size: 0.95rem; }
+.fs-lg .seg-text, .fs-lg.digest-body { font-size: 1.08rem; line-height: 1.85; }
+.fs-xl .seg-text, .fs-xl.digest-body { font-size: 1.22rem; line-height: 1.9; }
+
+.reader-tools {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-left: auto;
+}
+.reader-tools .btn-icon { font-weight: 700; }
+
+/* ── Skeleton loaders ───────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(100deg, var(--bg-card) 30%, var(--bg-hover) 50%, var(--bg-card) 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+.skel-card { aspect-ratio: 1; border-radius: var(--radius); }
+.skel-line { height: 12px; margin: 6px 0; }
+.skel-line.short { width: 55%; }
+.skel-line.med { width: 80%; }
+
+/* ── Continue / hero strip ──────────────────────────────────── */
+.hero {
+  background: linear-gradient(135deg, rgba(124,111,247,0.18), rgba(124,111,247,0.04));
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.hero h2 { font-size: 1.05rem; margin-bottom: 0.25rem; }
+.hero p { font-size: 0.85rem; color: var(--text-muted); }
+
+/* ── Stat chips ─────────────────────────────────────────────── */
+.stats-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.stat {
+  flex: 1; min-width: 100px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0.875rem 1rem;
+}
+.stat .num { font-size: 1.6rem; font-weight: 700; color: var(--accent); line-height: 1; }
+.stat .label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+/* ── Fade-in for content ────────────────────────────────────── */
+.fade-in { animation: fadeIn 0.35s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Toggle switch ──────────────────────────────────────────── */
+.switch { position: relative; display: inline-block; width: 42px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider {
+  position: absolute; inset: 0; cursor: pointer;
+  background: var(--border); border-radius: 24px; transition: 0.2s;
+}
+.switch .slider::before {
+  content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px;
+  background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.switch input:checked + .slider { background: var(--accent); }
+.switch input:checked + .slider::before { transform: translateX(18px); }
+
+/* ── Segmented control ──────────────────────────────────────── */
+.segmented {
+  display: inline-flex; background: var(--bg-card2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 3px; gap: 3px;
+}
+.segmented button {
+  border: none; background: transparent; color: var(--text-muted);
+  padding: 0.4rem 0.875rem; border-radius: 6px; font-size: 0.82rem; cursor: pointer; font-weight: 500;
+  transition: var(--transition);
+}
+.segmented button.active { background: var(--accent); color: #fff; }
+
+/* ── Mobile adaptations for v2 ──────────────────────────────── */
+@media (max-width: 768px) {
+  .topbar-nav { display: none; }       /* replaced by bottom-nav */
+  .bottom-nav { display: flex; }
+  .main-content { padding-bottom: 5.5rem; }  /* room for bottom-nav */
+  body.has-player .main-content { padding-bottom: 9.5rem; }
+  .audio-player { bottom: calc(4.2rem + env(safe-area-inset-bottom)); width: calc(100% - 1rem); }
+  .search-bar { max-width: none; }
+}
+
+@media (min-width: 769px) {
+  .bottom-nav { display: none !important; }
+}
+
+/* Larger touch targets on mobile */
+@media (max-width: 768px) {
+  .btn { min-height: 40px; }
+  .episode-item { padding: 1rem 0.875rem; }
+  .chapter-item { padding: 0.65rem; }
+  input, textarea, select { font-size: 16px; }  /* prevent iOS/Android zoom */
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

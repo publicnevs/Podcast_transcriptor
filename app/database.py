@@ -94,6 +94,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_topic', '');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_url', 'https://ntfy.sh');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('check_interval_hours', '24');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('transcription_backend', 'gemini');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('whisper_model', 'base');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('gemini_api_key', '');
 """
 
 async def init_db():

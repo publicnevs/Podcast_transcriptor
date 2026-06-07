@@ -5,14 +5,16 @@ Privater Podcast-Transkriptions-Hub — abonniere Podcasts, transkribiere Folgen
 ## Features
 
 - 📻 **Podcast-Bibliothek** — RSS-Feeds abonnieren, OPML-Import, Auto-Transkription
-- 🎙️ **Transkription** — Gemini 1.5 Flash, Sprecher-Erkennung, Zeitstempel, Kapitel
-- 🤖 **KI-Features** — Zusammenfassung, Key Takeaways, Kapitel-Navigation
+- 🎙️ **Transkription** — Gemini 1.5 Flash *oder* lokales Whisper, Sprecher-Erkennung, Zeitstempel, Kapitel
+- 🎧 **Audio-Player mit synchronem Transkript** — Mitlesen während des Hörens, Klick auf Absatz springt zur Stelle, Auto-Scroll, Geschwindigkeit
+- 🤖 **KI-Features** — Zusammenfassung, Key Takeaways, klickbare Kapitel-Navigation
 - 🔍 **Volltextsuche** — Über alle Transkripte (SQLite FTS5)
 - 📰 **Zeitung** — Journalistische Artikel aus Transkripten (Gemini 1.5 Pro)
-- 📲 **PWA + Push** — Als App installierbar, Benachrichtigungen via ntfy.sh
+- 📲 **PWA + Offline** — Als App installierbar, Service Worker, Push via ntfy.sh
 - 📦 **Export** — TXT, Markdown, AI-optimiertes Format, Bulk-Export
-- ⭐ **Leseliste** — Ungelesen-Tracking, Scroll-Position, Notizen
+- ⭐ **Leseliste** — Ungelesen-Tracking, Scroll-Position, Notizen, Schriftgröße
 - 🇩🇪 **Übersetzung** — Deutsche Übersetzung auf Anfrage
+- 📱 **Mobile-first** — Bottom-Navigation, Dark Mode, Touch-optimiert
 
 ## Schnellstart
 

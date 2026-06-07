@@ -88,21 +88,68 @@ function setActive(href) {
   });
 }
 
-// Nav markup (injected into each page)
+// Nav markup (injected into each page) — topbar (desktop) + bottom-nav (mobile)
 function renderNav(activePath) {
+  const isLib = activePath === '/' || activePath.startsWith('/podcast') || activePath.startsWith('/episode');
   return `
+    <div id="read-progress"></div>
     <nav class="topbar">
       <a class="topbar-logo" href="/">Pod<span>Scribe</span></a>
       <div class="topbar-logo" style="font-size:.8rem;color:var(--text-muted);margin-left:.5rem;display:none" id="queue-indicator"></div>
       <div class="search-bar" style="flex:1;max-width:280px;margin-left:1rem">
-        <input type="text" id="global-search" placeholder="Suchen…" autocomplete="off">
+        <input type="text" id="global-search" placeholder="Transkripte durchsuchen…" autocomplete="off">
       </div>
       <nav class="topbar-nav">
-        <a href="/" ${activePath==='/'?'class="active"':''}>📚 <span>Bibliothek</span></a>
+        <a href="/" ${isLib?'class="active"':''}>📚 <span>Bibliothek</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>📰 <span>Zeitung</span></a>
         <a href="/settings" ${activePath==='/settings'?'class="active"':''}>⚙️ <span>Settings</span></a>
       </nav>
+    </nav>
+    <nav class="bottom-nav">
+      <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">📚</span>Bibliothek</a>
+      <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">📰</span>Zeitung</a>
+      <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">⚙️</span>Mehr</a>
     </nav>`;
+}
+
+// ── Service worker (PWA + offline) ─────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
+}
+
+// ── Reading progress bar ───────────────────────────────────────────────────
+function initReadProgress() {
+  const bar = document.getElementById('read-progress');
+  if (!bar) return;
+  const update = () => {
+    const h = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = h > 0 ? `${(window.scrollY / h) * 100}%` : '0%';
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  update();
+}
+
+// ── Skeleton helpers ───────────────────────────────────────────────────────
+function skeletonCards(n=6) {
+  return Array.from({length:n}, () => `
+    <div class="podcast-card">
+      <div class="skeleton skel-card"></div>
+      <div class="podcast-card-body">
+        <div class="skeleton skel-line med"></div>
+        <div class="skeleton skel-line short"></div>
+      </div>
+    </div>`).join('');
+}
+function skeletonRows(n=5) {
+  return Array.from({length:n}, () => `
+    <div class="episode-item" style="cursor:default">
+      <div style="flex:1">
+        <div class="skeleton skel-line med"></div>
+        <div class="skeleton skel-line short"></div>
+      </div>
+    </div>`).join('');
 }
 
 function initGlobalSearch() {
@@ -145,6 +192,136 @@ function showSearchResults(results, anchor) {
 function hideSearchResults() {
   const dd = document.getElementById('search-dropdown');
   if (dd) dd.remove();
+}
+
+// ── Audio Player with synced transcript ────────────────────────────────────
+const AudioPlayer = {
+  audio: null, el: null, segTimes: [], curIdx: -1, autoScroll: true, speeds: [1, 1.25, 1.5, 1.75, 2], speedIdx: 0,
+
+  mount(episodeId, title, segments) {
+    this.segTimes = segments.map(s => timeToSecGlobal(s.time));
+    document.body.classList.add('has-player');
+
+    const player = document.createElement('div');
+    player.className = 'audio-player visible';
+    player.innerHTML = `
+      <div class="ap-row">
+        <button class="ap-btn small" id="ap-back" title="15s zurück">«15</button>
+        <button class="ap-btn" id="ap-play" title="Abspielen">▶</button>
+        <button class="ap-btn small" id="ap-fwd" title="15s vor">15»</button>
+        <span class="ap-time" id="ap-cur">0:00</span>
+        <div class="ap-scrubber" id="ap-scrub">
+          <div class="ap-scrubber-fill" id="ap-fill"></div>
+          <div class="ap-scrubber-thumb" id="ap-thumb"></div>
+        </div>
+        <span class="ap-time" id="ap-dur">--:--</span>
+        <button class="ap-speed" id="ap-speed">1×</button>
+      </div>
+      <div class="ap-row">
+        <span class="ap-title">🎧 ${escHtml(title)}</span>
+        <label style="display:flex;align-items:center;gap:.35rem;font-size:.72rem;color:var(--text-muted);cursor:pointer;white-space:nowrap">
+          <input type="checkbox" id="ap-autoscroll" checked style="width:auto"> Auto-Scroll
+        </label>
+      </div>`;
+    document.body.appendChild(player);
+    this.el = player;
+
+    this.audio = new Audio(`/api/episodes/${episodeId}/audio`);
+    this.audio.preload = 'metadata';
+
+    const playBtn = player.querySelector('#ap-play');
+    const fill = player.querySelector('#ap-fill');
+    const thumb = player.querySelector('#ap-thumb');
+    const curEl = player.querySelector('#ap-cur');
+    const durEl = player.querySelector('#ap-dur');
+    const scrub = player.querySelector('#ap-scrub');
+
+    playBtn.onclick = () => this.toggle();
+    player.querySelector('#ap-back').onclick = () => { this.audio.currentTime = Math.max(0, this.audio.currentTime - 15); };
+    player.querySelector('#ap-fwd').onclick = () => { this.audio.currentTime += 15; };
+    player.querySelector('#ap-speed').onclick = (e) => {
+      this.speedIdx = (this.speedIdx + 1) % this.speeds.length;
+      this.audio.playbackRate = this.speeds[this.speedIdx];
+      e.target.textContent = this.speeds[this.speedIdx] + '×';
+    };
+    player.querySelector('#ap-autoscroll').onchange = (e) => { this.autoScroll = e.target.checked; };
+
+    this.audio.addEventListener('play', () => playBtn.textContent = '⏸');
+    this.audio.addEventListener('pause', () => playBtn.textContent = '▶');
+    this.audio.addEventListener('loadedmetadata', () => durEl.textContent = fmtClock(this.audio.duration));
+    this.audio.addEventListener('error', () => { toast('Audio konnte nicht geladen werden', 'error'); });
+    this.audio.addEventListener('timeupdate', () => {
+      const t = this.audio.currentTime, d = this.audio.duration || 0;
+      curEl.textContent = fmtClock(t);
+      const pct = d ? (t / d) * 100 : 0;
+      fill.style.width = pct + '%';
+      thumb.style.left = pct + '%';
+      this.syncSegment(t);
+    });
+
+    let seeking = false;
+    const seek = (clientX) => {
+      const r = scrub.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+      if (this.audio.duration) this.audio.currentTime = ratio * this.audio.duration;
+    };
+    scrub.addEventListener('pointerdown', e => { seeking = true; seek(e.clientX); scrub.setPointerCapture(e.pointerId); });
+    scrub.addEventListener('pointermove', e => { if (seeking) seek(e.clientX); });
+    scrub.addEventListener('pointerup', () => seeking = false);
+
+    // Clicking a transcript segment seeks the audio
+    document.querySelectorAll('.segment').forEach((seg, idx) => {
+      seg.addEventListener('click', (e) => {
+        if (e.target.closest('a')) return;
+        const time = this.segTimes[idx];
+        if (time != null) { this.audio.currentTime = time; if (this.audio.paused) this.audio.play(); }
+      });
+    });
+  },
+
+  toggle() { this.audio.paused ? this.audio.play() : this.audio.pause(); },
+
+  syncSegment(t) {
+    // find last segment whose start <= t
+    let idx = -1;
+    for (let i = 0; i < this.segTimes.length; i++) { if (this.segTimes[i] <= t + 0.3) idx = i; else break; }
+    if (idx === this.curIdx) return;
+    if (this.curIdx >= 0) document.getElementById(`seg-${this.curIdx}`)?.classList.remove('playing');
+    this.curIdx = idx;
+    if (idx >= 0) {
+      const el = document.getElementById(`seg-${idx}`);
+      if (el) {
+        el.classList.add('playing');
+        if (this.autoScroll) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top < 120 || rect.bottom > window.innerHeight - 160) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }
+      }
+    }
+  },
+
+  destroy() {
+    if (this.audio) { this.audio.pause(); this.audio.src = ''; }
+    this.el?.remove();
+    document.body.classList.remove('has-player');
+    this.curIdx = -1;
+  }
+};
+
+function timeToSecGlobal(t) {
+  if (!t) return 0;
+  const p = String(t).split(':').map(Number);
+  if (p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
+  if (p.length === 2) return p[0]*60 + p[1];
+  return p[0] || 0;
+}
+function fmtClock(s) {
+  if (!s || isNaN(s)) return '0:00';
+  s = Math.floor(s);
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
 }
 
 async function pollQueue() {
