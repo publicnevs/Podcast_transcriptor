@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Zeitung</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/static/manifest.json">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:.75rem">
+    <h1 style="font-size:1.4rem">📰 PodScribe Zeitung</h1>
+    <button class="btn btn-primary" onclick="openNewDigest()">✍️ Neuen Artikel erstellen</button>
+  </div>
+
+  <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:1.5rem">
+    Wähle Podcast-Folgen aus und lass Gemini daraus einen ausführlichen journalistischen Artikel (1000–2000 Wörter) erstellen.
+  </p>
+
+  <!-- Digest List -->
+  <div id="digest-list" class="episode-list">
+    <div class="empty-state"><div class="spinner"></div></div>
+  </div>
+
+  <!-- Digest Reader Modal -->
+  <div id="reader-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeReader()">
+    <div class="modal" style="max-width:760px;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;gap:.5rem">
+        <h2 id="reader-title" class="modal-title" style="margin:0;flex:1"></h2>
+        <div style="display:flex;gap:.375rem">
+          <button class="btn btn-secondary btn-sm" onclick="copyDigest()">📋 Kopieren</button>
+          <button class="btn btn-secondary btn-sm" onclick="printDigest()">🖨️ Drucken</button>
+          <button class="btn btn-ghost btn-sm" onclick="closeReader()">✕</button>
+        </div>
+      </div>
+      <div id="reader-body" class="digest-body"></div>
+    </div>
+  </div>
+
+  <!-- New Digest Modal -->
+  <div id="new-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeNewDigest()">
+    <div class="modal" style="max-width:680px;width:100%">
+      <h2 class="modal-title">✍️ Neuen Artikel erstellen</h2>
+
+      <div style="display:flex;flex-direction:column;gap:1rem">
+        <div class="form-group">
+          <label class="form-label">Artikel-Titel</label>
+          <input type="text" id="digest-title" placeholder="z.B. KI-Entwicklungen diese Woche">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Modus</label>
+          <select id="digest-mode">
+            <option value="theme">Thematischer Report (ausgewählte Folgen zu einem Thema)</option>
+            <option value="weekly">Wochenrückblick (alle Folgen der letzten 7 Tage)</option>
+            <option value="portrait">Podcast-Portrait (alle Folgen eines Podcasts)</option>
+          </select>
+        </div>
+
+        <div id="episode-picker">
+          <div class="form-label" style="margin-bottom:.5rem">Folgen auswählen</div>
+          <div id="episode-picker-filter" style="display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+            <input type="text" id="picker-search" placeholder="Folge suchen…" style="flex:1;min-width:160px" oninput="filterPicker()">
+            <select id="picker-podcast" onchange="filterPicker()" style="flex:1;min-width:140px">
+              <option value="">Alle Podcasts</option>
+            </select>
+          </div>
+          <div id="picker-list" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <div class="empty-state"><div class="spinner"></div></div>
+          </div>
+          <div id="picker-selection" style="margin-top:.5rem;font-size:.8rem;color:var(--text-muted)">0 Folgen ausgewählt</div>
+        </div>
+
+        <div id="weekly-hint" style="display:none;padding:.75rem;background:var(--accent-dim);border-radius:var(--radius-sm);font-size:.875rem">
+          Im Wochenrückblick werden automatisch alle Folgen der letzten 7 Tage mit fertigen Transkripten verwendet.
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeNewDigest()">Abbrechen</button>
+        <button class="btn btn-primary" id="create-btn" onclick="createDigest()">🤖 Artikel generieren</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/digests');
+initGlobalSearch();
+
+let allEpisodes = [];
+let selectedIds = new Set();
+let currentDigestMd = '';
+
+async function loadDigests() {
+  const list = document.getElementById('digest-list');
+  try {
+    const digests = await API.get('/api/digests');
+    if (!digests.length) {
+      list.innerHTML = `<div class="empty-state">
+        <div class="icon">📰</div>
+        <p>Noch keine Artikel erstellt.<br>Klicke auf "Neuen Artikel erstellen" um zu starten.</p>
+      </div>`;
+      return;
+    }
+    list.innerHTML = digests.map(d => `
+      <div class="episode-item" onclick="openDigest(${d.id})">
+        <div>
+          <div class="episode-title">${escHtml(d.title)}</div>
+          <div class="episode-meta">
+            <span>${modeLabel(d.mode)}</span>
+            <span>${fmtDate(d.created_at)}</span>
+            ${d.status==='generating' ? statusBadge('transcribing') : d.status==='error' ? statusBadge('error') : statusBadge('done')}
+          </div>
+        </div>
+        <div class="episode-actions" onclick="event.stopPropagation()">
+          <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="deleteDigest(${d.id})">🗑️</button>
+        </div>
+      </div>`).join('');
+    // Auto-poll generating ones
+    if (digests.some(d => d.status === 'generating')) {
+      setTimeout(loadDigests, 6000);
+    }
+  } catch(e) {
+    list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function modeLabel(m) {
+  return { theme:'Thematischer Report', weekly:'Wochenrückblick', portrait:'Podcast-Portrait' }[m] || m;
+}
+
+async function openDigest(id) {
+  const modal = document.getElementById('reader-modal');
+  const body = document.getElementById('reader-body');
+  const title = document.getElementById('reader-title');
+  body.innerHTML = '<div class="spinner" style="margin:2rem auto;display:block"></div>';
+  modal.style.display = '';
+  try {
+    const d = await API.get(`/api/digests/${id}`);
+    title.textContent = d.title;
+    currentDigestMd = d.content_md || '';
+    if (d.status === 'generating') {
+      body.innerHTML = `<div style="text-align:center;padding:2rem">
+        <div class="spinner" style="width:36px;height:36px;margin:0 auto 1rem"></div>
+        <p>Artikel wird generiert… (ca. 1-2 Min)</p>
+      </div>`;
+      setTimeout(() => openDigest(id), 5000);
+    } else if (d.status === 'error') {
+      body.innerHTML = `<div style="color:var(--error)">Fehler beim Generieren des Artikels.</div>`;
+    } else {
+      body.innerHTML = d.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
+    }
+  } catch(e) {
+    body.innerHTML = `<div style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function closeReader() {
+  document.getElementById('reader-modal').style.display = 'none';
+  currentDigestMd = '';
+}
+
+async function copyDigest() {
+  if (currentDigestMd) {
+    await copyText(currentDigestMd, '📋 Artikel kopiert (Markdown)');
+  } else {
+    const text = document.getElementById('reader-body').innerText;
+    await copyText(text, '📋 Artikel kopiert');
+  }
+}
+
+function printDigest() {
+  window.print();
+}
+
+async function deleteDigest(id) {
+  if (!confirm('Artikel löschen?')) return;
+  try {
+    await API.del(`/api/digests/${id}`);
+    toast('Gelöscht','success');
+    loadDigests();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+// ── New Digest ──────────────────────────────────────────────────────────────
+
+async function openNewDigest() {
+  selectedIds.clear();
+  document.getElementById('digest-title').value = '';
+  document.getElementById('new-modal').style.display = '';
+  await loadPickerEpisodes();
+  await loadPickerPodcasts();
+  document.getElementById('digest-mode').addEventListener('change', onModeChange);
+  onModeChange();
+}
+
+function closeNewDigest() {
+  document.getElementById('new-modal').style.display = 'none';
+}
+
+function onModeChange() {
+  const mode = document.getElementById('digest-mode').value;
+  document.getElementById('episode-picker').style.display = mode === 'weekly' ? 'none' : '';
+  document.getElementById('weekly-hint').style.display = mode === 'weekly' ? '' : 'none';
+}
+
+async function loadPickerPodcasts() {
+  try {
+    const pods = await API.get('/api/podcasts');
+    const sel = document.getElementById('picker-podcast');
+    sel.innerHTML = '<option value="">Alle Podcasts</option>' +
+      pods.map(p => `<option value="${p.id}">${escHtml(p.title)}</option>`).join('');
+  } catch {}
+}
+
+async function loadPickerEpisodes() {
+  const list = document.getElementById('picker-list');
+  list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    // Fetch all done episodes from all podcasts
+    const pods = await API.get('/api/podcasts');
+    allEpisodes = [];
+    for (const p of pods) {
+      const eps = await API.get(`/api/podcasts/${p.id}/episodes?status=done&limit=50`);
+      eps.forEach(e => { e._podcast_title = p.title; e._podcast_id = p.id; });
+      allEpisodes.push(...eps);
+    }
+    renderPickerList(allEpisodes);
+  } catch(e) {
+    list.innerHTML = `<div style="padding:1rem;color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderPickerList(eps) {
+  const list = document.getElementById('picker-list');
+  if (!eps.length) {
+    list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:.85rem">Keine fertigen Transkripte gefunden</div>';
+    return;
+  }
+  list.innerHTML = eps.map(e => `
+    <label style="display:flex;align-items:center;gap:.625rem;padding:.5rem .75rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem">
+      <input type="checkbox" data-id="${e.id}" style="width:auto;flex-shrink:0" ${selectedIds.has(e.id)?'checked':''} onchange="toggleEp(${e.id}, this.checked)">
+      <div style="flex:1;overflow:hidden">
+        <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title)}</div>
+        <div style="color:var(--text-muted);font-size:.75rem">${escHtml(e._podcast_title)} · ${fmtDate(e.pub_date)}</div>
+      </div>
+    </label>`).join('');
+  updateSelectionCount();
+}
+
+function toggleEp(id, checked) {
+  if (checked) selectedIds.add(id);
+  else selectedIds.delete(id);
+  updateSelectionCount();
+}
+
+function updateSelectionCount() {
+  document.getElementById('picker-selection').textContent =
+    `${selectedIds.size} Folge${selectedIds.size!==1?'n':''} ausgewählt`;
+}
+
+function filterPicker() {
+  const q = document.getElementById('picker-search').value.toLowerCase();
+  const podId = document.getElementById('picker-podcast').value;
+  const filtered = allEpisodes.filter(e => {
+    const matchesText = !q || e.title.toLowerCase().includes(q) || e._podcast_title.toLowerCase().includes(q);
+    const matchesPod = !podId || String(e._podcast_id) === podId;
+    return matchesText && matchesPod;
+  });
+  renderPickerList(filtered);
+}
+
+async function createDigest() {
+  const title = document.getElementById('digest-title').value.trim();
+  const mode = document.getElementById('digest-mode').value;
+  if (!title) return toast('Bitte einen Artikel-Titel eingeben', 'error');
+
+  let episodeIds = [...selectedIds];
+
+  if (mode === 'weekly') {
+    // Get all done episodes from last 7 days
+    const cutoff = new Date(Date.now() - 7*24*60*60*1000).toISOString();
+    episodeIds = allEpisodes
+      .filter(e => e.pub_date && e.pub_date >= cutoff)
+      .map(e => e.id);
+    if (!episodeIds.length) {
+      return toast('Keine Folgen in den letzten 7 Tagen gefunden', 'error');
+    }
+  } else if (!episodeIds.length) {
+    return toast('Bitte mindestens eine Folge auswählen', 'error');
+  }
+
+  const btn = document.getElementById('create-btn');
+  btn.disabled = true; btn.textContent = '⏳ Generiere…';
+  try {
+    const r = await API.post('/api/digests', { title, mode, episode_ids: episodeIds });
+    toast('✍️ Artikel wird generiert (ca. 1-2 Min)…', 'info');
+    closeNewDigest();
+    await loadDigests();
+    setTimeout(() => openDigest(r.id), 2000);
+  } catch(e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🤖 Artikel generieren';
+  }
+}
+
+loadDigests();
+</script>
+</body>
+</html>

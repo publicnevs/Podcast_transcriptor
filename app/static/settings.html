@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Einstellungen</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/static/manifest.json">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content" style="max-width:640px">
+  <h1 style="margin-bottom:1.5rem;font-size:1.4rem">⚙️ Einstellungen</h1>
+
+  <!-- Push Notifications -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem">📲 Push-Benachrichtigungen (ntfy.sh)</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <div class="form-group">
+        <label class="form-label">ntfy Server URL</label>
+        <input type="url" id="ntfy-url" placeholder="https://ntfy.sh" value="https://ntfy.sh">
+        <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">Standard: https://ntfy.sh (kostenlos, öffentlich). Für selbst-gehosteten ntfy auf der Synology hier die lokale URL eintragen.</span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Kanal-Name (Topic)</label>
+        <div class="input-row">
+          <input type="text" id="ntfy-topic" placeholder="podscribe-m7k4p9x2">
+          <button class="btn btn-secondary" onclick="testNotification()">Test</button>
+        </div>
+        <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">
+          Wähle einen zufälligen, geheimen Namen (z.B. <code style="background:var(--bg-card2);padding:0 4px;border-radius:3px">podscribe-m7k4p9x2</code>).
+          Danach <a href="https://ntfy.sh" target="_blank">ntfy-App</a> auf dem Handy installieren und diesen Kanal abonnieren.
+        </span>
+      </div>
+      <button class="btn btn-primary" style="align-self:flex-start" onclick="saveNtfy()">💾 Speichern</button>
+    </div>
+  </div>
+
+  <!-- Scheduler -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem">🔄 Automatischer Feed-Check</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <div class="form-group">
+        <label class="form-label">Prüf-Intervall (Stunden)</label>
+        <input type="number" id="check-interval" value="24" min="1" max="168" style="width:100px">
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" style="align-self:flex-start" onclick="saveInterval()">💾 Speichern</button>
+        <button class="btn btn-secondary" onclick="triggerNow()">▶️ Jetzt alle Feeds prüfen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Queue Status -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem">📋 Aktuelle Warteschlange</h2>
+    <div id="queue-view">
+      <div class="spinner"></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="margin-top:.75rem" onclick="loadQueue()">Aktualisieren</button>
+  </div>
+
+  <!-- Gemini Info -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:.5rem">🤖 Gemini API</h2>
+    <p style="font-size:.875rem;color:var(--text-muted)">
+      Der API-Key wird in der <code style="background:var(--bg-card2);padding:0 4px;border-radius:3px">.env</code> Datei konfiguriert
+      und nie im Browser angezeigt. Zum Ändern: SSH auf die Synology → <code style="background:var(--bg-card2);padding:0 4px;border-radius:3px">nano .env</code> → Container neu starten.
+    </p>
+    <div style="margin-top:1rem;padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+      <strong style="color:var(--text)">Kosten-Hinweis:</strong> Gemini 1.5 Flash ist sehr günstig (ca. $0.075/h Audio im kostenpflichtigen Tier).
+      Der Free-Tier reicht für ~15 Folgen/Tag kostenlos. Gemini 1.5 Pro (für Zeitungs-Artikel) kostet mehr — nur bei Bedarf nutzen.
+    </div>
+  </div>
+
+  <!-- Danger Zone -->
+  <div class="card" style="border-color:rgba(239,68,68,0.3)">
+    <h2 style="font-size:1rem;margin-bottom:.5rem;color:var(--error)">⚠️ Gefahrenzone</h2>
+    <p style="font-size:.875rem;color:var(--text-muted);margin-bottom:1rem">
+      Diese Aktionen können nicht rückgängig gemacht werden.
+    </p>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn btn-danger btn-sm" onclick="clearQueue()">Warteschlange leeren</button>
+    </div>
+  </div>
+
+  <!-- PWA Install hint -->
+  <div class="card" style="margin-top:1rem;background:var(--accent-dim);border-color:var(--accent)">
+    <h2 style="font-size:1rem;margin-bottom:.5rem">📱 App auf Handy installieren</h2>
+    <p style="font-size:.875rem;color:var(--text-muted)">
+      Öffne PodScribe auf deinem Samsung S23 Ultra im Chrome-Browser → Menü (⋮) →
+      <strong style="color:var(--text)">"Zum Startbildschirm hinzufügen"</strong> → PodScribe erscheint als App-Icon.
+    </p>
+  </div>
+
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/settings');
+initGlobalSearch();
+
+async function loadSettings() {
+  try {
+    const s = await API.get('/api/settings');
+    document.getElementById('ntfy-url').value = s.ntfy_url || 'https://ntfy.sh';
+    document.getElementById('ntfy-topic').value = s.ntfy_topic || '';
+    document.getElementById('check-interval').value = s.check_interval_hours || '24';
+  } catch {}
+}
+
+async function saveNtfy() {
+  const topic = document.getElementById('ntfy-topic').value.trim();
+  const url = document.getElementById('ntfy-url').value.trim();
+  try {
+    await API.put('/api/settings', { ntfy_topic: topic, ntfy_url: url });
+    toast('✅ ntfy Einstellungen gespeichert', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function saveInterval() {
+  const hours = parseInt(document.getElementById('check-interval').value);
+  if (!hours || hours < 1) return toast('Ungültiger Wert', 'error');
+  try {
+    await API.put('/api/settings', { check_interval_hours: hours });
+    toast('✅ Intervall gespeichert', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function testNotification() {
+  const topic = document.getElementById('ntfy-topic').value.trim();
+  const url = document.getElementById('ntfy-url').value.trim();
+  if (!topic) return toast('Bitte zuerst einen Kanal-Namen eingeben', 'error');
+  await API.put('/api/settings', { ntfy_topic: topic, ntfy_url: url }).catch(()=>{});
+  try {
+    const r = await fetch(`${url.rstrip?.('/') || url.replace(/\/$/, '')}/${topic}`, {
+      method: 'POST',
+      headers: { Title: 'PodScribe Test', Tags: 'white_check_mark' },
+      body: 'PodScribe läuft! 🎙️'
+    });
+    toast(r.ok ? '📲 Test-Notification gesendet — prüfe dein Handy' : 'Fehler beim Senden', r.ok ? 'success' : 'error');
+  } catch(e) { toast('Fehler: ' + e.message, 'error'); }
+}
+
+async function triggerNow() {
+  try {
+    await API.post('/api/scheduler/trigger', {});
+    toast('▶️ Feed-Check gestartet', 'info');
+    setTimeout(loadQueue, 2000);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadQueue() {
+  const view = document.getElementById('queue-view');
+  try {
+    const q = await API.get('/api/queue');
+    if (!q.length) {
+      view.innerHTML = '<p style="color:var(--text-muted);font-size:.875rem">Keine aktiven Jobs</p>';
+      return;
+    }
+    view.innerHTML = q.map(e => `
+      <div style="display:flex;align-items:center;gap:.5rem;padding:.375rem 0;border-bottom:1px solid var(--border);font-size:.85rem">
+        ${statusBadge(e.status)}
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title)}</span>
+        ${e.podcast_title ? `<span style="color:var(--text-muted);font-size:.78rem">${escHtml(e.podcast_title)}</span>` : ''}
+        ${e.error_msg ? `<span style="color:var(--error);font-size:.75rem" title="${escHtml(e.error_msg)}">⚠️</span>` : ''}
+      </div>`).join('');
+  } catch(e) {
+    view.innerHTML = `<p style="color:var(--error)">${escHtml(e.message)}</p>`;
+  }
+}
+
+async function clearQueue() {
+  if (!confirm('Alle wartenden Jobs aus der Warteschlange entfernen?')) return;
+  toast('Funktion noch nicht implementiert — setze Status manuell in der DB zurück', 'info');
+}
+
+loadSettings();
+loadQueue();
+setInterval(loadQueue, 8000);
+</script>
+</body>
+</html>

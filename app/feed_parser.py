@@ -1,0 +1,121 @@
+import asyncio
+import re
+from typing import Optional
+
+import feedparser
+import httpx
+
+
+async def parse_rss_feed(url: str) -> dict:
+    if "spotify.com" in url:
+        url = await _resolve_spotify(url)
+
+    loop = asyncio.get_event_loop()
+    feed = await loop.run_in_executor(None, feedparser.parse, url)
+
+    if not feed.get("feed") or not feed.feed.get("title"):
+        raise ValueError(f"Ungültiger RSS-Feed: {url}")
+
+    podcast = {
+        "title": feed.feed.get("title", "Unbekannter Podcast"),
+        "description": _clean(feed.feed.get("summary", "") or feed.feed.get("subtitle", "")),
+        "artwork_url": _get_artwork(feed),
+        "website_url": feed.feed.get("link", ""),
+        "language": feed.feed.get("language", ""),
+        "rss_url": url,
+    }
+
+    episodes = []
+    for entry in feed.entries:
+        audio_url = _extract_audio(entry)
+        if not audio_url:
+            continue
+        episodes.append({
+            "title": _clean(entry.get("title", "Unbekannte Folge")),
+            "audio_url": audio_url,
+            "episode_url": entry.get("link", ""),
+            "pub_date": entry.get("published", ""),
+            "duration_sec": _parse_duration(entry.get("itunes_duration", "")),
+            "description": _clean(entry.get("summary", "")),
+        })
+
+    return {"podcast": podcast, "episodes": episodes}
+
+
+async def parse_opml(content: str) -> list:
+    urls = re.findall(r'xmlUrl=["\']([^"\']+)["\']', content, re.IGNORECASE)
+    return list(dict.fromkeys(urls))  # deduplicate, preserve order
+
+
+async def _resolve_spotify(spotify_url: str) -> str:
+    match = re.search(r"show/([a-zA-Z0-9]+)", spotify_url)
+    if not match:
+        raise ValueError("Konnte Spotify-Show-ID nicht extrahieren")
+
+    show_id = match.group(1)
+    candidates = [
+        f"https://anchor.fm/s/{show_id}/podcast/rss",
+        f"https://feeds.buzzsprout.com/{show_id}.rss",
+    ]
+    async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+        for candidate in candidates:
+            try:
+                r = await client.get(candidate)
+                if r.status_code == 200 and b"<rss" in r.content[:500]:
+                    return candidate
+            except Exception:
+                continue
+
+    raise ValueError(
+        f"Spotify-RSS konnte nicht automatisch aufgelöst werden. "
+        "Bitte suche den RSS-Feed manuell auf podcastindex.org"
+    )
+
+
+def _extract_audio(entry) -> Optional[str]:
+    for enc in entry.get("enclosures", []):
+        t = enc.get("type", "")
+        if "audio" in t or enc.get("href", "").endswith(".mp3"):
+            return enc.get("href") or enc.get("url")
+    for link in entry.get("links", []):
+        if "audio" in link.get("type", ""):
+            return link.get("href")
+    for media in entry.get("media_content", []):
+        if "audio" in media.get("type", ""):
+            return media.get("url")
+    return None
+
+
+def _get_artwork(feed) -> str:
+    img = getattr(feed.feed, "image", None)
+    if img:
+        href = getattr(img, "href", None) or getattr(img, "url", None)
+        if href:
+            return href
+    itunes = getattr(feed.feed, "itunes_image", None)
+    if isinstance(itunes, dict):
+        return itunes.get("href", "")
+    return ""
+
+
+def _parse_duration(s: str) -> int:
+    if not s:
+        return 0
+    try:
+        parts = s.split(":")
+        if len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(float(parts[2]))
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(float(parts[1]))
+        return int(float(s))
+    except Exception:
+        return 0
+
+
+def _clean(text: str) -> str:
+    if not text:
+        return ""
+    # Strip HTML tags
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()[:2000]

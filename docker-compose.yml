@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  podscribe:
+    build: .
+    container_name: podscribe
+    ports:
+      - "7878:7878"
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7878/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

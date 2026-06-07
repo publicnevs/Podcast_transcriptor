@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Episode</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/static/manifest.json">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content" id="page">
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+    <a id="back-btn" href="/" class="btn btn-ghost btn-icon">←</a>
+    <span id="breadcrumb" style="color:var(--text-muted);font-size:.875rem">…</span>
+  </div>
+  <div class="empty-state"><div class="spinner"></div><p style="margin-top:.75rem">Lade Episode…</p></div>
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('');
+initGlobalSearch();
+
+const episodeId = pageId();
+let epData = null;
+let showTranslation = false;
+const speakerMap = {};
+
+async function load() {
+  try {
+    epData = await API.get(`/api/episodes/${episodeId}`);
+    render(epData);
+    // Mark as read after 3s
+    if (!epData.read_at && epData.status === 'done') {
+      setTimeout(() => API.patch(`/api/episodes/${episodeId}/read`).catch(()=>{}), 3000);
+    }
+    // Restore scroll
+    if (epData.scroll_pos > 0) {
+      setTimeout(() => window.scrollTo(0, epData.scroll_pos), 300);
+    }
+    // Save scroll periodically
+    let scrollTimer;
+    window.addEventListener('scroll', () => {
+      clearTimeout(scrollTimer);
+      scrollTimer = setTimeout(() => {
+        fetch(`/api/episodes/${episodeId}/scroll?pos=${Math.round(window.scrollY)}`, {method:'PATCH'}).catch(()=>{});
+      }, 1500);
+    });
+  } catch(e) {
+    document.getElementById('page').innerHTML = `<div class="empty-state" style="color:var(--error)">Fehler: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function render(ep) {
+  if (ep.podcast_id) {
+    document.getElementById('back-btn').href = `/podcast/${ep.podcast_id}`;
+    document.getElementById('breadcrumb').innerHTML = `<a href="/podcast/${ep.podcast_id}">${escHtml(ep.podcast_title||'Podcast')}</a> › ${escHtml(ep.title)}`;
+  }
+  document.title = `PodScribe — ${ep.title}`;
+
+  const segments = (() => { try { return JSON.parse(ep.segments_json||'[]'); } catch { return []; } })();
+  const takeaways = (() => { try { return JSON.parse(ep.takeaways_json||'[]'); } catch { return []; } })();
+  const chapters = (() => { try { return JSON.parse(ep.chapters_json||'[]'); } catch { return []; } })();
+
+  // Build speaker → CSS class map
+  const speakers = [...new Set(segments.map(s=>s.speaker).filter(Boolean))];
+  speakers.forEach((sp, i) => { speakerMap[sp] = `speaker-${i % 5}`; });
+
+  const page = document.getElementById('page');
+  page.innerHTML = `
+    <!-- Back + breadcrumb -->
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+      <a href="${ep.podcast_id?'/podcast/'+ep.podcast_id:'/'}" class="btn btn-ghost btn-icon">←</a>
+      <span style="color:var(--text-muted);font-size:.875rem">
+        ${ep.podcast_id ? `<a href="/podcast/${ep.podcast_id}">${escHtml(ep.podcast_title||'Podcast')}</a> ›` : ''}
+        ${escHtml(ep.title)}
+      </span>
+    </div>
+
+    <!-- Episode header -->
+    <div class="page-header" style="margin-bottom:1rem">
+      ${ep.artwork_url ? `<img class="page-header-art" src="${escHtml(ep.artwork_url)}" alt="">` : ''}
+      <div class="page-header-info">
+        <h1 style="font-size:1.25rem">${escHtml(ep.title)}</h1>
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.375rem;font-size:.85rem;color:var(--text-muted)">
+          ${ep.pub_date ? `<span>📅 ${fmtDate(ep.pub_date)}</span>` : ''}
+          ${ep.duration_sec ? `<span>⏱ ${fmtDuration(ep.duration_sec)}</span>` : ''}
+          ${ep.word_count ? `<span>📝 ${ep.word_count.toLocaleString('de')} Wörter</span>` : ''}
+          ${ep.language ? `<span>🌐 ${ep.language.toUpperCase()}</span>` : ''}
+          ${statusBadge(ep.status)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+      ${ep.status==='done' ? `
+        <button class="btn btn-primary btn-sm" onclick="copyTranscript()">📋 Kopieren</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyForAI()">🤖 Für KI kopieren</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=md','_blank')">⬇️ Markdown</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=txt','_blank')">⬇️ TXT</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ Drucken/PDF</button>
+        ${ep.language && ep.language!=='de' ? `<button class="btn btn-secondary btn-sm" id="translate-btn" onclick="requestTranslation()">🇩🇪 Übersetzen</button>` : ''}
+        <button class="btn btn-ghost btn-sm" id="watch-btn" onclick="toggleWatch()">${ep.watchlist?'⭐ Leseliste':'☆ Leseliste'}</button>
+      ` : ''}
+      ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">🔄 Erneut transkribieren</button>` : ''}
+      ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">🎙️ Jetzt transkribieren</button>` : ''}
+    </div>
+
+    ${ep.status==='done' ? renderDoneContent(ep, segments, takeaways, chapters) : renderPendingContent(ep)}
+  `;
+
+  // Chapter scroll handlers
+  document.querySelectorAll('.chapter-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const targetId = item.dataset.target;
+      const el = document.getElementById(targetId);
+      if (el) { el.scrollIntoView({behavior:'smooth', block:'start'}); el.classList.add('highlight'); setTimeout(()=>el.classList.remove('highlight'),2000); }
+      document.querySelectorAll('.chapter-item').forEach(c=>c.classList.remove('active'));
+      item.classList.add('active');
+    });
+  });
+
+  // Intersection observer for active chapter
+  if (chapters.length && segments.length) {
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const segIdx = parseInt(entry.target.dataset.idx||'0');
+          // Find which chapter this segment falls under
+          const segTime = timeToSec(segments[segIdx]?.time||'0:0:0');
+          let activeChIdx = 0;
+          chapters.forEach((ch, i) => { if (timeToSec(ch.start_time) <= segTime) activeChIdx = i; });
+          document.querySelectorAll('.chapter-item').forEach((c,i) => c.classList.toggle('active', i===activeChIdx));
+        }
+      });
+    }, {threshold: 0.3});
+    document.querySelectorAll('.segment').forEach(s => observer.observe(s));
+  }
+}
+
+function renderDoneContent(ep, segments, takeaways, chapters) {
+  return `
+    <!-- Summary -->
+    ${ep.summary || takeaways.length ? `
+      <div class="summary-card">
+        ${ep.summary ? `<h3>Zusammenfassung</h3><p>${escHtml(ep.summary)}</p>` : ''}
+        ${takeaways.length ? `
+          <h3 style="margin-top:${ep.summary?'1rem':'0'}">Key Takeaways</h3>
+          <div class="takeaways">${takeaways.map(t=>`<div class="takeaway">${escHtml(t)}</div>`).join('')}</div>
+        ` : ''}
+      </div>` : ''}
+
+    <!-- Notes -->
+    <details style="margin-bottom:1.5rem">
+      <summary>📝 Persönliche Notizen</summary>
+      <div style="margin-top:.75rem">
+        <textarea id="notes-input" placeholder="Deine Gedanken zu dieser Folge…" style="min-height:80px">${escHtml(ep.note||'')}</textarea>
+        <button class="btn btn-secondary btn-sm" style="margin-top:.5rem" onclick="saveNote()">Speichern</button>
+      </div>
+    </details>
+
+    <!-- Translation toggle -->
+    ${ep.translation_de ? `
+      <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.75rem">
+        <span style="font-size:.875rem;color:var(--text-muted)">Anzeigen:</span>
+        <button class="btn btn-secondary btn-sm" id="lang-toggle" onclick="toggleLang()">🇩🇪 Deutsche Übersetzung</button>
+      </div>` : ''}
+
+    <!-- Transcript Layout -->
+    <div class="transcript-layout">
+      ${chapters.length ? `
+        <aside class="chapter-nav">
+          <h3>Kapitel</h3>
+          ${chapters.map((ch, i) => `
+            <div class="chapter-item ${i===0?'active':''}" data-target="ch-seg-${i}">
+              <span class="ch-time">${ch.start_time}</span>
+              ${escHtml(ch.title)}
+            </div>`).join('')}
+        </aside>` : '<div></div>'}
+
+      <div class="transcript-body" id="transcript-content">
+        ${segments.length ? renderSegments(segments, chapters) : `<pre style="white-space:pre-wrap;font-size:.9rem;line-height:1.7">${escHtml(ep.transcript||'')}</pre>`}
+      </div>
+    </div>`;
+}
+
+function renderSegments(segments, chapters) {
+  const chapterStarts = {};
+  if (chapters.length) {
+    chapters.forEach((ch, i) => { chapterStarts[ch.start_time] = { idx: i, ch }; });
+  }
+
+  let html = '';
+  let chMarkerSet = new Set();
+
+  segments.forEach((seg, idx) => {
+    // Insert chapter heading if this is near a chapter start
+    if (chapters.length) {
+      chapters.forEach((ch, ci) => {
+        if (!chMarkerSet.has(ci) && Math.abs(timeToSec(seg.time) - timeToSec(ch.start_time)) < 5) {
+          chMarkerSet.add(ci);
+          html += `<div id="ch-seg-${ci}" style="padding:.75rem 0 .25rem;font-size:.85rem;font-weight:700;color:var(--accent);border-top:1px solid var(--border);margin-top:.75rem">
+            <span style="font-family:monospace;font-size:.75rem;color:var(--text-muted)">${ch.start_time}</span>
+            ${escHtml(ch.title)}
+          </div>`;
+        }
+      });
+    }
+
+    const spClass = speakerMap[seg.speaker] || 'speaker-0';
+    html += `
+      <div class="segment" id="seg-${idx}" data-idx="${idx}">
+        <span class="seg-time" title="${seg.time}">${seg.time}</span>
+        ${seg.speaker ? `<span class="seg-speaker ${spClass}">${escHtml(seg.speaker)}</span>` : '<span></span>'}
+        <p class="seg-text" id="seg-text-${idx}">${escHtml(seg.text)}</p>
+      </div>`;
+  });
+  return html;
+}
+
+function renderPendingContent(ep) {
+  if (ep.status === 'error') {
+    return `<div class="card" style="border-color:var(--error)">
+      <p style="color:var(--error);font-weight:600">Fehler bei der Transkription:</p>
+      <p style="color:var(--text-muted);font-size:.875rem;margin-top:.5rem">${escHtml(ep.error_msg||'Unbekannter Fehler')}</p>
+    </div>`;
+  }
+  if (['queued','downloading','transcribing'].includes(ep.status)) {
+    return `<div class="card" style="text-align:center;padding:2rem">
+      <div class="spinner" style="width:36px;height:36px;margin:0 auto 1rem"></div>
+      <p>${statusBadge(ep.status)}</p>
+      <p style="color:var(--text-muted);font-size:.875rem;margin-top:.5rem">Diese Seite aktualisiert sich automatisch…</p>
+    </div>`;
+  }
+  return `<div class="card" style="text-align:center;padding:2rem">
+    <p>Diese Folge wurde noch nicht transkribiert.</p>
+  </div>`;
+}
+
+function timeToSec(t) {
+  if (!t) return 0;
+  const parts = t.split(':').map(Number);
+  if (parts.length === 3) return parts[0]*3600 + parts[1]*60 + parts[2];
+  if (parts.length === 2) return parts[0]*60 + parts[1];
+  return parts[0]||0;
+}
+
+async function copyTranscript() {
+  const content = document.getElementById('transcript-content');
+  if (!content) return;
+  const text = content.innerText;
+  await copyText(text, '✅ Transkript kopiert');
+}
+
+async function copyForAI() {
+  try {
+    const r = await fetch(`/api/episodes/${episodeId}/export?format=ai`);
+    const text = await r.text();
+    await copyText(text, '🤖 Für KI kopiert');
+  } catch(e) { toast(e.message,'error'); }
+}
+
+function toggleLang() {
+  showTranslation = !showTranslation;
+  const btn = document.getElementById('lang-toggle');
+  const content = document.getElementById('transcript-content');
+  if (!content || !epData) return;
+  if (showTranslation && epData.translation_de) {
+    content.innerHTML = `<pre style="white-space:pre-wrap;font-size:.9rem;line-height:1.7">${escHtml(epData.translation_de)}</pre>`;
+    btn.textContent = '🌐 Original anzeigen';
+  } else {
+    const segments = (() => { try { return JSON.parse(epData.segments_json||'[]'); } catch { return []; } })();
+    const chapters = (() => { try { return JSON.parse(epData.chapters_json||'[]'); } catch { return []; } })();
+    content.innerHTML = segments.length ? renderSegments(segments, chapters) : `<pre style="white-space:pre-wrap">${escHtml(epData.transcript||'')}</pre>`;
+    btn.textContent = '🇩🇪 Deutsche Übersetzung';
+  }
+}
+
+async function requestTranslation() {
+  const btn = document.getElementById('translate-btn');
+  btn.disabled = true; btn.textContent = '⏳ Übersetze…';
+  try {
+    const r = await API.post(`/api/episodes/${episodeId}/translate`, {});
+    if (r.already_translated) {
+      toast('Übersetzung bereits vorhanden', 'info');
+    } else {
+      toast('Übersetzung wird erstellt (ca. 1-2 Min)…', 'info');
+      pollTranslation();
+    }
+  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.textContent='🇩🇪 Übersetzen'; }
+}
+
+async function pollTranslation() {
+  for (let i=0; i<60; i++) {
+    await new Promise(r=>setTimeout(r,3000));
+    const ep = await API.get(`/api/episodes/${episodeId}`).catch(()=>null);
+    if (ep?.translation_de) {
+      epData = ep;
+      toast('✅ Übersetzung fertig!','success');
+      render(ep);
+      return;
+    }
+  }
+}
+
+async function saveNote() {
+  const content = document.getElementById('notes-input').value;
+  try {
+    await API.post(`/api/episodes/${episodeId}/notes`, { content });
+    toast('📝 Notiz gespeichert','success');
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function toggleWatch() {
+  try {
+    await API.patch(`/api/episodes/${episodeId}/watchlist`);
+    const btn = document.getElementById('watch-btn');
+    const onList = btn.textContent.includes('⭐');
+    btn.textContent = onList ? '☆ Leseliste' : '⭐ Leseliste';
+    toast(onList ? 'Von Leseliste entfernt' : '⭐ Zur Leseliste hinzugefügt','info');
+  } catch {}
+}
+
+async function startTranscribe() {
+  try {
+    await API.post('/api/episodes/transcribe', { urls: [epData.audio_url] });
+    toast('🎙️ Transkription gestartet','success');
+    pollStatus();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function retranscribe() {
+  try {
+    await API.post(`/api/episodes/${episodeId}/retranscribe`, {});
+    toast('🔄 Erneute Transkription gestartet','success');
+    pollStatus();
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function pollStatus() {
+  for (let i=0; i<200; i++) {
+    await new Promise(r=>setTimeout(r, i<5 ? 2000 : 4000));
+    const ep = await API.get(`/api/episodes/${episodeId}`).catch(()=>null);
+    if (!ep) continue;
+    epData = ep;
+    if (ep.status === 'done') { render(ep); toast('✅ Transkription fertig!','success'); return; }
+    if (ep.status === 'error') { render(ep); toast('❌ Fehler bei der Transkription','error'); return; }
+    // Update status badge in page
+    const statusEl = document.querySelector('.status');
+    if (statusEl) statusEl.outerHTML = statusBadge(ep.status);
+  }
+}
+
+load().then(() => {
+  if (epData && ['queued','downloading','transcribing'].includes(epData.status)) pollStatus();
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Podcast</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/static/manifest.json">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+    <a href="/" class="btn btn-ghost btn-icon" title="Zurück">←</a>
+    <span id="breadcrumb" style="color:var(--text-muted);font-size:.875rem">Bibliothek</span>
+  </div>
+
+  <div id="podcast-header" class="page-header">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="action-bar" id="podcast-actions" style="display:none">
+    <button class="btn btn-secondary btn-sm" onclick="triggerCheck()">🔄 Auf neue Folgen prüfen</button>
+    <button class="btn btn-secondary btn-sm" onclick="bulkExport()">📦 Alle Transkripte exportieren</button>
+    <button class="btn btn-danger btn-sm" onclick="deletePodcast()">🗑️ Abonnement löschen</button>
+  </div>
+
+  <!-- Filter Tabs -->
+  <div style="display:flex;gap:.375rem;margin-bottom:1rem;flex-wrap:wrap" id="filter-tabs">
+    <button class="btn btn-primary btn-sm active-tab" data-status="" onclick="setFilter('')">Alle</button>
+    <button class="btn btn-secondary btn-sm" data-status="done" onclick="setFilter('done')">✅ Fertig</button>
+    <button class="btn btn-secondary btn-sm" data-status="pending" onclick="setFilter('pending')">⏸ Ausstehend</button>
+    <button class="btn btn-secondary btn-sm" data-status="error" onclick="setFilter('error')">❌ Fehler</button>
+  </div>
+
+  <!-- Episodes -->
+  <div id="episode-list" class="episode-list">
+    <div class="empty-state"><div class="spinner"></div></div>
+  </div>
+
+  <div id="load-more" style="text-align:center;margin-top:1rem;display:none">
+    <button class="btn btn-secondary" onclick="loadMore()">Mehr laden</button>
+  </div>
+
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('');
+initGlobalSearch();
+setInterval(pollQueue, 8000);
+
+const podcastId = pageId();
+let currentFilter = '';
+let currentPage = 1;
+let podcastData = null;
+
+async function loadPodcast() {
+  try {
+    podcastData = await API.get(`/api/podcasts/${podcastId}`);
+    const h = document.getElementById('podcast-header');
+    h.innerHTML = `
+      ${podcastData.artwork_url
+        ? `<img class="page-header-art" src="${escHtml(podcastData.artwork_url)}" alt="" onerror="this.style.display='none'">`
+        : `<div class="page-header-art" style="background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:2rem">🎙️</div>`}
+      <div class="page-header-info">
+        <h1>${escHtml(podcastData.title)}</h1>
+        <p>${escHtml((podcastData.description||'').slice(0,200))}</p>
+        <div style="display:flex;gap:.75rem;margin-top:.5rem;flex-wrap:wrap">
+          ${podcastData.website_url ? `<a href="${escHtml(podcastData.website_url)}" target="_blank" style="font-size:.8rem">🔗 Website</a>` : ''}
+          <label style="display:flex;align-items:center;gap:.375rem;font-size:.85rem;cursor:pointer">
+            <input type="checkbox" id="auto-t" ${podcastData.auto_transcribe?'checked':''} onchange="toggleAuto()" style="width:auto">
+            Auto-Transkription
+          </label>
+        </div>
+      </div>`;
+    document.title = `PodScribe — ${podcastData.title}`;
+    document.getElementById('breadcrumb').textContent = podcastData.title;
+    document.getElementById('podcast-actions').style.display = '';
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function loadEpisodes(append=false) {
+  if (!append) currentPage = 1;
+  const list = document.getElementById('episode-list');
+  if (!append) list.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    const url = `/api/podcasts/${podcastId}/episodes?page=${currentPage}&limit=30${currentFilter?'&status='+currentFilter:''}`;
+    const episodes = await API.get(url);
+    if (!append) list.innerHTML = '';
+    if (!episodes.length && !append) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">🎵</div><p>Keine Folgen in dieser Kategorie</p></div>';
+      document.getElementById('load-more').style.display = 'none';
+      return;
+    }
+    list.insertAdjacentHTML('beforeend', episodes.map(e => renderEpisode(e)).join(''));
+    document.getElementById('load-more').style.display = episodes.length===30 ? '' : 'none';
+  } catch(e) { list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`; }
+}
+
+function renderEpisode(e) {
+  const chapters = (() => { try { return JSON.parse(e.chapters_json||'[]'); } catch { return []; } })();
+  return `
+    <div class="episode-item ${e.read_at?'read':'unread'}" onclick="location.href='/episode/${e.id}'">
+      <div>
+        <div class="episode-title">${escHtml(e.title)}</div>
+        <div class="episode-meta">
+          <span>${fmtDate(e.pub_date)}</span>
+          ${e.duration_sec?`<span>${fmtDuration(e.duration_sec)}</span>`:''}
+          ${statusBadge(e.status)}
+          ${e.word_count?`<span>${(e.word_count/1000).toFixed(1)}k Wörter</span>`:''}
+        </div>
+        ${e.summary?`<div class="episode-summary">${escHtml(e.summary)}</div>`:''}
+        ${chapters.length?`<div style="margin-top:.375rem;font-size:.75rem;color:var(--text-muted)">${chapters.length} Kapitel</div>`:''}
+      </div>
+      <div class="episode-actions" onclick="event.stopPropagation()">
+        ${e.status==='pending'||e.status==='error'
+          ? `<button class="btn btn-primary btn-icon btn-sm" title="Transkribieren" onclick="transcribeOne(${e.id},'${escHtml(e.audio_url)}', this)">🎙️</button>`
+          : ''}
+        <button class="btn btn-ghost btn-icon btn-sm" title="${e.watchlist?'Von Leseliste':'Zur Leseliste'}" onclick="toggleWatch(${e.id}, this)">${e.watchlist?'⭐':'☆'}</button>
+      </div>
+    </div>`;
+}
+
+function setFilter(status) {
+  currentFilter = status;
+  document.querySelectorAll('#filter-tabs button').forEach(b => {
+    b.className = b.dataset.status === status ? 'btn btn-primary btn-sm active-tab' : 'btn btn-secondary btn-sm';
+  });
+  loadEpisodes();
+}
+
+function loadMore() { currentPage++; loadEpisodes(true); }
+
+async function transcribeOne(id, url, btn) {
+  btn.disabled = true; btn.textContent = '⏳';
+  try {
+    await API.post('/api/episodes/transcribe', { urls: [url] });
+    toast('In Warteschlange', 'info');
+    setTimeout(() => loadEpisodes(), 1500);
+  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.textContent='🎙️'; }
+}
+
+async function toggleWatch(id, btn) {
+  try {
+    await API.patch(`/api/episodes/${id}/watchlist`);
+    btn.textContent = btn.textContent==='☆'?'⭐':'☆';
+  } catch {}
+}
+
+async function toggleAuto() {
+  const checked = document.getElementById('auto-t').checked;
+  await API.patch(`/api/podcasts/${podcastId}`, { auto_transcribe: checked });
+  toast(checked ? '🔄 Auto-Transkription aktiviert' : 'Auto-Transkription deaktiviert', 'info');
+}
+
+async function triggerCheck() {
+  try {
+    await API.post('/api/scheduler/trigger', {});
+    toast('Feed-Check gestartet', 'info');
+    setTimeout(loadEpisodes, 3000);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+async function bulkExport() {
+  window.open(`/api/podcasts/${podcastId}/export`, '_blank');
+}
+
+async function deletePodcast() {
+  if (!confirm(`Podcast "${podcastData?.title}" und alle Transkripte löschen?`)) return;
+  try {
+    await API.del(`/api/podcasts/${podcastId}`);
+    toast('Gelöscht', 'success');
+    setTimeout(() => location.href='/', 800);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+// Auto-refresh active jobs
+let refreshTimer;
+async function checkAndRefresh() {
+  const list = document.getElementById('episode-list');
+  const hasActive = list.innerHTML.includes('status-downloading') || list.innerHTML.includes('status-transcribing') || list.innerHTML.includes('status-queued');
+  if (hasActive) loadEpisodes();
+}
+
+loadPodcast().then(() => loadEpisodes());
+setInterval(checkAndRefresh, 6000);
+</script>
+</body>
+</html>
