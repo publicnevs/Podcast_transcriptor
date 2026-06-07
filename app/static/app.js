@@ -102,12 +102,14 @@ function renderNav(activePath) {
       <nav class="topbar-nav">
         <a href="/" ${isLib?'class="active"':''}>📚 <span>Bibliothek</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>📰 <span>Zeitung</span></a>
+        <a href="/about" ${activePath==='/about'?'class="active"':''}>💡 <span>Features</span></a>
         <a href="/settings" ${activePath==='/settings'?'class="active"':''}>⚙️ <span>Settings</span></a>
       </nav>
     </nav>
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">📚</span>Bibliothek</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">📰</span>Zeitung</a>
+      <a href="/about" ${activePath==='/about'?'class="active"':''}><span class="bn-icon">💡</span>Features</a>
       <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">⚙️</span>Mehr</a>
     </nav>`;
 }

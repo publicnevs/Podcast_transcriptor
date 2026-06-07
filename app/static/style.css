@@ -854,3 +854,17 @@ details[open] summary::before { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── App Footer ─────────────────────────────────────────────── */
+.app-footer {
+  text-align: center;
+  padding: 1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom));
+  color: var(--text-muted);
+  font-size: .75rem;
+  line-height: 1.8;
+  border-top: 1px solid var(--border);
+  margin-top: 3rem;
+}
+.app-footer a { color: var(--accent); text-decoration: none; }
+.app-footer a:hover { text-decoration: underline; }
+.app-footer strong { color: var(--text); }

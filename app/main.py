@@ -136,6 +136,11 @@ async def manifest():
     return FileResponse(STATIC_DIR / "manifest.json", media_type="application/manifest+json")
 
 
+@app.get("/about", response_class=HTMLResponse)
+async def page_about():
+    return FileResponse(STATIC_DIR / "about.html")
+
+
 # ── Podcasts ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/podcasts")

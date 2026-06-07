@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Über die App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+<div id="read-progress"></div>
+
+<div class="main-content" style="max-width:780px">
+
+  <!-- Hero -->
+  <div style="text-align:center;padding:2.5rem 1rem 2rem">
+    <div style="font-size:3.5rem;margin-bottom:1rem">🎙️</div>
+    <h1 style="font-size:2rem;font-weight:700;background:linear-gradient(135deg,#e8e8f5,#7c6ff7);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text">PodScribe</h1>
+    <p style="color:var(--text-muted);margin-top:.5rem;font-size:1.05rem">Dein privater Podcast-Transkriptions-Hub</p>
+    <div style="margin-top:1.25rem;display:flex;justify-content:center;gap:.75rem;flex-wrap:wrap">
+      <span class="badge badge-accent">v1.0</span>
+      <span class="badge">Self-Hosted</span>
+      <span class="badge">Open Source</span>
+      <span class="badge">PWA</span>
+    </div>
+  </div>
+
+  <!-- Copyright / Impressum -->
+  <div class="card" style="margin-bottom:1.5rem;border-color:var(--accent-dim)">
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <div style="font-size:2.5rem">👤</div>
+      <div>
+        <div style="font-weight:700;font-size:1.1rem">Sven Kompe</div>
+        <div style="color:var(--text-muted);font-size:.875rem">Entwicklung & Konzept</div>
+        <div style="color:var(--text-muted);font-size:.8rem;margin-top:.2rem">© 2026 Sven Kompe · Alle Rechte vorbehalten</div>
+      </div>
+    </div>
+    <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border);font-size:.82rem;color:var(--text-muted);line-height:1.7">
+      PodScribe ist ein privates Self-Hosting-Projekt. Die App wurde entwickelt, um Podcast-Transkripte
+      automatisiert zu erstellen, durchsuchbar zu machen und mit KI-Tools weiterzuverarbeiten.
+      Transkription via Google Gemini API · Audio-Download via yt-dlp · Deployment via Docker auf Synology NAS.
+    </div>
+  </div>
+
+  <!-- Feature-Übersicht -->
+  <div class="section-title" style="margin-bottom:1rem">⚡ Feature-Übersicht</div>
+
+  <div style="display:grid;gap:1rem">
+
+    <!-- Podcast-Management -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">📻</span>
+        <h2 style="font-size:1rem;font-weight:700">Podcast-Management</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">RSS-Feed Abonnement</div>
+            <div class="feature-desc">Podcast abonnieren via RSS-URL, YouTube-Kanal oder direkter Audio-URL</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">OPML-Import</div>
+            <div class="feature-desc">Alle Podcasts auf einmal aus Apple Podcasts, Pocket Casts oder anderen Apps importieren</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Auto-Transkription</div>
+            <div class="feature-desc">Neue Folgen werden automatisch erkannt und transkribiert (konfigurierbar pro Podcast)</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Flexible Abo-Optionen</div>
+            <div class="feature-desc">Max. Folgen limitieren, Intervall konfigurieren, nur bestimmte Folgen transkribieren</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transkription -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">🎙️</span>
+        <h2 style="font-size:1rem;font-weight:700">Transkription</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Gemini 1.5 Flash (Cloud)</div>
+            <div class="feature-desc">Schnelle, günstige Cloud-Transkription (~Free-Tier für bis zu 15 Folgen/Tag). Empfohlen.</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Lokales Whisper-Backend</div>
+            <div class="feature-desc">faster-whisper (Modelle: tiny/base/small) — offline, kostenlos, aber langsamer auf schwacher CPU</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Sprecher-Erkennung</div>
+            <div class="feature-desc">Host/Gast werden automatisch erkannt und farblich im Transkript markiert</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Zeitstempel</div>
+            <div class="feature-desc">Jeder Absatz hat einen klickbaren Zeitstempel — springt direkt zur Stelle im Audio-Player</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KI-Features -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">🤖</span>
+        <h2 style="font-size:1rem;font-weight:700">KI-Features</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Auto-Zusammenfassung</div>
+            <div class="feature-desc">5-Satz-Zusammenfassung jeder Folge, automatisch nach der Transkription</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Key Takeaways</div>
+            <div class="feature-desc">6–10 Bullet Points der wichtigsten Erkenntnisse, direkt auf der Episodenseite</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Automatische Kapitel</div>
+            <div class="feature-desc">Themenblöcke mit Zeitstempeln werden erkannt — klickbare Navigation im Transkript</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Deutsche Übersetzung</div>
+            <div class="feature-desc">Englische (oder andere) Transkripte per Klick ins Deutsche übersetzen</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Für KI kopieren</div>
+            <div class="feature-desc">Transkript + Metadaten optimal formatiert für Claude / Gemini / ChatGPT</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audio-Player -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">🎧</span>
+        <h2 style="font-size:1rem;font-weight:700">Audio-Player mit synchronem Transkript</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Synchrones Mitlesen</div>
+            <div class="feature-desc">Der aktuelle Absatz wird hervorgehoben und scrollt automatisch mit dem Audio mit</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Klick-to-seek</div>
+            <div class="feature-desc">Klick auf einen beliebigen Transkript-Absatz → Audio springt direkt zur Stelle</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Geschwindigkeitssteuerung</div>
+            <div class="feature-desc">1× · 1.25× · 1.5× · 1.75× · 2× — ideal für effizientes Nachhören</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">15-Sekunden-Sprung</div>
+            <div class="feature-desc">Vor/Zurück-Sprung per Knopf, Range-Support für Seeking</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bibliothek & Suche -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">🔍</span>
+        <h2 style="font-size:1rem;font-weight:700">Bibliothek & Suche</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Volltextsuche</div>
+            <div class="feature-desc">SQLite FTS5 — blitzschnelle Suche über alle Transkripte, auch sehr große Bestände</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Ungelesen-Tracking</div>
+            <div class="feature-desc">Badge pro Podcast, Scroll-Position wird gespeichert, "als gelesen" markieren</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Leseliste</div>
+            <div class="feature-desc">Folgen für später vormerken, persönliche Notizen pro Episode</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Filter & Sortierung</div>
+            <div class="feature-desc">Nach Podcast, Zeitraum, Lesestatus und Transkriptions-Status filtern</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">📦</span>
+        <h2 style="font-size:1rem;font-weight:700">Export</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">TXT / Markdown / PDF</div>
+            <div class="feature-desc">Einzelne Episode in verschiedenen Formaten exportieren und herunterladen</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Bulk-Export</div>
+            <div class="feature-desc">Alle Folgen eines Podcasts als eine große Markdown-Datei — ideal für AI-Research</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Drucken/PDF</div>
+            <div class="feature-desc">Druckansicht direkt aus dem Browser — sauber formatiert ohne UI-Chrome</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Zeitung -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">📰</span>
+        <h2 style="font-size:1rem;font-weight:700">PodScribe Zeitung (Digest)</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Journalistische Artikel</div>
+            <div class="feature-desc">Gemini 1.5 Pro generiert ausführliche, echte Redaktionstexte (1200–2000 Wörter) aus Transkripten</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Wochenzeitung</div>
+            <div class="feature-desc">Alle Folgen der letzten 7 Tage zu einem kompakten Wochenbericht zusammengefasst</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Themen-Report</div>
+            <div class="feature-desc">Manuell ausgewählte Folgen zu einem thematischen Artikel kombinieren</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Podcast-Portrait</div>
+            <div class="feature-desc">Alle Folgen eines Podcasts analysieren — Stil, Qualität, wiederkehrende Themen</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PWA & Mobile -->
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+        <span style="font-size:1.5rem">📱</span>
+        <h2 style="font-size:1rem;font-weight:700">PWA & Mobile</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Progressive Web App</div>
+            <div class="feature-desc">Als echte App auf dem Homescreen installierbar (Android/iOS) — kein App Store nötig</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Offline-Lesen</div>
+            <div class="feature-desc">Service Worker cached Transkripte — auch ohne Internet lesbar (z.B. im Zug)</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Mobile-first Design</div>
+            <div class="feature-desc">Bottom-Navigation, große Touch-Targets, Schriftgrößen-Regler, Dark Mode</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check">✓</span>
+          <div>
+            <div class="feature-title">Push-Benachrichtigungen</div>
+            <div class="feature-desc">Über ntfy.sh auf Android-Handy — Benachrichtigung wenn Transkript fertig ist</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Tech-Stack -->
+  <div class="section-title" style="margin-top:2rem;margin-bottom:1rem">🔧 Tech-Stack</div>
+  <div class="card" style="margin-bottom:2rem">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem">
+      ${[
+        ['Backend','Python 3.11 + FastAPI'],
+        ['Datenbank','SQLite + FTS5'],
+        ['Audio-Download','yt-dlp + ffmpeg'],
+        ['Transkription','Gemini 1.5 Flash / Whisper'],
+        ['KI-Artikel','Gemini 1.5 Pro'],
+        ['RSS/OPML','feedparser'],
+        ['Background-Jobs','APScheduler'],
+        ['Push','ntfy.sh'],
+        ['Frontend','Vanilla JS (kein Framework)'],
+        ['Deployment','Docker Compose'],
+        ['Hosting','Synology DS218+'],
+      ].map(([k,v]) => `
+        <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+          <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">${k}</div>
+          <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">${v}</div>
+        </div>`).join('')}
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center;padding:1.5rem 0 3rem;color:var(--text-muted);font-size:.8rem;line-height:1.9">
+    <div style="font-size:1.5rem;margin-bottom:.5rem">🎙️</div>
+    <div><strong style="color:var(--text)">PodScribe</strong> · © 2026 Sven Kompe</div>
+    <div>Entwickelt mit ♥ und Claude · Self-Hosted auf Synology DS218+</div>
+    <div style="margin-top:.5rem">
+      <a href="https://github.com/publicnevs/Podcast_transcriptor" target="_blank" style="color:var(--accent);text-decoration:none">GitHub</a>
+      &nbsp;·&nbsp;
+      <a href="/settings" style="color:var(--accent);text-decoration:none">Einstellungen</a>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/about');
+initReadProgress();
+</script>
+
+<style>
+.badge { display:inline-block; padding:.25rem .6rem; border-radius:20px; font-size:.72rem; font-weight:600; background:var(--bg-card2); border:1px solid var(--border); color:var(--text-muted); }
+.badge-accent { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+.feature-grid { display:flex; flex-direction:column; gap:.75rem; }
+.feature-item { display:flex; align-items:flex-start; gap:.75rem; }
+.feature-check { color:var(--success); font-weight:700; font-size:1rem; flex-shrink:0; margin-top:.1rem; }
+.feature-title { font-size:.875rem; font-weight:600; }
+.feature-desc { font-size:.8rem; color:var(--text-muted); margin-top:.15rem; line-height:1.5; }
+@media (min-width:600px) { .feature-grid { display:grid; grid-template-columns:1fr 1fr; } }
+</style>
+</body>
+</html>
