@@ -15,12 +15,14 @@ import re
 import time
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-FLASH_MODEL = "gemini-1.5-flash"
-PRO_MODEL = "gemini-1.5-pro"
+# Model names overridable via env (Gemini 1.5 was retired; default to 2.5)
+FLASH_MODEL = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
+PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
 
 # Runtime-overridable settings (set from DB at startup / on change)
 _runtime = {
@@ -43,11 +45,17 @@ def get_backend():
     return _runtime["backend"]
 
 
+def _get_key():
+    return _runtime["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")
+
+
 def _configure_gemini():
-    key = _runtime["gemini_api_key"] or os.getenv("GEMINI_API_KEY", "")
-    if key:
-        genai.configure(api_key=key)
-    return bool(key)
+    return bool(_get_key())
+
+
+def _client():
+    """Fresh client per use — new google-genai SDK, supports AQ. keys."""
+    return genai.Client(api_key=_get_key())
 
 
 # ── Prompts ──────────────────────────────────────────────────────────────────
@@ -180,49 +188,56 @@ async def generate_digest(episode_data: list, mode: str, title: str) -> dict:
 # ── Gemini implementations ────────────────────────────────────────────────────
 
 def _gemini_full_sync(audio_path: Path) -> dict:
-    model = genai.GenerativeModel(FLASH_MODEL)
+    client = _client()
     logger.info(f"Uploading {audio_path.name} to Gemini...")
-    uploaded = genai.upload_file(str(audio_path), mime_type="audio/mpeg")
+    uploaded = client.files.upload(
+        file=str(audio_path),
+        config=types.UploadFileConfig(mime_type="audio/mpeg"),
+    )
 
     for _ in range(160):
         if uploaded.state.name != "PROCESSING":
             break
         time.sleep(3)
-        uploaded = genai.get_file(uploaded.name)
+        uploaded = client.files.get(name=uploaded.name)
 
     if uploaded.state.name == "FAILED":
         raise RuntimeError("Gemini audio processing failed")
 
     logger.info("Generating transcription...")
-    response = model.generate_content(
-        [GEMINI_FULL_PROMPT, uploaded],
-        generation_config={"temperature": 0.1, "max_output_tokens": 65536},
+    response = client.models.generate_content(
+        model=FLASH_MODEL,
+        contents=[GEMINI_FULL_PROMPT, uploaded],
+        config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=65536),
     )
     try:
-        genai.delete_file(uploaded.name)
+        client.files.delete(name=uploaded.name)
     except Exception:
         pass
     return _parse_json(response.text)
 
 
 def _enrich_sync(transcript: str) -> dict:
-    model = genai.GenerativeModel(FLASH_MODEL)
-    response = model.generate_content(
-        [ENRICH_PROMPT.format(transcript=transcript[:120000])],
-        generation_config={"temperature": 0.2, "max_output_tokens": 8192},
+    client = _client()
+    response = client.models.generate_content(
+        model=FLASH_MODEL,
+        contents=[ENRICH_PROMPT.format(transcript=transcript[:120000])],
+        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=8192),
     )
     return _parse_json(response.text)
 
 
 def _translate_sync(text: str) -> str:
-    model = genai.GenerativeModel(FLASH_MODEL)
+    client = _client()
     prompt = (
         "Übersetze das folgende Podcast-Transkript ins Deutsche. "
         "Behalte Zeitstempel und Sprecher-Labels bei. "
         "Gib NUR den übersetzten Text zurück.\n\n" + text[:60000]
     )
-    response = model.generate_content(
-        [prompt], generation_config={"temperature": 0.2, "max_output_tokens": 65536}
+    response = client.models.generate_content(
+        model=FLASH_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=65536),
     )
     return response.text
 
@@ -245,9 +260,11 @@ def _digest_sync(episode_data: list, mode: str, title: str) -> dict:
         mode_instruction=mode_instructions, title=title,
         episodes_text=episodes_text[:60000],
     )
-    model = genai.GenerativeModel(PRO_MODEL)
-    response = model.generate_content(
-        [prompt], generation_config={"temperature": 0.7, "max_output_tokens": 8192}
+    client = _client()
+    response = client.models.generate_content(
+        model=PRO_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(temperature=0.7, max_output_tokens=8192),
     )
     data = _parse_json(response.text)
     if "content_md" not in data:
