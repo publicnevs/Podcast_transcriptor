@@ -189,8 +189,8 @@ RECOMMENDED_PODCASTS = [
      "desc": "Sascha Lobo über Technologie, KI und digitale Souveränität. Transkripte (JSON+VTT) im Feed.",
      "transcripts": True},
     {"title": "Der KI-Podcast (ARD/BR)", "lang": "de",
-     "rss": "https://www.br.de/nachrichten/wissen/der-ki-podcast,TrZp0vL.rss",
-     "desc": "Gesellschaftliche & praktische Auswirkungen von KI im Alltag. Gut recherchiert.",
+     "rss": "https://feeds.br.de/der-ki-podcast/feed.xml",
+     "desc": "Gesellschaftliche & praktische Auswirkungen von KI im Alltag. Gut recherchiert (Transkription via Gemini).",
      "transcripts": False},
 ]
 
