@@ -69,7 +69,12 @@ def _detect_format(url, type_hint, ctype, text):
 def _parse_json_transcript(text: str) -> list:
     """Podcast Index JSON transcript format: {"segments":[{"startTime","speaker","body"}]}"""
     data = json.loads(text)
-    raw = data.get("segments", data if isinstance(data, list) else [])
+    if isinstance(data, list):
+        raw = data
+    elif isinstance(data, dict):
+        raw = data.get("segments") or data.get("results") or []
+    else:
+        raw = []
     out = []
     for s in raw:
         if not isinstance(s, dict):
