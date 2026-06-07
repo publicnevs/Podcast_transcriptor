@@ -99,11 +99,24 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('whisper_model', 'base');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('gemini_api_key', '');
 """
 
+# Additive migrations for existing databases (CREATE TABLE IF NOT EXISTS
+# won't add new columns to an already-existing table).
+_MIGRATIONS = [
+    "ALTER TABLE episodes ADD COLUMN transcript_url TEXT",
+    "ALTER TABLE episodes ADD COLUMN transcript_type TEXT",
+]
+
+
 async def init_db():
     import os
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
+        for stmt in _MIGRATIONS:
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # column already exists
         await db.commit()
 
 async def get_setting(key: str) -> str:

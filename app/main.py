@@ -161,6 +161,45 @@ async def list_podcasts():
     return [dict(r) for r in rows]
 
 
+# Curated starter feeds — KI/AI podcasts. Feeds providing <podcast:transcript>
+# tags (e.g. Latent Space, Practical AI) are transcribed for free from the feed.
+RECOMMENDED_PODCASTS = [
+    {"title": "Latent Space", "lang": "en",
+     "rss": "https://api.substack.com/feed/podcast/1084081.rss",
+     "desc": "Entwickler-Deep-Dives: Code, Agenten, LLM-Architekturen, Gründer-Interviews. Liefert Transkripte im Feed.",
+     "transcripts": True},
+    {"title": "The Cognitive Revolution", "lang": "en",
+     "rss": "https://api.substack.com/feed/podcast/1033902.rss",
+     "desc": "Nathan Labenz interviewt KI-Forscher an der Front. Analytisch, Safety & Transformation.",
+     "transcripts": False},
+    {"title": "Practical AI", "lang": "en",
+     "rss": "https://changelog.com/practicalai/feed",
+     "desc": "Brücke zwischen ML-Theorie und produktivem Einsatz. Transkripte (VTT) im Feed enthalten.",
+     "transcripts": True},
+    {"title": "The AI Podcast (NVIDIA)", "lang": "en",
+     "rss": "https://feeds.content.audioboom.com/podcasts/4929837.rss",
+     "desc": "Kurze, gut produzierte Episoden zu konkreten KI-Use-Cases von Biologie bis autonomes Fahren.",
+     "transcripts": False},
+    {"title": "KI-Update (heise)", "lang": "de",
+     "rss": "https://ki-update.podigee.io/feed/mp3",
+     "desc": "Werktägliches kurzes Update zu KI in Wirtschaft, Forschung und Praxis.",
+     "transcripts": False},
+    {"title": "Der KI-Podcast (ARD/BR)", "lang": "de",
+     "rss": "https://www.br.de/nachrichten/wissen/der-ki-podcast,TrZp0vL.rss",
+     "desc": "Gesellschaftliche & praktische Auswirkungen von KI im Alltag. Gut recherchiert.",
+     "transcripts": False},
+]
+
+
+@app.get("/api/recommended")
+async def recommended_podcasts():
+    """Curated starter list + which ones the user already subscribes to."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT rss_url FROM podcasts") as cur:
+            subscribed = {r[0] for r in await cur.fetchall()}
+    return [{**p, "subscribed": p["rss"] in subscribed} for p in RECOMMENDED_PODCASTS]
+
+
 @app.post("/api/podcasts", status_code=201)
 async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
     try:
@@ -198,10 +237,12 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
                 await db.execute(
                     """INSERT OR IGNORE INTO episodes
                            (podcast_id, title, audio_url, episode_url, pub_date,
-                            duration_sec, description, status)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            duration_sec, description, status,
+                            transcript_url, transcript_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (podcast_id, ep["title"], ep["audio_url"], ep["episode_url"],
-                     ep["pub_date"], ep["duration_sec"], ep["description"], status),
+                     ep["pub_date"], ep["duration_sec"], ep["description"], status,
+                     ep.get("transcript_url", ""), ep.get("transcript_type", "")),
                 )
             except Exception:
                 pass

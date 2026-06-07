@@ -7,19 +7,59 @@ import aiosqlite
 from .database import DB_PATH
 from .downloader import download_audio
 from .notifier import send_notification
-from .transcriber import transcribe_audio
+from .transcriber import transcribe_audio, enrich_text
+from .transcript_fetch import fetch_transcript
 
 logger = logging.getLogger(__name__)
+
+
+async def _get_transcript_source(episode_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT transcript_url, transcript_type FROM episodes WHERE id=?",
+            (episode_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    return (row[0] or "", row[1] or "") if row else ("", "")
 
 
 async def process_episode(episode_id: int, audio_url: str, title: str, podcast_title: str):
     audio_path: Path | None = None
     try:
-        await _set_status(episode_id, "downloading")
-        audio_path = await download_audio(audio_url)
+        transcript_url, transcript_type = await _get_transcript_source(episode_id)
+        data = None
+        model_used = "gemini"
 
-        await _set_status(episode_id, "transcribing")
-        data = await transcribe_audio(audio_path)
+        # Fast path: feed already provides a transcript → no download, no Gemini audio
+        if transcript_url:
+            try:
+                await _set_status(episode_id, "transcribing")
+                logger.info(f"Episode {episode_id}: using feed transcript {transcript_url}")
+                data = await fetch_transcript(transcript_url, transcript_type)
+                model_used = "feed-transcript"
+                # Enrich text-only (cheap) for summary / takeaways / chapters
+                try:
+                    full = "\n".join(
+                        f"[{s.get('time','')}] {s.get('speaker','')}: {s.get('text','')}"
+                        for s in data.get("segments", [])
+                    )
+                    enrichment = await enrich_text(full)
+                    for k in ("summary", "takeaways", "chapters", "language"):
+                        if enrichment.get(k):
+                            data[k] = enrichment[k]
+                except Exception as e:
+                    logger.warning(f"Episode {episode_id}: enrichment skipped: {e}")
+            except Exception as e:
+                logger.warning(f"Episode {episode_id}: feed transcript failed ({e}), "
+                               f"falling back to audio transcription")
+                data = None
+
+        # Standard path: download audio + transcribe (Gemini or Whisper)
+        if data is None:
+            await _set_status(episode_id, "downloading")
+            audio_path = await download_audio(audio_url)
+            await _set_status(episode_id, "transcribing")
+            data = await transcribe_audio(audio_path)
 
         segments = data.get("segments", [])
         full_text = "\n".join(
@@ -30,15 +70,16 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
 
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
-                """INSERT INTO transcripts (episode_id, content, segments_json, language, word_count)
-                   VALUES (?, ?, ?, ?, ?)
+                """INSERT INTO transcripts (episode_id, content, segments_json, language, word_count, model_used)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(episode_id) DO UPDATE SET
                        content=excluded.content,
                        segments_json=excluded.segments_json,
                        language=excluded.language,
-                       word_count=excluded.word_count""",
+                       word_count=excluded.word_count,
+                       model_used=excluded.model_used""",
                 (episode_id, full_text, json.dumps(segments),
-                 data.get("language", ""), word_count),
+                 data.get("language", ""), word_count, model_used),
             )
             await db.execute(
                 """INSERT INTO transcripts_fts (episode_id, content) VALUES (?, ?)""",

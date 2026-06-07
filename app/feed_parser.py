@@ -30,6 +30,7 @@ async def parse_rss_feed(url: str) -> dict:
         audio_url = _extract_audio(entry)
         if not audio_url:
             continue
+        transcript_url, transcript_type = _extract_transcript(entry)
         episodes.append({
             "title": _clean(entry.get("title", "Unbekannte Folge")),
             "audio_url": audio_url,
@@ -37,9 +38,41 @@ async def parse_rss_feed(url: str) -> dict:
             "pub_date": entry.get("published", ""),
             "duration_sec": _parse_duration(entry.get("itunes_duration", "")),
             "description": _clean(entry.get("summary", "")),
+            "transcript_url": transcript_url,
+            "transcript_type": transcript_type,
         })
 
     return {"podcast": podcast, "episodes": episodes}
+
+
+# Transcript types we can parse (Podcast Index <podcast:transcript> tag)
+_SUPPORTED_TRANSCRIPT = ("vtt", "srt", "json", "text", "plain", "html")
+
+
+def _extract_transcript(entry):
+    """Return (url, type) of an embedded transcript if the feed provides one
+    via the Podcast Index <podcast:transcript> tag, else ('', '')."""
+    t = entry.get("podcast_transcript")
+    candidates = []
+    if isinstance(t, dict):
+        candidates = [t]
+    elif isinstance(t, list):
+        candidates = [x for x in t if isinstance(x, dict)]
+    # Prefer machine-friendly formats: json > vtt > srt > text
+    def rank(c):
+        ty = (c.get("type", "") or "").lower()
+        for i, fmt in enumerate(("json", "vtt", "srt", "text", "plain", "html")):
+            if fmt in ty:
+                return i
+        return 99
+    for c in sorted(candidates, key=rank):
+        url = c.get("url", "")
+        ty = (c.get("type", "") or "").lower()
+        if url and any(fmt in ty for fmt in _SUPPORTED_TRANSCRIPT):
+            return url, ty
+        if url and (url.endswith(".vtt") or url.endswith(".srt") or url.endswith(".json")):
+            return url, ty
+    return "", ""
 
 
 async def parse_opml(content: str) -> list:
