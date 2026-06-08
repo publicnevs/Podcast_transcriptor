@@ -33,7 +33,39 @@
     <button class="btn btn-secondary btn-sm" onclick="triggerCheck()">🔄 Auf neue Folgen prüfen</button>
     <button class="btn btn-primary btn-sm" onclick="generateArticle()">📰 Podcast-Artikel</button>
     <button class="btn btn-secondary btn-sm" onclick="bulkExport()">📦 Alle Transkripte exportieren</button>
+    <button class="btn btn-secondary btn-sm" onclick="toggleSettings()">⚙️ Einstellungen</button>
     <button class="btn btn-danger btn-sm" onclick="deletePodcast()">🗑️ Abonnement löschen</button>
+  </div>
+
+  <!-- Settings panel (collapsible) -->
+  <div id="podcast-settings" class="card" style="display:none;margin-bottom:1.25rem">
+    <h3 style="font-size:.95rem;font-weight:700;margin-bottom:.875rem">⚙️ Feed-Einstellungen</h3>
+    <div style="display:grid;gap:1rem;max-width:480px">
+      <label style="display:flex;align-items:center;gap:.625rem;font-size:.875rem;cursor:pointer">
+        <input type="checkbox" id="set-auto" style="width:auto" onchange="markDirty()">
+        Auto-Transkription neuer Folgen
+      </label>
+      <label style="display:block;font-size:.875rem">
+        <span style="display:block;margin-bottom:.25rem">Max. Folgen abrufen <span style="color:var(--text-muted)">(0 = alle)</span></span>
+        <input type="number" id="set-maxep" min="0" style="width:100%" oninput="markDirty()">
+      </label>
+      <label style="display:block;font-size:.875rem">
+        <span style="display:block;margin-bottom:.25rem">Aufbewahrung: max. Transkripte <span style="color:var(--text-muted)">(0 = alle behalten)</span></span>
+        <input type="number" id="set-maxtr" min="0" style="width:100%" oninput="markDirty()">
+        <span style="display:block;margin-top:.25rem;font-size:.75rem;color:var(--text-muted)">Ältere Transkripte werden automatisch gelöscht. Audio wird ohnehin nicht dauerhaft gespeichert.</span>
+      </label>
+      <label style="display:block;font-size:.875rem">
+        <span style="display:block;margin-bottom:.25rem">Prüf-Intervall (Stunden)</span>
+        <input type="number" id="set-interval" min="1" style="width:100%" oninput="markDirty()">
+      </label>
+      <label id="set-fulltext-wrap" style="display:none;align-items:center;gap:.625rem;font-size:.875rem;cursor:pointer">
+        <input type="checkbox" id="set-fulltext" style="width:auto" onchange="markDirty()">
+        📰 Volltext von der Artikelseite laden (Newsfeed)
+      </label>
+      <div>
+        <button class="btn btn-primary btn-sm" id="set-save" onclick="savePodcastSettings()" disabled>Speichern</button>
+      </div>
+    </div>
   </div>
 
   <!-- Filter Tabs -->
@@ -80,12 +112,10 @@ async function loadPodcast() {
       <div class="page-header-info">
         <h1>${escHtml(podcastData.title)}</h1>
         <p>${escHtml((podcastData.description||'').slice(0,200))}</p>
-        <div style="display:flex;gap:.75rem;margin-top:.5rem;flex-wrap:wrap">
+        <div style="display:flex;gap:.75rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">
+          ${podcastData.feed_type==='newsfeed' ? '<span class="badge" style="font-size:.7rem">📰 Newsfeed</span>' : ''}
           ${podcastData.website_url ? `<a href="${escHtml(podcastData.website_url)}" target="_blank" style="font-size:.8rem">🔗 Website</a>` : ''}
-          <label style="display:flex;align-items:center;gap:.375rem;font-size:.85rem;cursor:pointer">
-            <input type="checkbox" id="auto-t" ${podcastData.auto_transcribe?'checked':''} onchange="toggleAuto()" style="width:auto">
-            Auto-Transkription
-          </label>
+          ${podcastData.auto_transcribe ? '<span style="font-size:.8rem;color:var(--success)">🔄 Auto-Transkription an</span>' : ''}
         </div>
       </div>`;
     document.title = `PodScribe — ${podcastData.title}`;
@@ -162,10 +192,50 @@ async function toggleWatch(id, btn) {
   } catch {}
 }
 
-async function toggleAuto() {
-  const checked = document.getElementById('auto-t').checked;
-  await API.patch(`/api/podcasts/${podcastId}`, { auto_transcribe: checked });
-  toast(checked ? '🔄 Auto-Transkription aktiviert' : 'Auto-Transkription deaktiviert', 'info');
+function toggleSettings() {
+  const panel = document.getElementById('podcast-settings');
+  const show = panel.style.display === 'none';
+  panel.style.display = show ? '' : 'none';
+  if (show) populateSettings();
+}
+
+function populateSettings() {
+  if (!podcastData) return;
+  document.getElementById('set-auto').checked = !!podcastData.auto_transcribe;
+  document.getElementById('set-maxep').value = podcastData.max_episodes ?? 0;
+  document.getElementById('set-maxtr').value = podcastData.max_transcripts ?? 0;
+  document.getElementById('set-interval').value = podcastData.check_interval_hours ?? 24;
+  const ftWrap = document.getElementById('set-fulltext-wrap');
+  if (podcastData.feed_type === 'newsfeed') {
+    ftWrap.style.display = 'flex';
+    document.getElementById('set-fulltext').checked = !!podcastData.full_text_extraction;
+  } else {
+    ftWrap.style.display = 'none';
+  }
+  document.getElementById('set-save').disabled = true;
+}
+
+function markDirty() {
+  document.getElementById('set-save').disabled = false;
+}
+
+async function savePodcastSettings() {
+  const payload = {
+    auto_transcribe: document.getElementById('set-auto').checked,
+    max_episodes: parseInt(document.getElementById('set-maxep').value) || 0,
+    max_transcripts: parseInt(document.getElementById('set-maxtr').value) || 0,
+    check_interval_hours: parseInt(document.getElementById('set-interval').value) || 1,
+  };
+  if (podcastData.feed_type === 'newsfeed') {
+    payload.full_text_extraction = document.getElementById('set-fulltext').checked;
+  }
+  try {
+    await API.patch(`/api/podcasts/${podcastId}`, payload);
+    Object.assign(podcastData, payload);
+    document.getElementById('set-save').disabled = true;
+    toast('Einstellungen gespeichert', 'success');
+    loadPodcast();
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 async function triggerCheck() {

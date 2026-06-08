@@ -72,20 +72,21 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
             feed_info if isinstance(feed_info, tuple) else (feed_info, False, "")
         )
 
-        # Newsfeed path: no audio download, use description or fetch full text
+        # Newsfeed path: no audio download. Strategy: feed content first
+        # (often already full text via content:encoded), fetch the web page
+        # only as a fallback when the feed text is too short.
         if feed_type == "newsfeed":
             await _set_status(episode_id, "transcribing")
-            content = ""
-            if full_text_extraction and episode_url:
-                content = await _fetch_article_text(episode_url)
-            if not content:
-                # Fall back to feed description (already stored as ep.description)
-                async with aiosqlite.connect(DB_PATH) as db:
-                    async with db.execute(
-                        "SELECT description FROM episodes WHERE id=?", (episode_id,)
-                    ) as cur:
-                        row = await cur.fetchone()
-                content = (row[0] or "") if row else ""
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute(
+                    "SELECT description FROM episodes WHERE id=?", (episode_id,)
+                ) as cur:
+                    row = await cur.fetchone()
+            content = (row[0] or "") if row else ""
+            if full_text_extraction and episode_url and len(content) < 600:
+                fetched = await _fetch_article_text(episode_url)
+                if len(fetched) > len(content):
+                    content = fetched
             if content:
                 data = await enrich_text(content)
                 segments = [{"time": "00:00:00", "speaker": "", "text": content}]
@@ -120,6 +121,7 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                     await db.commit()
             else:
                 await _set_status(episode_id, "done")
+            await enforce_retention(episode_id)
             return
 
         transcript_url, transcript_type = await _get_transcript_source(episode_id)
@@ -204,6 +206,8 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
         except Exception as e:
             logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
 
+        await enforce_retention(episode_id)
+
         await send_notification(
             f"Transkript fertig: {title[:50]}",
             f"Podcast: {podcast_title}\n{word_count} Wörter transkribiert.",
@@ -247,3 +251,94 @@ async def _set_status(episode_id: int, status: str, error_msg: str = None):
         else:
             await db.execute("UPDATE episodes SET status=? WHERE id=?", (status, episode_id))
         await db.commit()
+
+
+def _episode_status(feed_type: str, full_text_extraction: bool,
+                    auto_transcribe: bool, has_episode_url: bool) -> str:
+    """Initial status for a freshly imported episode."""
+    if feed_type == "newsfeed":
+        return "queued" if (full_text_extraction and has_episode_url) else "done"
+    return "queued" if auto_transcribe else "pending"
+
+
+async def _episode_exists(db, podcast_id: int, audio_url: str, episode_url: str) -> bool:
+    """Dedup check: prefer the article/episode link, fall back to audio URL."""
+    if episode_url:
+        async with db.execute(
+            "SELECT 1 FROM episodes WHERE podcast_id=? AND episode_url=?",
+            (podcast_id, episode_url),
+        ) as cur:
+            if await cur.fetchone():
+                return True
+    if audio_url:
+        async with db.execute(
+            "SELECT 1 FROM episodes WHERE podcast_id=? AND audio_url=?",
+            (podcast_id, audio_url),
+        ) as cur:
+            if await cur.fetchone():
+                return True
+    return False
+
+
+async def insert_new_episodes(db, podcast_id: int, episodes: list, *,
+                              feed_type: str, full_text_extraction: bool,
+                              auto_transcribe: bool, limit: int = 0) -> int:
+    """Insert not-yet-seen episodes for a feed. Shared by initial subscribe
+    (main.add_podcast) and the hourly scheduler so dedup/status stay in sync.
+    Returns the number of episodes inserted. Caller commits."""
+    eps = episodes[:limit] if limit and limit > 0 else episodes
+    count = 0
+    for ep in eps:
+        episode_url = ep.get("episode_url", "") or ""
+        audio_url = ep.get("audio_url") or episode_url or ""
+        if await _episode_exists(db, podcast_id, audio_url, episode_url):
+            continue
+        status = _episode_status(feed_type, full_text_extraction,
+                                 auto_transcribe, bool(episode_url))
+        await db.execute(
+            """INSERT OR IGNORE INTO episodes
+                   (podcast_id, title, audio_url, episode_url, pub_date,
+                    duration_sec, description, status,
+                    transcript_url, transcript_type)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (podcast_id, ep["title"], audio_url, episode_url,
+             ep.get("pub_date", ""), ep.get("duration_sec", 0),
+             ep.get("description", ""), status,
+             ep.get("transcript_url", ""), ep.get("transcript_type", "")),
+        )
+        count += 1
+    return count
+
+
+async def enforce_retention(episode_id: int):
+    """Keep at most podcasts.max_transcripts transcripts per feed (0 = keep all).
+    Deletes the oldest done episodes beyond the limit. Audio isn't stored, so
+    only transcript/summary rows (and the FTS row) are removed."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys=ON")
+        async with db.execute(
+            """SELECT p.id, p.max_transcripts
+               FROM podcasts p JOIN episodes e ON e.podcast_id = p.id
+               WHERE e.id=?""",
+            (episode_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row or not row[1] or row[1] <= 0:
+            return
+        podcast_id, limit = row[0], row[1]
+        async with db.execute(
+            """SELECT e.id FROM episodes e
+               JOIN transcripts t ON t.episode_id = e.id
+               WHERE e.podcast_id=? AND e.status='done'
+               ORDER BY e.pub_date DESC, e.id DESC""",
+            (podcast_id,),
+        ) as cur:
+            ids = [r[0] for r in await cur.fetchall()]
+        stale = ids[limit:]
+        for eid in stale:
+            await db.execute("DELETE FROM transcripts_fts WHERE episode_id=?", (eid,))
+            await db.execute("DELETE FROM episodes WHERE id=?", (eid,))
+        if stale:
+            await db.commit()
+            logger.info(f"Retention: removed {len(stale)} old transcript(s) "
+                        f"from podcast {podcast_id} (limit {limit})")

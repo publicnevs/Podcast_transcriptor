@@ -21,7 +21,7 @@ from .database import DB_PATH, init_db, get_setting, set_setting
 from .exporter import (bulk_export_markdown, export_ai_copy,
                         export_markdown, export_txt)
 from .feed_parser import parse_rss_feed, parse_opml
-from .processor import process_episode, process_queued
+from .processor import process_episode, process_queued, insert_new_episodes
 from .scheduler import start_scheduler
 from . import transcriber
 from .transcriber import (generate_digest, generate_issue, translate_to_german,
@@ -38,10 +38,12 @@ async def _apply_runtime_config():
     api_key = await get_setting("gemini_api_key")
     backend = await get_setting("transcription_backend")
     whisper_model = await get_setting("whisper_model")
+    digest_model = await get_setting("digest_model")
     transcriber.configure(
         gemini_api_key=api_key or os.getenv("GEMINI_API_KEY", ""),
         backend=backend or os.getenv("TRANSCRIPTION_BACKEND", "gemini"),
         whisper_model=whisper_model or os.getenv("WHISPER_MODEL", "base"),
+        digest_model=digest_model or "",
     )
 
 
@@ -70,6 +72,8 @@ class PodcastUpdate(BaseModel):
     auto_transcribe: Optional[bool] = None
     max_episodes: Optional[int] = None
     check_interval_hours: Optional[int] = None
+    full_text_extraction: Optional[bool] = None
+    max_transcripts: Optional[int] = None
 
 
 class TranscribeRequest(BaseModel):
@@ -88,6 +92,7 @@ class SettingsUpdate(BaseModel):
     transcription_backend: Optional[str] = None
     whisper_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    digest_model: Optional[str] = None
 
 
 class DigestRequest(BaseModel):
@@ -331,6 +336,9 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
     podcast = feed_data["podcast"]
     episodes = feed_data["episodes"]
     feed_type = feed_data.get("feed_type", "podcast")
+    # When a web page URL was given, autodiscovery resolves the real feed URL —
+    # persist that so future scheduler checks hit the feed directly.
+    feed_url = podcast.get("rss_url") or data.rss_url
 
     async with aiosqlite.connect(DB_PATH) as db:
         try:
@@ -339,7 +347,7 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
                        (title, rss_url, artwork_url, description, website_url,
                         language, auto_transcribe, max_episodes, feed_type, full_text_extraction)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (podcast["title"], data.rss_url, podcast["artwork_url"],
+                (podcast["title"], feed_url, podcast["artwork_url"],
                  podcast["description"], podcast["website_url"], podcast["language"],
                  1 if data.auto_transcribe else 0, data.max_episodes,
                  feed_type, 1 if data.full_text_extraction else 0),
@@ -353,27 +361,13 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
         async with db.execute("SELECT last_insert_rowid()") as cur:
             podcast_id = (await cur.fetchone())[0]
 
-        limit = data.max_episodes if data.max_episodes > 0 else len(episodes)
-        for ep in episodes[:limit]:
-            # Newsfeeds are imported as 'done' (no audio to process) unless full_text_extraction requested
-            if feed_type == "newsfeed":
-                status = "queued" if (data.full_text_extraction and ep.get("episode_url")) else "done"
-            else:
-                status = "queued" if data.auto_transcribe else "pending"
-            audio_url = ep.get("audio_url") or ep.get("episode_url") or ""
-            try:
-                await db.execute(
-                    """INSERT OR IGNORE INTO episodes
-                           (podcast_id, title, audio_url, episode_url, pub_date,
-                            duration_sec, description, status,
-                            transcript_url, transcript_type)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (podcast_id, ep["title"], audio_url, ep.get("episode_url", ""),
-                     ep["pub_date"], ep["duration_sec"], ep["description"], status,
-                     ep.get("transcript_url", ""), ep.get("transcript_type", "")),
-                )
-            except Exception:
-                pass
+        await insert_new_episodes(
+            db, podcast_id, episodes,
+            feed_type=feed_type,
+            full_text_extraction=data.full_text_extraction,
+            auto_transcribe=data.auto_transcribe,
+            limit=data.max_episodes if data.max_episodes > 0 else 0,
+        )
         await db.commit()
 
     if data.auto_transcribe or (feed_type == "newsfeed" and data.full_text_extraction):
@@ -410,6 +404,10 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
         fields["max_episodes"] = data.max_episodes
     if data.check_interval_hours is not None:
         fields["check_interval_hours"] = data.check_interval_hours
+    if data.full_text_extraction is not None:
+        fields["full_text_extraction"] = 1 if data.full_text_extraction else 0
+    if data.max_transcripts is not None:
+        fields["max_transcripts"] = data.max_transcripts
     if not fields:
         return {"ok": True}
     set_clause = ", ".join(f"{k}=?" for k in fields)
@@ -818,6 +816,8 @@ async def update_settings(data: SettingsUpdate):
         await set_setting("whisper_model", data.whisper_model)
     if data.gemini_api_key:  # only overwrite when a non-empty value is sent
         await set_setting("gemini_api_key", data.gemini_api_key.strip())
+    if data.digest_model is not None:
+        await set_setting("digest_model", data.digest_model)
     await _apply_runtime_config()
     return {"ok": True}
 

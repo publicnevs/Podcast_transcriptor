@@ -11,40 +11,54 @@ logger = logging.getLogger(__name__)
 _scheduler = AsyncIOScheduler()
 
 
+def _feed_due(podcast) -> bool:
+    """True if a feed is due for a check based on its check_interval_hours.
+    The job runs hourly; feeds with a longer interval are skipped until due."""
+    interval = podcast["check_interval_hours"] or 0
+    last = podcast["last_checked"]
+    if not interval or interval <= 1 or not last:
+        return True
+    from datetime import datetime, timedelta
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f"):
+        try:
+            last_dt = datetime.strptime(str(last), fmt)
+            return datetime.utcnow() - last_dt >= timedelta(hours=interval)
+        except ValueError:
+            continue
+    return True  # unparseable timestamp → check anyway
+
+
 async def check_all_feeds():
     from .feed_parser import parse_rss_feed
-    from .processor import process_queued
+    from .processor import process_queued, insert_new_episodes
 
+    # Newsfeeds are checked even without auto_transcribe so new articles keep
+    # flowing in; podcasts only when the user opted into auto-transcription.
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT * FROM podcasts WHERE auto_transcribe = 1") as cur:
+        async with db.execute(
+            """SELECT * FROM podcasts
+               WHERE auto_transcribe = 1 OR feed_type = 'newsfeed'"""
+        ) as cur:
             podcasts = await cur.fetchall()
 
     new_count = 0
     for podcast in podcasts:
+        if not _feed_due(podcast):
+            continue
         try:
             feed_data = await parse_rss_feed(podcast["rss_url"])
             episodes = feed_data["episodes"]
 
             async with aiosqlite.connect(DB_PATH) as db:
-                limit = podcast["max_episodes"] or len(episodes)
-                for ep in episodes[:limit]:
-                    async with db.execute(
-                        "SELECT id FROM episodes WHERE audio_url = ?", (ep["audio_url"],)
-                    ) as cur:
-                        if await cur.fetchone():
-                            continue
-                    await db.execute(
-                        """INSERT INTO episodes
-                               (podcast_id, title, audio_url, episode_url, pub_date,
-                                duration_sec, description, status,
-                                transcript_url, transcript_type)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)""",
-                        (podcast["id"], ep["title"], ep["audio_url"], ep["episode_url"],
-                         ep["pub_date"], ep["duration_sec"], ep["description"],
-                         ep.get("transcript_url", ""), ep.get("transcript_type", "")),
-                    )
-                    new_count += 1
+                inserted = await insert_new_episodes(
+                    db, podcast["id"], episodes,
+                    feed_type=podcast["feed_type"] or "podcast",
+                    full_text_extraction=bool(podcast["full_text_extraction"]),
+                    auto_transcribe=bool(podcast["auto_transcribe"]),
+                    limit=podcast["max_episodes"] or 0,
+                )
+                new_count += inserted
                 await db.execute(
                     "UPDATE podcasts SET last_checked = CURRENT_TIMESTAMP WHERE id = ?",
                     (podcast["id"],),

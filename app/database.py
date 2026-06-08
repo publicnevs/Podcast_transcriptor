@@ -165,6 +165,10 @@ _MIGRATIONS = [
     # CR 10: RSS Newsfeed support
     "ALTER TABLE podcasts ADD COLUMN feed_type TEXT DEFAULT 'podcast'",
     "ALTER TABLE podcasts ADD COLUMN full_text_extraction INTEGER DEFAULT 0",
+    # Retention: max number of transcripts to keep per feed (0 = unlimited)
+    "ALTER TABLE podcasts ADD COLUMN max_transcripts INTEGER DEFAULT 0",
+    # Dedup hard guard for newsfeed articles (partial: only non-empty links).
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_ep_url ON episodes(podcast_id, episode_url) WHERE episode_url <> ''",
 ]
 
 

@@ -25,22 +25,40 @@ FLASH_MODEL = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
 PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
 # Lite model: cheaper for enrichment + tagging; falls back to FLASH if not set
 LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", FLASH_MODEL)
+# Article/digest model: Pro by default (best quality); set to a Flash model to
+# cut cost. Overridable per request via the 'digest_model' DB setting.
+DIGEST_MODEL = os.getenv("GEMINI_DIGEST_MODEL", PRO_MODEL)
+
 
 # Runtime-overridable settings (set from DB at startup / on change)
 _runtime = {
     "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
     "backend": os.getenv("TRANSCRIPTION_BACKEND", "gemini"),
     "whisper_model": os.getenv("WHISPER_MODEL", "base"),
+    "digest_model": "",  # '', 'pro' or 'flash'; '' = env/DIGEST_MODEL default
 }
 
 
-def configure(gemini_api_key=None, backend=None, whisper_model=None):
+def configure(gemini_api_key=None, backend=None, whisper_model=None, digest_model=None):
     if gemini_api_key is not None:
         _runtime["gemini_api_key"] = gemini_api_key
     if backend:
         _runtime["backend"] = backend
     if whisper_model:
         _runtime["whisper_model"] = whisper_model
+    if digest_model is not None:
+        _runtime["digest_model"] = digest_model
+
+
+def _digest_model() -> str:
+    """Resolve the model for long-form articles. The DB setting 'digest_model'
+    (values: 'pro' | 'flash') takes precedence over the env default."""
+    choice = (_runtime.get("digest_model") or "").strip().lower()
+    if choice == "flash":
+        return FLASH_MODEL
+    if choice == "pro":
+        return PRO_MODEL
+    return DIGEST_MODEL
 
 
 def get_backend():
@@ -377,7 +395,7 @@ def _digest_sync(episode_data: list, mode: str, title: str) -> dict:
     )
     client = _client()
     response = client.models.generate_content(
-        model=PRO_MODEL,
+        model=_digest_model(),
         contents=[prompt],
         config=types.GenerateContentConfig(temperature=0.7, max_output_tokens=8192),
     )
@@ -420,7 +438,7 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         format_word = "KI-Zeitung"
         format_desc = ("Zeitung: ausführliche, fließende Prosa-Artikel mit Analyse, "
                        "Kontext und wörtlichen Zitaten. Ein redaktionelles Intro.")
-        model = PRO_MODEL
+        model = _digest_model()
         temp = 0.7
 
     continuity = ""

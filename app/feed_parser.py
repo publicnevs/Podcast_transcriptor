@@ -13,6 +13,15 @@ async def parse_rss_feed(url: str) -> dict:
     loop = asyncio.get_event_loop()
     feed = await loop.run_in_executor(None, feedparser.parse, url)
 
+    # Website monitoring: the given URL may be a normal web page (e.g. a Google
+    # blog category) rather than a feed. Try to autodiscover its RSS/Atom feed.
+    if not feed.get("feed") or not feed.feed.get("title"):
+        discovered = await _discover_feed_url(url)
+        if discovered and discovered != url:
+            feed = await loop.run_in_executor(None, feedparser.parse, discovered)
+            if feed.get("feed") and feed.feed.get("title"):
+                url = discovered
+
     if not feed.get("feed") or not feed.feed.get("title"):
         raise ValueError(f"Ungültiger RSS-Feed: {url}")
 
@@ -52,7 +61,9 @@ async def parse_rss_feed(url: str) -> dict:
                     "episode_url": link,
                     "pub_date": entry.get("published", ""),
                     "duration_sec": 0,
-                    "description": _clean(entry.get("summary", "")),
+                    # Prefer the full article body (<content:encoded>) over the
+                    # short <summary>; many Ghost/WordPress feeds ship full text.
+                    "description": _clean(_entry_content(entry), cap=16000),
                     "transcript_url": "",
                     "transcript_type": "",
                 })
@@ -161,10 +172,46 @@ def _parse_duration(s: str) -> int:
         return 0
 
 
-def _clean(text: str) -> str:
+def _clean(text: str, cap: int = 2000) -> str:
     if not text:
         return ""
     # Strip HTML tags
     text = re.sub(r"<[^>]+>", " ", text)
     text = re.sub(r"\s+", " ", text)
-    return text.strip()[:2000]
+    return text.strip()[:cap]
+
+
+def _entry_content(entry) -> str:
+    """Return the richest article text from a feed entry: <content:encoded>
+    (entry.content) if longer than <summary>, else the summary."""
+    summary = entry.get("summary", "") or ""
+    best = summary
+    content_list = entry.get("content") or []
+    for c in content_list:
+        val = (c.get("value") or "") if isinstance(c, dict) else ""
+        if len(val) > len(best):
+            best = val
+    return best
+
+
+async def _discover_feed_url(page_url: str) -> str:
+    """Fetch an HTML page and return the first RSS/Atom feed it links to via
+    <link rel="alternate" type="application/rss+xml|atom+xml">. Empty if none."""
+    try:
+        from lxml import html as lxml_html
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            r = await client.get(page_url, headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            return ""
+        tree = lxml_html.fromstring(r.text)
+        links = tree.xpath(
+            "//link[@rel='alternate'][contains(@type,'rss') or contains(@type,'atom')]/@href"
+        )
+        if not links:
+            return ""
+        href = links[0]
+        # Resolve relative URLs against the page URL.
+        from urllib.parse import urljoin
+        return urljoin(page_url, href)
+    except Exception:
+        return ""

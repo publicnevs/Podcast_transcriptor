@@ -114,10 +114,31 @@
 
       <div style="padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
         <strong style="color:var(--text)">Kosten Gemini 2.5 Flash:</strong> ~$0.075/h Audio. Kein festes Freikontingent —
-        Rate Limits gelten pro Minute. Für Anreicherung &amp; Tags wird das günstigere Lite-Modell verwendet
-        (<code style="background:var(--bg-card);padding:0 3px;border-radius:3px">GEMINI_LITE_MODEL</code> Env-Var).
-        Zeitungs-Artikel nutzen Gemini 2.5 Pro (kostenpflichtig bei hohem Volumen).
+        Rate Limits gelten pro Minute. Zeitungs-Artikel nutzen standardmäßig das stärkere Pro-Modell.
       </div>
+    </div>
+  </div>
+
+  <!-- Cost optimization (CR D) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem">💸 Kosten-Optimierung</h2>
+    <div style="font-size:.85rem;color:var(--text-muted);line-height:1.7;margin-bottom:1rem">
+      Pro Folge fallen 2 Gemini-Aufrufe an: <strong style="color:var(--text)">Transkription</strong> (Flash) und
+      <strong style="color:var(--text)">Tagging/Anreicherung</strong> (Lite). Für die leichten Aufgaben ist
+      <strong style="color:var(--text)">Flash-Lite</strong> ~3–5× günstiger als Flash und qualitativ ausreichend.
+      <div style="margin-top:.625rem;padding:.625rem;background:var(--bg-card2);border-radius:var(--radius-sm)">
+        💡 Aktiviere Lite über die Env-Var in deiner <code style="background:var(--bg-card);padding:0 3px;border-radius:3px">.env</code>:<br>
+        <code style="background:var(--bg-card);padding:2px 4px;border-radius:3px;display:inline-block;margin-top:.35rem">GEMINI_LITE_MODEL=gemini-2.5-flash-lite</code>
+        <br><span style="font-size:.75rem">Ohne diese Variable nutzt „Lite" automatisch Flash — du sparst dann nichts.</span>
+      </div>
+    </div>
+    <label style="display:block;font-size:.875rem;margin-bottom:.5rem">Artikel-Qualität (Zeitung & Podcast-Artikel)</label>
+    <div class="segmented" id="digest-model-seg" style="max-width:360px">
+      <button data-dm="pro" onclick="setDigestModel('pro')">Beste (Pro)</button>
+      <button data-dm="flash" onclick="setDigestModel('flash')">Günstig (Flash)</button>
+    </div>
+    <div style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">
+      „Günstig" stellt die Artikel-Generierung von Pro auf Flash um — deutlich billiger, minimal weniger ausgefeilt.
     </div>
   </div>
 
@@ -198,7 +219,22 @@ async function loadSettings() {
       ? '<span style="color:var(--success)">✓ Key gesetzt</span>'
       : '<span style="color:var(--warning)">kein Key</span>';
     setBackend(currentBackend, false);
+    _setDigestModelUI(s.digest_model || 'pro');
   } catch {}
+}
+
+function _setDigestModelUI(dm) {
+  const v = dm === 'flash' ? 'flash' : 'pro';
+  document.querySelectorAll('#digest-model-seg button').forEach(b =>
+    b.classList.toggle('active', b.dataset.dm === v));
+}
+
+async function setDigestModel(dm) {
+  _setDigestModelUI(dm);
+  try {
+    await API.put('/api/settings', { digest_model: dm });
+    toast(dm === 'flash' ? '💸 Artikel auf Flash (günstig) umgestellt' : '⭐ Artikel auf Pro (beste Qualität)', 'success');
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 function setBackend(backend, save=true) {
