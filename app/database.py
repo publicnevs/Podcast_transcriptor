@@ -183,6 +183,26 @@ _MIGRATIONS = [
 ]
 
 
+async def _backfill_pub_dates(db):
+    """One-time conversion of legacy RFC-822 pub_date strings to sortable ISO.
+
+    Older rows stored the raw feed string (e.g. 'Wed, 08 Jun 2026 …') which sorts
+    wrong as text. RFC-822 always contains the weekday comma, so the LIKE '%,%'
+    guard makes this idempotent — once converted (no comma) rows are skipped.
+    """
+    import email.utils
+    async with db.execute(
+        "SELECT id, pub_date FROM episodes WHERE pub_date LIKE '%,%' AND pub_date != ''"
+    ) as cur:
+        rows = await cur.fetchall()
+    for ep_id, raw in rows:
+        try:
+            iso = email.utils.parsedate_to_datetime(raw).strftime("%Y-%m-%d %H:%M:%S")
+            await db.execute("UPDATE episodes SET pub_date=? WHERE id=?", (iso, ep_id))
+        except Exception:
+            pass  # unparseable → leave as-is
+
+
 async def init_db():
     import os
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -193,6 +213,7 @@ async def init_db():
                 await db.execute(stmt)
             except Exception:
                 pass  # column already exists
+        await _backfill_pub_dates(db)
         await db.commit()
 
 async def get_setting(key: str) -> str:
