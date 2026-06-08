@@ -63,10 +63,6 @@ async function load() {
 }
 
 function render(ep) {
-  if (ep.podcast_id) {
-    document.getElementById('back-btn').href = `/podcast/${ep.podcast_id}`;
-    document.getElementById('breadcrumb').innerHTML = `<a href="/podcast/${ep.podcast_id}">${escHtml(ep.podcast_title||'Podcast')}</a> › ${escHtml(ep.title)}`;
-  }
   document.title = `PodScribe — ${ep.title}`;
 
   const segments = (() => { try { return JSON.parse(ep.segments_json||'[]'); } catch { return []; } })();
@@ -78,28 +74,33 @@ function render(ep) {
   speakers.forEach((sp, i) => { speakerMap[sp] = `speaker-${i % 5}`; });
 
   const page = document.getElementById('page');
+  const showLang = ep.language && ep.language.toLowerCase() !== 'unknown';
+  const metaLine = [
+    ep.pub_date ? `${icon('calendar',{size:14})} ${fmtDate(ep.pub_date)}` : '',
+    ep.duration_sec ? `${icon('clock',{size:14})} ${fmtDuration(ep.duration_sec)}` : '',
+    ep.word_count ? `${icon('align-left',{size:14})} ${ep.word_count.toLocaleString('de')} Wörter` : '',
+    ep.word_count ? `${icon('book-open',{size:14})} ca. ${Math.ceil(ep.word_count/200)} Min.` : '',
+    showLang ? `${icon('globe',{size:14})} ${ep.language.toUpperCase()}` : '',
+  ].filter(Boolean).join('<span style="opacity:.35;margin:0 .15rem">•</span>');
+
   page.innerHTML = `
-    <!-- Back + breadcrumb -->
-    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
-      <a href="${ep.podcast_id?'/podcast/'+ep.podcast_id:'/'}" class="btn btn-ghost btn-icon">←</a>
-      <span style="color:var(--text-muted);font-size:.875rem">
-        ${ep.podcast_id ? `<a href="/podcast/${ep.podcast_id}">${escHtml(ep.podcast_title||'Podcast')}</a> ›` : ''}
-        ${escHtml(ep.title)}
-      </span>
+    <!-- Back -->
+    <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:1.25rem">
+      <a href="${ep.podcast_id?'/podcast/'+ep.podcast_id:'/'}" class="btn btn-ghost btn-icon" title="Zurück">${icon('chevron-left')}</a>
+      ${ep.podcast_id ? `<a href="/podcast/${ep.podcast_id}" style="color:var(--text-muted);font-size:.9rem;text-decoration:none">${escHtml(ep.podcast_title||'Podcast')}</a>` : ''}
     </div>
 
     <!-- Episode header -->
     <div class="page-header" style="margin-bottom:1rem">
-      ${ep.artwork_url ? `<img class="page-header-art" src="${escHtml(ep.artwork_url)}" alt="">` : ''}
+      ${ep.artwork_url ? `<div style="position:relative;flex-shrink:0">
+          <img class="page-header-art" src="${escHtml(ep.artwork_url)}" alt="">
+          <span style="position:absolute;left:.35rem;bottom:.35rem">${statusBadge(ep.status)}</span>
+        </div>` : ''}
       <div class="page-header-info">
         <h1 style="font-size:1.25rem">${escHtml(ep.title)}</h1>
-        <div style="display:flex;gap:.75rem;flex-wrap:wrap;margin-top:.375rem;font-size:.85rem;color:var(--text-muted)">
-          ${ep.pub_date ? `<span>📅 ${fmtDate(ep.pub_date)}</span>` : ''}
-          ${ep.duration_sec ? `<span>⏱ ${fmtDuration(ep.duration_sec)}</span>` : ''}
-          ${ep.word_count ? `<span>📝 ${ep.word_count.toLocaleString('de')} Wörter</span>` : ''}
-          ${ep.word_count ? `<span>📖 ca. ${Math.ceil(ep.word_count/200)} Min. Lesezeit</span>` : ''}
-          ${ep.language ? `<span>🌐 ${ep.language.toUpperCase()}</span>` : ''}
-          ${statusBadge(ep.status)}
+        <div class="meta-line" style="display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;margin-top:.45rem;font-size:.82rem;color:var(--text-muted)">
+          ${metaLine}
+          ${!ep.artwork_url ? statusBadge(ep.status) : ''}
           <span id="read-pct" style="font-size:.72rem"></span>
         </div>
       </div>
@@ -108,22 +109,16 @@ function render(ep) {
     <!-- Action Bar -->
     <div class="action-bar">
       ${ep.status==='done' ? `
-        <button class="btn btn-primary btn-sm" id="listen-btn" onclick="toggleListen()">🎧 Anhören</button>
-        <button class="btn btn-secondary btn-sm" onclick="copyTranscript()">📋 Kopieren</button>
-        <button class="btn btn-secondary btn-sm" onclick="copyForAI()">🤖 Für KI kopieren</button>
-        <a class="btn btn-secondary btn-sm" href="/api/episodes/${episodeId}/export?format=md" download>⬇️ MD</a>
-        <a class="btn btn-secondary btn-sm" href="/api/episodes/${episodeId}/export?format=txt" download>⬇️ TXT</a>
-        <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ PDF</button>
-        <button class="btn btn-secondary btn-sm" onclick="shareContent('${escHtml(ep.title).replace(/'/g,"\\'")}','','')">🔗 Teilen</button>
-        ${ep.language && ep.language!=='de' ? `<button class="btn btn-secondary btn-sm" id="translate-btn" onclick="requestTranslation()">🇩🇪 Übersetzen</button>` : ''}
-        <button class="btn btn-ghost btn-sm" id="watch-btn" onclick="toggleWatch()">${ep.watchlist?'⭐ Leseliste':'☆ Leseliste'}</button>
-        <div class="reader-tools">
-          <button class="btn btn-ghost btn-icon btn-sm" title="Schrift kleiner" onclick="changeFont(-1)">A−</button>
-          <button class="btn btn-ghost btn-icon btn-sm" title="Schrift größer" onclick="changeFont(1)">A+</button>
-        </div>
+        <button class="btn btn-primary" id="listen-btn" onclick="toggleListen()">${icon('headphones')} Anhören</button>
+        <button class="btn btn-secondary btn-sm" onclick="copyForAI()">${icon('sparkles',{size:16})} Für KI kopieren</button>
+        <button class="btn btn-secondary btn-sm" onclick="openExportSheet()">${icon('download',{size:16})} Exportieren</button>
+        <button class="btn btn-secondary btn-sm" id="regen-summary-btn" onclick="regenerateSummary()">${icon('refresh-cw',{size:16})} Zusammenfassung neu</button>
+        <button class="btn btn-ghost btn-icon" id="watch-btn" data-on="${ep.watchlist?'1':'0'}" title="Leseliste" onclick="toggleWatch()">${icon(ep.watchlist?'bookmark-check':'bookmark')}</button>
+        <button class="btn btn-ghost btn-icon" title="Teilen" onclick="shareEpisode()">${icon('share-2')}</button>
+        <button class="btn btn-ghost btn-icon" title="Mehr" onclick="openEpMenu(this)">${icon('more-vertical')}</button>
       ` : ''}
-      ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">🔄 Erneut transkribieren</button>` : ''}
-      ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">🎙️ Jetzt transkribieren</button>` : ''}
+      ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">${icon('refresh-cw',{size:16})} Erneut transkribieren</button>` : ''}
+      ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">${icon('headphones',{size:16})} Jetzt transkribieren</button>` : ''}
     </div>
 
     <!-- Tag chips -->
@@ -163,19 +158,27 @@ function render(ep) {
 
 function renderDoneContent(ep, segments, takeaways, chapters) {
   return `
-    <!-- Summary -->
-    ${ep.summary || takeaways.length ? `
+    <!-- Summary: always above the transcript — Zusammenfassung + Themenübersicht + Key Takeaways (deutsch) -->
+    ${ep.summary || takeaways.length || chapters.length ? `
       <div class="summary-card">
         ${ep.summary ? `<h3>Zusammenfassung</h3><p>${escHtml(ep.summary)}</p>` : ''}
+        ${chapters.length ? `
+          <h3 style="margin-top:${ep.summary?'1rem':'0'}">Themenübersicht</h3>
+          <ul class="topic-list">${chapters.map(c=>`<li>${escHtml(c.title)}</li>`).join('')}</ul>
+        ` : ''}
         ${takeaways.length ? `
-          <h3 style="margin-top:${ep.summary?'1rem':'0'}">Key Takeaways</h3>
+          <h3 style="margin-top:1rem">Key Takeaways</h3>
           <div class="takeaways">${takeaways.map(t=>`<div class="takeaway">${escHtml(t)}</div>`).join('')}</div>
         ` : ''}
-      </div>` : `<p style="color:var(--text-muted);font-size:.875rem;margin-bottom:1rem">💡 Noch keine Zusammenfassung — in den Einstellungen nachgenerierbar.</p>`}
+      </div>` : `
+      <div class="summary-card" style="text-align:center">
+        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem">Noch keine Zusammenfassung für diese Folge.</p>
+        <button class="btn btn-primary btn-sm" onclick="regenerateSummary()">${icon('sparkles',{size:16})} Zusammenfassung erstellen</button>
+      </div>`}
 
     <!-- Notes -->
     <details style="margin-bottom:1.5rem">
-      <summary>📝 Persönliche Notizen</summary>
+      <summary>${icon('pencil',{size:15})} Persönliche Notizen</summary>
       <div style="margin-top:.75rem">
         <textarea id="notes-input" placeholder="Deine Gedanken zu dieser Folge…" style="min-height:80px">${escHtml(ep.note||'')}</textarea>
         <button class="btn btn-secondary btn-sm" style="margin-top:.5rem" onclick="saveNote()">Speichern</button>
@@ -186,7 +189,7 @@ function renderDoneContent(ep, segments, takeaways, chapters) {
     ${ep.translation_de ? `
       <div style="margin-bottom:1rem;display:flex;align-items:center;gap:.75rem">
         <span style="font-size:.875rem;color:var(--text-muted)">Anzeigen:</span>
-        <button class="btn btn-secondary btn-sm" id="lang-toggle" onclick="toggleLang()">🇩🇪 Deutsche Übersetzung</button>
+        <button class="btn btn-secondary btn-sm" id="lang-toggle" onclick="toggleLang()">${icon('languages',{size:16})} Deutsche Übersetzung</button>
       </div>` : ''}
 
     <!-- Transcript Layout -->
@@ -290,18 +293,16 @@ function toggleLang() {
   if (!content || !epData) return;
   if (showTranslation && epData.translation_de) {
     content.innerHTML = `<pre style="white-space:pre-wrap;font-size:.9rem;line-height:1.7">${escHtml(epData.translation_de)}</pre>`;
-    btn.textContent = '🌐 Original anzeigen';
+    btn.innerHTML = icon('globe',{size:16}) + ' Original anzeigen';
   } else {
     const segments = (() => { try { return JSON.parse(epData.segments_json||'[]'); } catch { return []; } })();
     const chapters = (() => { try { return JSON.parse(epData.chapters_json||'[]'); } catch { return []; } })();
     content.innerHTML = segments.length ? renderSegments(segments, chapters) : `<pre style="white-space:pre-wrap">${escHtml(epData.transcript||'')}</pre>`;
-    btn.textContent = '🇩🇪 Deutsche Übersetzung';
+    btn.innerHTML = icon('languages',{size:16}) + ' Deutsche Übersetzung';
   }
 }
 
 async function requestTranslation() {
-  const btn = document.getElementById('translate-btn');
-  btn.disabled = true; btn.textContent = '⏳ Übersetze…';
   try {
     const r = await API.post(`/api/episodes/${episodeId}/translate`, {});
     if (r.already_translated) {
@@ -310,7 +311,7 @@ async function requestTranslation() {
       toast('Übersetzung wird erstellt (ca. 1-2 Min)…', 'info');
       pollTranslation();
     }
-  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.textContent='🇩🇪 Übersetzen'; }
+  } catch(e) { toast(e.message,'error'); }
 }
 
 async function pollTranslation() {
@@ -338,10 +339,66 @@ async function toggleWatch() {
   try {
     await API.patch(`/api/episodes/${episodeId}/watchlist`);
     const btn = document.getElementById('watch-btn');
-    const onList = btn.textContent.includes('⭐');
-    btn.textContent = onList ? '☆ Leseliste' : '⭐ Leseliste';
-    toast(onList ? 'Von Leseliste entfernt' : '⭐ Zur Leseliste hinzugefügt','info');
+    const on = btn.dataset.on === '1';
+    btn.dataset.on = on ? '0' : '1';
+    btn.innerHTML = icon(on ? 'bookmark' : 'bookmark-check');
+    toast(on ? 'Von Leseliste entfernt' : 'Zur Leseliste hinzugefügt','info');
   } catch {}
+}
+
+function shareEpisode() { shareContent(epData.title, '', ''); }
+
+function epSlug() {
+  return ((epData && epData.title) || 'transcript')
+    .replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'transcript';
+}
+
+function openExportSheet() {
+  openSheet('Exportieren', [
+    { icon:'copy', label:'Transkript kopieren', onClick: copyTranscript },
+    { icon:'file-text', label:'Markdown (.md)', onClick: () => downloadFile(`/api/episodes/${episodeId}/export?format=md`, epSlug()+'.md') },
+    { icon:'file-text', label:'Text (.txt)', onClick: () => downloadFile(`/api/episodes/${episodeId}/export?format=txt`, epSlug()+'.txt') },
+    { icon:'printer', label:'Als PDF drucken', onClick: () => window.print() },
+  ]);
+}
+
+function openEpMenu(anchor) {
+  const items = [
+    { icon:'type', label:'Schrift vergrößern', onClick: () => changeFont(1) },
+    { icon:'type', label:'Schrift verkleinern', onClick: () => changeFont(-1) },
+  ];
+  if (epData && epData.language && epData.language.toLowerCase() !== 'de') {
+    items.push({ icon:'languages', label:'Ins Deutsche übersetzen', onClick: requestTranslation });
+  }
+  openMenu(anchor, items);
+}
+
+function _resetRegenBtn() {
+  const btn = document.getElementById('regen-summary-btn');
+  if (btn) { btn.disabled = false; btn.innerHTML = icon('refresh-cw',{size:16}) + ' Zusammenfassung neu'; }
+}
+
+async function regenerateSummary() {
+  const btn = document.getElementById('regen-summary-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = icon('refresh-cw',{size:16}) + ' Erstelle…'; }
+  const prev = (epData && epData.summary) || '';
+  try {
+    const r = await API.post(`/api/episodes/${episodeId}/regenerate-summary`, {});
+    if (r.error === 'no transcript') { toast('Kein Transkript vorhanden','error'); _resetRegenBtn(); return; }
+    toast('Zusammenfassung wird neu erstellt…','info');
+    pollSummary(prev);
+  } catch(e) { toast(e.message,'error'); _resetRegenBtn(); }
+}
+
+async function pollSummary(prev) {
+  for (let i=0; i<80; i++) {
+    await new Promise(r=>setTimeout(r,3000));
+    const ep = await API.get(`/api/episodes/${episodeId}`).catch(()=>null);
+    if (ep && ep.summary && (ep.summary||'') !== prev) {
+      epData = ep; toast('✅ Zusammenfassung fertig!','success'); render(ep); return;
+    }
+  }
+  _resetRegenBtn();
 }
 
 async function startTranscribe() {
@@ -381,16 +438,16 @@ function toggleListen() {
   if (playerActive) {
     AudioPlayer.destroy();
     playerActive = false;
-    btn.textContent = '🎧 Anhören';
-    btn.className = 'btn btn-primary btn-sm';
+    btn.innerHTML = icon('headphones') + ' Anhören';
+    btn.className = 'btn btn-primary';
     return;
   }
   const segments = (() => { try { return JSON.parse(epData.segments_json||'[]'); } catch { return []; } })();
   if (!segments.length) { toast('Keine Segmente zum Synchronisieren', 'info'); }
   AudioPlayer.mount(episodeId, epData.title, segments);
   playerActive = true;
-  btn.textContent = '🎧 Player schließen';
-  btn.className = 'btn btn-secondary btn-sm';
+  btn.innerHTML = icon('x') + ' Player schließen';
+  btn.className = 'btn btn-secondary';
 }
 
 // ── Font size control ────────────────────────────────────────────────────
