@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   podscribe:
     build:
@@ -13,10 +11,21 @@ services:
     volumes:
       - ./data:/app/data
       - ./downloads:/app/downloads
-    env_file:
-      # Enthält API-Key, Backend und Modell-Vars (z.B. GEMINI_LITE_MODEL=gemini-2.5-flash-lite
-      # zum Kostensparen). Siehe .env.example.
-      - .env
+    # Variablen werden aus einer .env im selben Ordner gelesen (falls vorhanden).
+    # Fehlt die .env, startet der Container trotzdem mit den Defaults unten —
+    # der API-Key lässt sich dann in der App unter Einstellungen nachtragen.
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      TRANSCRIPTION_BACKEND: ${TRANSCRIPTION_BACKEND:-gemini}
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_THREADS: ${WHISPER_THREADS:-}
+      WHISPER_CACHE: ${WHISPER_CACHE:-}
+      GEMINI_FLASH_MODEL: ${GEMINI_FLASH_MODEL:-gemini-2.5-flash}
+      GEMINI_PRO_MODEL: ${GEMINI_PRO_MODEL:-gemini-2.5-pro}
+      GEMINI_LITE_MODEL: ${GEMINI_LITE_MODEL:-gemini-2.5-flash-lite}
+      GEMINI_DIGEST_MODEL: ${GEMINI_DIGEST_MODEL:-}
+      DB_PATH: ${DB_PATH:-/app/data/podscribe.db}
+      DOWNLOAD_DIR: ${DOWNLOAD_DIR:-/app/downloads}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7878/health"]
