@@ -20,22 +20,32 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-# Model names overridable via env — 2.5 Flash for transcription, Lite for enrichment/tagging, Pro for digests
+# Model names overridable via env
 FLASH_MODEL = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
 PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
 # Lite model: cheaper for enrichment + tagging; defaults to flash-lite (not Flash)
 LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
-# Article/digest model: Pro by default (best quality); set to a Flash model to
-# cut cost. Overridable per request via the 'digest_model' DB setting.
+# Article/digest model default; overridable via DB setting or per-request
 DIGEST_MODEL = os.getenv("GEMINI_DIGEST_MODEL", PRO_MODEL)
 
 
-# Runtime-overridable settings (set from DB at startup / on change)
+# ── Format registry ──────────────────────────────────────────────────────────
+# Each format has: label (UI), default_model (pro/flash/lite), uses_sliders (bool)
+FORMATS = {
+    "daily_briefing":   {"label": "📅 Daily Briefing",       "default_model": "flash", "uses_sliders": False},
+    "magazin":          {"label": "📰 Magazin",               "default_model": "pro",   "uses_sliders": True},
+    "newsletter":       {"label": "✉️ Newsletter",            "default_model": "flash", "uses_sliders": True},
+    "summary_takeaways":{"label": "📋 Summary + Takeaways",  "default_model": "lite",  "uses_sliders": False},
+    "teams_post":       {"label": "💬 Teams Post",            "default_model": "lite",  "uses_sliders": False},
+}
+
+
+# Runtime-overridable settings
 _runtime = {
     "gemini_api_key": os.getenv("GEMINI_API_KEY", ""),
     "backend": os.getenv("TRANSCRIPTION_BACKEND", "gemini"),
     "whisper_model": os.getenv("WHISPER_MODEL", "base"),
-    "digest_model": "",  # '', 'pro' or 'flash'; '' = env/DIGEST_MODEL default
+    "digest_model": "",  # '', 'pro', 'flash', 'lite'; '' = env/DIGEST_MODEL default
 }
 
 
@@ -51,8 +61,7 @@ def configure(gemini_api_key=None, backend=None, whisper_model=None, digest_mode
 
 
 def _digest_model() -> str:
-    """Resolve the model for long-form articles. The DB setting 'digest_model'
-    (values: 'pro' | 'flash') takes precedence over the env default."""
+    """Resolve the global digest model setting."""
     choice = (_runtime.get("digest_model") or "").strip().lower()
     if choice == "flash":
         return FLASH_MODEL
@@ -61,6 +70,22 @@ def _digest_model() -> str:
     if choice == "pro":
         return PRO_MODEL
     return DIGEST_MODEL
+
+
+def _resolve_model(model_override: str, fmt: str) -> str:
+    """Pick model: explicit override > format default > global setting."""
+    if model_override == "pro":
+        return PRO_MODEL
+    if model_override == "flash":
+        return FLASH_MODEL
+    if model_override == "lite":
+        return LITE_MODEL
+    fmt_default = FORMATS.get(fmt, {}).get("default_model", "flash")
+    if fmt_default == "pro":
+        return _digest_model()  # respects global setting
+    if fmt_default == "lite":
+        return LITE_MODEL
+    return FLASH_MODEL
 
 
 def get_backend():
@@ -76,7 +101,6 @@ def _configure_gemini():
 
 
 def _client():
-    """Fresh client per use — new google-genai SDK, supports AQ. keys."""
     return genai.Client(api_key=_get_key())
 
 
@@ -86,40 +110,40 @@ GEMINI_FULL_PROMPT = """Analyze this podcast audio completely and return a struc
 
 Return ONLY valid JSON — no markdown fences, no prose:
 {
-  "language": "ISO code, e.g. 'de' or 'en'",
+  "language": "ISO code of the spoken language, e.g. 'de' or 'en'",
   "speakers": ["Host", "Guest"],
   "segments": [
-    {"time": "00:00:00", "speaker": "Host", "text": "Exact spoken words"}
+    {"time": "00:00:00", "speaker": "Host", "text": "Exact spoken words in original language"}
   ],
-  "summary": "5-sentence comprehensive summary covering all major topics and insights",
-  "takeaways": ["First key insight", "Second key insight"],
+  "summary": "5-sentence comprehensive summary in GERMAN (Deutsch)",
+  "takeaways": ["First key insight in GERMAN", "Second key insight in GERMAN"],
   "chapters": [
-    {"title": "Introduction", "start_time": "00:00:00", "summary": "What is covered here"}
+    {"title": "Kapitel-Titel auf Deutsch", "start_time": "00:00:00", "summary": "Was hier besprochen wird"}
   ]
 }
 
 Rules:
-- Transcribe ALL spoken content, complete and untruncated
+- Transcribe ALL spoken content in the ORIGINAL language (no translation)
+- summary, takeaways and chapter titles/summaries ALWAYS IN GERMAN
 - Accurate HH:MM:SS timestamps at each speaker turn
 - Identify speakers consistently (real names if mentioned, else 'Host'/'Guest')
 - 5-10 meaningful chapters at real topic transitions
-- summary + takeaways in the SAME language as the audio
 - 6-10 takeaways, each a clear 1-2 sentence insight"""
 
 ENRICH_PROMPT = """You are given a podcast transcript. Produce structured metadata.
 
 Return ONLY valid JSON — no markdown fences, no prose:
-{
+{{
   "language": "ISO code of the transcript language",
-  "summary": "5-sentence comprehensive summary covering all major topics",
-  "takeaways": ["6-10 clear insights, each 1-2 sentences"],
+  "summary": "5-sentence comprehensive summary IN GERMAN (Deutsch)",
+  "takeaways": ["6-10 clear insights IN GERMAN, each 1-2 sentences"],
   "chapters": [
-    {"title": "Chapter title", "start_time": "HH:MM:SS", "summary": "What is covered"}
+    {{"title": "Kapitel-Titel auf Deutsch", "start_time": "HH:MM:SS", "summary": "Was hier besprochen wird"}}
   ]
-}
+}}
 
-Use the timestamps present in the transcript to place chapters at real topic
-transitions. summary + takeaways in the SAME language as the transcript.
+Use timestamps in the transcript to place chapters at real topic transitions.
+summary, takeaways and chapter titles/summaries MUST BE IN GERMAN even if the transcript is in another language.
 
 TRANSCRIPT:
 {transcript}"""
@@ -133,9 +157,8 @@ ANFORDERUNGEN:
 - Stil: Journalistisch, analytisch, fließend — KEIN Stichpunkt-Stil im Haupttext
 - Struktur: Packende Einleitung, Hauptteil mit ## Zwischenüberschriften, Fazit
 - Wörtliche Zitate aus den Transkripten verwenden (in „Anführungszeichen" mit Sprecher-Name)
-- Kontext und Einordnung: Bedeutung der Themen für den Leser erklären
 - Ton: Sachlich-interessiert, journalistisch neutral
-- Sprache: Deutsch (englische Zitate übersetzen, Original in Klammern)
+- Sprache: Deutsch
 
 ARTIKEL-TITEL: {title}
 
@@ -151,12 +174,10 @@ TRANSKRIPTE:
 {episodes_text}"""
 
 
-# ── Zeitung 2.0: tagging + multi-section issues ───────────────────────────────
-
 TAG_EXTRACT_PROMPT = """Du bist ein Wissens-Kurator. Extrahiere aus dieser Podcast-Zusammenfassung 4–8 normalisierte Themen-Tags.
 
 Regeln:
-- label: kanonische Schreibweise (Eigennamen korrekt, Singular bevorzugt, z.B. "Prompt Engineering" statt "Prompts schreiben", "GitHub Copilot" statt "Copilot")
+- label: kanonische Schreibweise (Eigennamen korrekt, Singular bevorzugt)
 - kind: eines von topic | tool | person | company | product
 - KEINE zu allgemeinen Begriffe wie "KI", "Technologie", "Podcast"
 
@@ -172,7 +193,7 @@ TAKEAWAYS:
 KAPITEL:
 {chapters}"""
 
-# Length slider 1-5 → target words + section count
+# Length slider 1-5 → target words + section count (used by magazin/newsletter)
 _LENGTH_MAP = {
     1: {"label": "Kompakt",     "words": 700,  "sections": 3, "tokens": 8192},
     2: {"label": "Knapp",       "words": 1200, "sections": 3, "tokens": 12000},
@@ -181,7 +202,6 @@ _LENGTH_MAP = {
     5: {"label": "Magazin",     "words": 4000, "sections": 6, "tokens": 32000},
 }
 
-# Style slider 1-5 → German instruction block
 _STYLE_MAP = {
     1: ("Technisch", "Fachlich präzise. Verwende korrekte Fachbegriffe ohne Vereinfachung, "
         "nenne Tools, Modelle und Versionen exakt, gib konkrete Schritte/Konfigurationen wieder. "
@@ -202,7 +222,7 @@ FORMAT: {format_desc}
 STIL ({style_name}): {style_instruction}
 GESAMTUMFANG: ca. {total_words} Wörter, verteilt auf {n_sections} thematische Abschnitte.
 {continuity}
-
+{focus_block}
 Erzeuge zusätzlich eine prägnante teilbare Kurzfassung (tldr_md): 5–8 Bullet-Punkte mit den Kernthemen, als eigenständiger weiterleitbarer Text.
 Erzeuge außerdem GENAU EINEN Abschnitt mit kind "quote": das prägnanteste wörtliche Zitat der Ausgabe mit Sprecher und Folge.
 
@@ -214,25 +234,109 @@ Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
   "sections": [
     {{"kind": "intro",   "heading": "", "body_md": "Editorial-Einstieg, der die Ausgabe einordnet"}},
     {{"kind": "article", "heading": "## Thementitel", "body_md": "Vollständiger Abschnitt in Markdown"}},
-    {{"kind": "quote",   "heading": "Zitat der Woche", "body_md": "> „Zitat…“ — Sprecher, Folge"}}
+    {{"kind": "quote",   "heading": "Zitat der Woche", "body_md": "> „Zitat…" — Sprecher, Folge"}}
   ],
   "tldr_md": "- Punkt 1\\n- Punkt 2 …"
 }}
 
-Sprache: Deutsch (fremdsprachige Zitate übersetzen, Original in Klammern).
+Sprache: Deutsch.
 
 TRANSKRIPTE:
 {episodes_text}"""
+
+DAILY_BRIEFING_PROMPT = """Du bist Redakteur für ein internes Team-Briefing. Fasse die folgenden transkribierten Podcast-Folgen in einem kompakten Tages-Briefing zusammen.
+
+AUFBAU:
+1. Kurzes Intro (2-3 Sätze): Was sind heute die zentralen Themen?
+2. Pro Folge ein Abschnitt: Podcast-Name, Folgen-Titel, 3-5 Kernaussagen als Bullet-Liste
+3. Abschluss-Empfehlung (1-2 Sätze): Welche Folge ist heute besonders relevant?
+{focus_block}
+Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
+{{
+  "title": "{title}",
+  "subtitle": "Briefing vom {date}",
+  "reading_time_min": <Zahl>,
+  "sections": [
+    {{"kind": "intro", "heading": "", "body_md": "Überblick"}},
+    {{"kind": "article", "heading": "## Podcast: Folgen-Titel", "body_md": "- Kernaussage 1\\n- Kernaussage 2"}},
+    {{"kind": "article", "heading": "## Empfehlung", "body_md": "Empfehlungstext"}}
+  ],
+  "tldr_md": "- Folge 1: Kernsatz\\n- Folge 2: Kernsatz"
+}}
+
+Sprache: Deutsch.
+
+FOLGEN:
+{episodes_text}"""
+
+SUMMARY_TAKEAWAYS_PROMPT = """Du bist ein präziser Redakteur. Erstelle für jede der folgenden Podcast-Folgen eine knappe deutsche Zusammenfassung (3-5 Sätze) und 3-5 Key Takeaways.
+{focus_block}
+Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
+{{
+  "title": "{title}",
+  "subtitle": "",
+  "reading_time_min": <Zahl>,
+  "sections": [
+    {{
+      "kind": "article",
+      "heading": "## Podcast-Name: Folgen-Titel",
+      "body_md": "**Zusammenfassung:** ...\\n\\n**Takeaways:**\\n- ...\\n- ..."
+    }}
+  ],
+  "tldr_md": "- Folge 1: Kernsatz\\n- Folge 2: Kernsatz"
+}}
+
+Sprache: IMMER DEUTSCH — auch wenn die Originalfolgen auf Englisch sind.
+
+FOLGEN:
+{episodes_text}"""
+
+TEAMS_POST_PROMPT = """Du schreibst einen kurzen, ansprechenden Microsoft-Teams-Post, der Kolleg*innen auf interessante Podcast-Folgen hinweist. Schreibe klar und direkt, kein Marketing-Sprech.
+
+Format:
+- 2-3 Einleitungssätze (Warum ist das relevant?)
+- Pro Folge: eine Zeile mit Podcast-Name und Kernaussage
+- Abschluss-Call-to-Action (1 Satz, z.B. „Hör mal rein!")
+- Maximal 200 Wörter
+{focus_block}
+Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
+{{
+  "title": "{title}",
+  "subtitle": "",
+  "reading_time_min": 1,
+  "sections": [
+    {{"kind": "article", "heading": "", "body_md": "Vollständiger Teams-Post als Markdown"}}
+  ],
+  "tldr_md": ""
+}}
+
+Sprache: Deutsch.
+
+FOLGEN:
+{episodes_text}"""
+
+TITLE_PROMPT = """Schlage EINEN kurzen, prägnanten deutschen Titel (max. 8 Wörter) für ein {format_label} vor, das folgende Podcast-Folgen zusammenfasst.
+
+Gib NUR den Titel zurück — kein JSON, keine Erklärung, keine Anführungszeichen.
+
+FOLGEN:
+{episodes_text}"""
+
+TRANSLATE_SUMMARY_PROMPT = """Übersetze die folgende Podcast-Zusammenfassung und die Takeaways ins Deutsche.
+
+Gib AUSSCHLIESSLICH valides JSON zurück:
+{{"summary": "Deutsche Zusammenfassung", "takeaways": ["Takeaway 1 auf Deutsch", "Takeaway 2 auf Deutsch"]}}
+
+ZUSAMMENFASSUNG:
+{summary}
+
+TAKEAWAYS:
+{takeaways}"""
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def transcribe_audio(audio_path: Path) -> dict:
-    """Return dict: language, speakers, segments, [summary, takeaways, chapters].
-
-    Gemini backend fills everything in one call. Whisper backend fills
-    segments only; enrichment runs afterwards as a cheap text call.
-    """
     backend = _runtime["backend"]
     loop = asyncio.get_event_loop()
 
@@ -241,7 +345,6 @@ async def transcribe_audio(audio_path: Path) -> dict:
         result = await loop.run_in_executor(
             None, whisper_backend.transcribe, audio_path, _runtime["whisper_model"]
         )
-        # Enrich with Gemini text call (summary/takeaways/chapters)
         if _configure_gemini():
             try:
                 full_text = _segments_to_text(result["segments"])
@@ -254,7 +357,6 @@ async def transcribe_audio(audio_path: Path) -> dict:
                 logger.warning(f"Enrichment skipped: {e}")
         return result
 
-    # default: gemini
     if not _configure_gemini():
         raise RuntimeError("Kein Gemini API Key konfiguriert (Settings oder .env)")
     return await loop.run_in_executor(None, _gemini_full_sync, audio_path)
@@ -274,6 +376,14 @@ async def translate_to_german(text: str) -> str:
     return await loop.run_in_executor(None, _translate_sync, text)
 
 
+async def translate_summary(summary: str, takeaways: list) -> dict:
+    """Cheaply translate an existing summary+takeaways to German (Lite model)."""
+    if not _configure_gemini():
+        return {}
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _translate_summary_sync, summary, takeaways)
+
+
 async def generate_digest(episode_data: list, mode: str, title: str) -> dict:
     if not _configure_gemini():
         raise RuntimeError("Kein Gemini API Key konfiguriert")
@@ -282,34 +392,39 @@ async def generate_digest(episode_data: list, mode: str, title: str) -> dict:
 
 
 async def extract_tags(summary: str, takeaways: list, chapters: list) -> list:
-    """Return [{'label','kind'}] canonical topic tags from compact episode metadata."""
     if not _configure_gemini():
         return []
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _extract_tags_sync, summary, takeaways, chapters)
 
 
-async def generate_issue(episode_data: list, *, fmt: str, length: int, style: int,
-                         title: str, prev_tldr: str = "") -> dict:
-    """Multi-section issue (Zeitung/Newsletter). Returns
-    {title, subtitle, reading_time_min, sections:[{kind,heading,body_md}], tldr_md}."""
+async def generate_issue(episode_data: list, *, fmt: str, length: int = 3, style: int = 3,
+                         title: str, prev_tldr: str = "",
+                         model: str = "", custom_style: str = "", focus: str = "") -> dict:
+    """Multi-section issue for any of the 5 formats.
+    Returns {title, subtitle, reading_time_min, sections:[{kind,heading,body_md}], tldr_md}."""
     if not _configure_gemini():
         raise RuntimeError("Kein Gemini API Key konfiguriert")
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _issue_sync, episode_data, fmt, length, style, title, prev_tldr)
+    return await loop.run_in_executor(
+        None, _issue_sync, episode_data, fmt, length, style, title, prev_tldr, model, custom_style, focus
+    )
+
+
+async def generate_title(episode_data: list, fmt: str) -> str:
+    """Auto-generate a short German title for a digest (Lite model)."""
+    if not _configure_gemini():
+        return ""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _title_sync, episode_data, fmt)
 
 
 # ── Gemini implementations ────────────────────────────────────────────────────
 
-_INLINE_LIMIT = 18 * 1024 * 1024   # leave headroom under Gemini's 20 MB cap
+_INLINE_LIMIT = 18 * 1024 * 1024
 
 
 def _gemini_full_sync(audio_path: Path) -> dict:
-    """Transcribe audio with Gemini.
-
-    Always tries inline_data first because the FileService.CreateFile
-    endpoint rejects newer AQ.-prefix API keys (401 ACCESS_TOKEN_TYPE_UNSUPPORTED).
-    Files larger than the inline cap fall back to the upload path."""
     client = _client()
     size = audio_path.stat().st_size
 
@@ -326,7 +441,6 @@ def _gemini_full_sync(audio_path: Path) -> dict:
         )
         return _parse_json(response.text)
 
-    # Fallback for very long episodes — requires AIza-prefix key
     logger.info(f"Audio too large for inline ({size//1024} KB), using File API...")
     uploaded = client.files.upload(
         file=str(audio_path),
@@ -377,11 +491,28 @@ def _translate_sync(text: str) -> str:
     return response.text
 
 
+def _translate_summary_sync(summary: str, takeaways: list) -> dict:
+    client = _client()
+    prompt = TRANSLATE_SUMMARY_PROMPT.format(
+        summary=(summary or "")[:3000],
+        takeaways="\n".join(f"- {t}" for t in (takeaways or []))[:2000],
+    )
+    response = client.models.generate_content(
+        model=LITE_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=2048),
+    )
+    data = _parse_json(response.text)
+    if isinstance(data, dict) and "summary" in data:
+        return data
+    return {}
+
+
 def _digest_sync(episode_data: list, mode: str, title: str) -> dict:
     mode_instructions = {
-        "weekly": "Dies ist eine Wochenzusammenfassung. Verbinde die Themen der Woche zu einem kohärenten Gesamtbild und zeige Querverbindungen auf.",
-        "theme": "Dies ist ein thematischer Report. Analysiere das gemeinsame Thema aus verschiedenen Perspektiven und Quellen.",
-        "portrait": "Dies ist ein Podcast-Portrait. Charakterisiere Stil, Qualität, wiederkehrende Themen und den Wert dieses Podcasts.",
+        "weekly": "Dies ist eine Wochenzusammenfassung. Verbinde die Themen der Woche zu einem kohärenten Gesamtbild.",
+        "theme": "Dies ist ein thematischer Report. Analysiere das gemeinsame Thema aus verschiedenen Perspektiven.",
+        "portrait": "Dies ist ein Podcast-Portrait. Charakterisiere Stil, Qualität und wiederkehrende Themen.",
     }.get(mode, "Erstelle einen umfassenden journalistischen Artikel.")
 
     episodes_text = ""
@@ -425,44 +556,138 @@ def _extract_tags_sync(summary: str, takeaways: list, chapters: list) -> list:
     return [t for t in tags if isinstance(t, dict) and t.get("label")]
 
 
+def _build_episodes_text(episode_data: list, max_per_ep: int = 10000) -> str:
+    text = ""
+    for ep in episode_data:
+        text += f"\n\n### {ep.get('title','Folge')} ({ep.get('podcast_title','')}, {ep.get('pub_date','')})\n"
+        body = ep.get("transcript") or ep.get("summary") or ""
+        text += body[:max_per_ep]
+    return text
+
+
 def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
-                title: str, prev_tldr: str) -> dict:
+                title: str, prev_tldr: str, model: str = "", custom_style: str = "", focus: str = "") -> dict:
+    # Normalise legacy format name
+    if fmt == "zeitung":
+        fmt = "magazin"
+
+    chosen_model = _resolve_model(model, fmt)
+    focus_block = f"\nREDAKTIONELLER FOKUS / Empfehlung: {focus}\n" if focus else ""
+
+    # ── Daily Briefing ────────────────────────────────────────────────────────
+    if fmt == "daily_briefing":
+        from datetime import date
+        episodes_text = _build_episodes_text(episode_data, 6000)
+        prompt = DAILY_BRIEFING_PROMPT.format(
+            title=title or "Daily Briefing",
+            date=date.today().strftime("%d.%m.%Y"),
+            focus_block=focus_block,
+            episodes_text=episodes_text[:80000],
+        )
+        client = _client()
+        response = client.models.generate_content(
+            model=chosen_model,
+            contents=[prompt],
+            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=8192),
+        )
+        data = _parse_json(response.text)
+        if not isinstance(data, dict) or "sections" not in data:
+            data = {"title": title, "subtitle": "", "reading_time_min": 3,
+                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
+                    "tldr_md": ""}
+        return data
+
+    # ── Summary + Takeaways ───────────────────────────────────────────────────
+    if fmt == "summary_takeaways":
+        # Prefer existing summaries over full transcript (cheaper)
+        episodes_text = ""
+        for ep in episode_data:
+            tk = ep.get("takeaways") or []
+            if isinstance(tk, str):
+                try: tk = json.loads(tk)
+                except: tk = []
+            summary_txt = ep.get("summary") or ""
+            if summary_txt:
+                body = f"Zusammenfassung: {summary_txt}\nTakeaways: {'; '.join(tk)}"
+            else:
+                body = (ep.get("transcript") or "")[:4000]
+            episodes_text += f"\n\n### {ep.get('title','Folge')} ({ep.get('podcast_title','')}, {ep.get('pub_date','')})\n{body}"
+
+        prompt = SUMMARY_TAKEAWAYS_PROMPT.format(
+            title=title or "Summary + Takeaways",
+            focus_block=focus_block,
+            episodes_text=episodes_text[:80000],
+        )
+        client = _client()
+        response = client.models.generate_content(
+            model=chosen_model,
+            contents=[prompt],
+            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=8192),
+        )
+        data = _parse_json(response.text)
+        if not isinstance(data, dict) or "sections" not in data:
+            data = {"title": title, "subtitle": "", "reading_time_min": 3,
+                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
+                    "tldr_md": ""}
+        return data
+
+    # ── Teams Post ────────────────────────────────────────────────────────────
+    if fmt == "teams_post":
+        episodes_text = _build_episodes_text(episode_data, 3000)
+        prompt = TEAMS_POST_PROMPT.format(
+            title=title or "Teams Post",
+            focus_block=focus_block,
+            episodes_text=episodes_text[:40000],
+        )
+        client = _client()
+        response = client.models.generate_content(
+            model=chosen_model,
+            contents=[prompt],
+            config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=2048),
+        )
+        data = _parse_json(response.text)
+        if not isinstance(data, dict) or "sections" not in data:
+            data = {"title": title, "subtitle": "", "reading_time_min": 1,
+                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
+                    "tldr_md": ""}
+        return data
+
+    # ── Magazin / Newsletter (slider-based) ───────────────────────────────────
     lconf = _LENGTH_MAP.get(int(length), _LENGTH_MAP[3])
-    style_name, style_instruction = _STYLE_MAP.get(int(style), _STYLE_MAP[3])
+    if custom_style:
+        style_name = "Benutzerdefiniert"
+        style_instruction = custom_style
+    else:
+        style_name, style_instruction = _STYLE_MAP.get(int(style), _STYLE_MAP[3])
 
     if fmt == "newsletter":
         format_word = "KI-Newsletter-Redaktion"
         format_desc = ("Newsletter: kurze, scannbare Abschnitte mit je 2–4 Sätzen plus "
                        "Bullet-Takeaways. Oben ein Inhaltsverzeichnis. Knapp und teilbar.")
-        model = FLASH_MODEL
         temp = 0.6
-    else:
+    else:  # magazin
         format_word = "KI-Zeitung"
         format_desc = ("Zeitung: ausführliche, fließende Prosa-Artikel mit Analyse, "
                        "Kontext und wörtlichen Zitaten. Ein redaktionelles Intro.")
-        model = _digest_model()
         temp = 0.7
 
     continuity = ""
     if prev_tldr:
-        continuity = ("ANSCHLUSS: Beginne mit einem kurzen Abschnitt „Neu seit der letzten Ausgabe“, "
-                      "der auf folgende vorige Kurzfassung Bezug nimmt und nur das Neue hervorhebt:\n"
-                      + prev_tldr[:1500])
+        continuity = ("ANSCHLUSS: Beginne mit einem kurzen Abschnitt „Neu seit der letzten Ausgabe", "
+                      "der auf folgende vorige Kurzfassung Bezug nimmt:\n" + prev_tldr[:1500])
 
-    episodes_text = ""
-    for ep in episode_data:
-        episodes_text += f"\n\n### {ep.get('title','Folge')} ({ep.get('podcast_title','')}, {ep.get('pub_date','')})\n"
-        episodes_text += (ep.get("transcript") or ep.get("summary") or "")[:10000]
+    episodes_text = _build_episodes_text(episode_data, 10000)
 
     prompt = ISSUE_PROMPT.format(
         format_word=format_word, format_desc=format_desc,
         style_name=style_name, style_instruction=style_instruction,
         total_words=lconf["words"], n_sections=lconf["sections"],
-        continuity=continuity, title=title, episodes_text=episodes_text[:120000],
+        continuity=continuity, focus_block=focus_block,
+        title=title, episodes_text=episodes_text[:120000],
     )
     client = _client()
     response = client.models.generate_content(
-        model=model,
+        model=chosen_model,
         contents=[prompt],
         config=types.GenerateContentConfig(temperature=temp, max_output_tokens=lconf["tokens"]),
     )
@@ -472,6 +697,24 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
                 "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
                 "tldr_md": ""}
     return data
+
+
+def _title_sync(episode_data: list, fmt: str) -> str:
+    format_label = FORMATS.get(fmt, {}).get("label", "Ausgabe")
+    episodes_text = ""
+    for ep in episode_data[:5]:
+        episodes_text += f"- {ep.get('title','')} ({ep.get('podcast_title','')})\n"
+    prompt = TITLE_PROMPT.format(
+        format_label=format_label,
+        episodes_text=episodes_text[:2000],
+    )
+    client = _client()
+    response = client.models.generate_content(
+        model=LITE_MODEL,
+        contents=[prompt],
+        config=types.GenerateContentConfig(temperature=0.8, max_output_tokens=64),
+    )
+    return (response.text or "").strip().strip('"').strip("'")[:120]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -490,7 +733,6 @@ def _parse_json(text: str) -> dict:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        # try to extract the first {...} block
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if m:
             try:

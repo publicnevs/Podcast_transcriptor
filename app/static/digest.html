@@ -40,7 +40,7 @@
   <div class="tabs">
     <button id="tab-issues" class="active" onclick="switchTab('issues')">📰 Ausgaben</button>
     <button id="tab-week" onclick="switchTab('week')">📅 Diese Woche</button>
-    <button id="tab-recipes" onclick="switchTab('recipes')">🔁 Rezepte & Automatik</button>
+    <button id="tab-recipes" onclick="switchTab('recipes')">🔁 Templates & Automatik</button>
   </div>
 
   <!-- TAB: Ausgaben -->
@@ -55,10 +55,10 @@
     <div id="week-content"><div class="empty-state"><div class="spinner"></div></div></div>
   </div>
 
-  <!-- TAB: Rezepte -->
+  <!-- TAB: Templates -->
   <div id="view-recipes" style="display:none">
     <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:1rem">
-      Gespeicherte Rezepte laufen auf Knopfdruck oder automatisch nach Zeitplan (mit Push aufs Handy).
+      Gespeicherte Templates laufen auf Knopfdruck oder automatisch nach Zeitplan (mit Push aufs Handy).
     </p>
     <div id="recipe-list" class="episode-list"><div class="empty-state"><div class="spinner"></div></div></div>
   </div>
@@ -91,15 +91,25 @@
 
         <div class="form-group">
           <label class="form-label">Format</label>
-          <div class="segmented" id="fmt-seg">
-            <button data-fmt="zeitung" class="active" onclick="setFormat('zeitung')">📰 Zeitung (Langform)</button>
-            <button data-fmt="newsletter" onclick="setFormat('newsletter')">✉️ Newsletter (kurz & teilbar)</button>
+          <div id="fmt-seg" style="display:flex;flex-wrap:wrap;gap:.375rem"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Titel <span style="color:var(--text-muted);font-weight:400">(leer = automatisch)</span></label>
+          <div style="display:flex;gap:.375rem">
+            <input type="text" id="digest-title" placeholder="z.B. KI-Woche: Copilot & Prompting" style="flex:1">
+            <button class="btn btn-ghost btn-sm" onclick="autoTitle()" title="Titel automatisch generieren">✨</button>
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Titel</label>
-          <input type="text" id="digest-title" placeholder="z.B. KI-Woche: Copilot & Prompting">
+          <label class="form-label">Modell</label>
+          <select id="model-sel" style="width:auto">
+            <option value="">Standard (globale Einstellung)</option>
+            <option value="pro">Pro (beste Qualität)</option>
+            <option value="flash">Flash (schnell)</option>
+            <option value="lite">Lite (günstig)</option>
+          </select>
         </div>
 
         <div class="form-group">
@@ -148,20 +158,34 @@
           <div id="picker-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"></div>
         </div>
 
-        <!-- Sliders -->
-        <div class="form-group">
-          <label class="form-label">Länge</label>
-          <div class="slider-row">
-            <input type="range" id="len-slider" min="1" max="5" value="3" oninput="updateSliderLabels()">
-            <span class="slider-val" id="len-val">Standard</span>
+        <!-- Sliders (magazin/newsletter only) -->
+        <div id="slider-group" style="display:none">
+          <div class="form-group">
+            <label class="form-label">Länge</label>
+            <div class="slider-row">
+              <input type="range" id="len-slider" min="1" max="5" value="3" oninput="updateSliderLabels()">
+              <span class="slider-val" id="len-val">Standard</span>
+            </div>
+          </div>
+          <div class="form-group" style="margin-top:.75rem">
+            <label class="form-label">Stil</label>
+            <div class="slider-row">
+              <input type="range" id="style-slider" min="1" max="5" value="3" oninput="updateSliderLabels()">
+              <span class="slider-val" id="style-val">Journalistisch</span>
+            </div>
           </div>
         </div>
-        <div class="form-group">
-          <label class="form-label">Stil</label>
-          <div class="slider-row">
-            <input type="range" id="style-slider" min="1" max="5" value="3" oninput="updateSliderLabels()">
-            <span class="slider-val" id="style-val">Journalistisch</span>
-          </div>
+
+        <!-- Custom style prompt -->
+        <div class="form-group" id="custom-style-group" style="display:none">
+          <label class="form-label">Eigener Stil-Prompt <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <textarea id="custom-style-input" placeholder="z.B. Schreibe prägnant und verwende viele Zwischenüberschriften. Verzichte auf Einleitung." style="min-height:60px"></textarea>
+        </div>
+
+        <!-- Focus / recommendation -->
+        <div class="form-group" id="focus-group" style="display:none">
+          <label class="form-label">Was gefällt dir besonders? <span style="color:var(--text-muted);font-weight:400">(optional — Empfehlung / Fokus)</span></label>
+          <textarea id="focus-input" placeholder="z.B. Die Folge über Prompt Engineering ist besonders spannend, das soll hervorgehoben werden." style="min-height:60px"></textarea>
         </div>
 
         <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line">…</div>
@@ -169,7 +193,7 @@
 
       <div class="modal-actions" style="flex-wrap:wrap;gap:.5rem">
         <button class="btn btn-secondary" onclick="closeNewDigest()">Abbrechen</button>
-        <button class="btn btn-ghost" onclick="saveAsRecipe()">💾 Als Rezept speichern</button>
+        <button class="btn btn-ghost" onclick="saveAsRecipe()">💾 Als Template speichern</button>
         <button class="btn btn-primary" id="create-btn" onclick="createDigest()">🤖 Generieren</button>
       </div>
     </div>
@@ -189,10 +213,17 @@ let LEN_LABELS = {1:'Kompakt',2:'Knapp',3:'Standard',4:'Ausführlich',5:'Magazin
 let STYLE_LABELS = {1:'Technisch',2:'Analytisch',3:'Journalistisch',4:'Erzählend',5:'Leicht verständlich'};
 let allEpisodes = [], selectedIds = new Set();
 let allTags = [], selTags = new Set(), selPods = new Set();
-let timeframe = '7';      // 7|14|30|all|manual
-let format = 'zeitung';
+let timeframe = '7';
+let format = 'daily_briefing';
+let allFormats = [];
 let currentDigest = null, readerView = 'long';
 let countTimer = null;
+
+const FORMAT_ICONS = {
+  daily_briefing: '📅', magazin: '📰', newsletter: '✉️',
+  summary_takeaways: '📋', teams_post: '💬',
+  zeitung: '📰',  // legacy fallback
+};
 
 // ── Tabs ──────────────────────────────────────────────────────────────────
 function switchTab(t) {
@@ -216,7 +247,7 @@ async function loadDigests() {
     list.innerHTML = digests.map(d => `
       <div class="episode-item" onclick="openDigest(${d.id})">
         <div>
-          <div class="episode-title">${(d.format==='newsletter'?'✉️ ':'📰 ')}${escHtml(d.title)}</div>
+          <div class="episode-title">${FORMAT_ICONS[d.format]||'📰'} ${escHtml(d.title)}</div>
           <div class="episode-meta">
             ${d.subtitle ? `<span>${escHtml(d.subtitle)}</span>` : ''}
             <span>${fmtDate(d.created_at)}</span>
@@ -302,24 +333,42 @@ async function deleteDigest(id) {
 // ── New issue builder ─────────────────────────────────────────────────────
 async function openNewDigest() {
   selectedIds.clear(); selTags.clear(); selPods.clear();
-  timeframe = '7'; format = 'zeitung';
+  timeframe = '7'; format = allFormats[0]?.value || 'daily_briefing';
   document.getElementById('digest-title').value = '';
   document.getElementById('match-all').checked = false;
   document.getElementById('len-slider').value = 3;
   document.getElementById('style-slider').value = 3;
-  setFormat('zeitung'); setTimeframe('7'); updateSliderLabels();
+  document.getElementById('model-sel').value = '';
+  document.getElementById('custom-style-input').value = '';
+  document.getElementById('focus-input').value = '';
+  renderFormatButtons();
+  setFormat(format);
+  setTimeframe(format === 'daily_briefing' ? '1' : '7');
+  updateSliderLabels();
   document.getElementById('new-modal').style.display = '';
   await Promise.all([loadTags(), loadPods(), loadPickerEpisodes()]);
   updateCount();
 }
 function closeNewDigest() { document.getElementById('new-modal').style.display = 'none'; }
 
+function renderFormatButtons() {
+  const seg = document.getElementById('fmt-seg');
+  seg.innerHTML = allFormats.map(f =>
+    `<button class="btn btn-secondary btn-sm${format===f.value?' active':''}" data-fmt="${f.value}" onclick="setFormat('${f.value}')">${f.label}</button>`
+  ).join('');
+}
+
 function setFormat(f) {
   format = f;
   document.querySelectorAll('#fmt-seg button').forEach(b => b.classList.toggle('active', b.dataset.fmt===f));
-  // sensible defaults
-  if (f==='newsletter') { document.getElementById('len-slider').value=2; document.getElementById('style-slider').value=5; }
-  else { document.getElementById('len-slider').value=4; document.getElementById('style-slider').value=3; }
+  const fmtDef = allFormats.find(x => x.value === f);
+  const usesSliders = fmtDef?.uses_sliders ?? false;
+  document.getElementById('slider-group').style.display = usesSliders ? '' : 'none';
+  const hasExtra = ['magazin','newsletter','teams_post'].includes(f);
+  document.getElementById('custom-style-group').style.display = hasExtra ? '' : 'none';
+  document.getElementById('focus-group').style.display = hasExtra ? '' : 'none';
+  if (f === 'newsletter') { document.getElementById('len-slider').value=2; document.getElementById('style-slider').value=5; }
+  else if (f === 'magazin') { document.getElementById('len-slider').value=4; document.getElementById('style-slider').value=3; }
   updateSliderLabels();
 }
 
@@ -429,12 +478,26 @@ function filterPicker() {
   renderPickerList(allEpisodes.filter(e => !q || e.title.toLowerCase().includes(q) || e._pt.toLowerCase().includes(q)));
 }
 
+async function autoTitle() {
+  const btn = document.querySelector('#new-modal button[onclick="autoTitle()"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳'; }
+  try {
+    const payload = { title: '', format, episode_ids: timeframe==='manual' ? [...selectedIds] : [],
+                      recipe: timeframe!=='manual' ? currentRecipe() : undefined };
+    const r = await API.post('/api/issues/title', payload);
+    document.getElementById('digest-title').value = r.title || '';
+  } catch(e) { toast(e.message, 'error'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '✨'; } }
+}
+
 async function createDigest() {
   const title = document.getElementById('digest-title').value.trim();
-  if (!title) return toast('Bitte einen Titel eingeben', 'error');
   const length = parseInt(document.getElementById('len-slider').value);
   const style = parseInt(document.getElementById('style-slider').value);
-  const payload = { title, format, length, style };
+  const model = document.getElementById('model-sel').value;
+  const custom_style = document.getElementById('custom-style-input').value.trim();
+  const focus = document.getElementById('focus-input').value.trim();
+  const payload = { title, format, length, style, model, custom_style, focus };
   if (timeframe === 'manual') {
     if (!selectedIds.size) return toast('Bitte mindestens eine Folge wählen', 'error');
     payload.episode_ids = [...selectedIds];
@@ -453,7 +516,7 @@ async function createDigest() {
 }
 
 async function saveAsRecipe() {
-  const name = prompt('Name des Rezepts (z.B. „Copilot-Tipps wöchentlich"):',
+  const name = prompt('Name des Templates (z.B. „Copilot-Tipps wöchentlich"):',
     document.getElementById('digest-title').value || '');
   if (!name) return;
   const rec = currentRecipe();
@@ -464,8 +527,11 @@ async function saveAsRecipe() {
       tag_ids: rec.tag_ids, match: rec.match,
       length: parseInt(document.getElementById('len-slider').value),
       style: parseInt(document.getElementById('style-slider').value),
+      model: document.getElementById('model-sel').value,
+      custom_style: document.getElementById('custom-style-input').value.trim(),
+      focus: document.getElementById('focus-input').value.trim(),
     });
-    toast('💾 Rezept gespeichert', 'success');
+    toast('💾 Template gespeichert', 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -499,7 +565,8 @@ async function loadWeek() {
 
 async function newsletterFromTag(label) {
   await openNewDigest();
-  setFormat('newsletter'); setTimeframe('7');
+  if (allFormats.find(f=>f.value==='newsletter')) setFormat('newsletter');
+  setTimeframe('7');
   document.getElementById('digest-title').value = `${label} — diese Woche`;
   // select the matching tag chip
   const t = allTags.find(x => x.label === label);
@@ -515,11 +582,11 @@ async function loadRecipes() {
   try {
     const recs = await API.get('/api/recipes');
     let head = `<div style="margin-bottom:1rem"><button class="btn btn-secondary btn-sm" onclick="backfillTags()">🏷️ Tags für alle Folgen nachtragen</button></div>`;
-    if (!recs.length) { box.innerHTML = head + '<div class="empty-state"><div class="icon">🔁</div><p>Noch keine Rezepte. Erstelle eines über „Neue Ausgabe → Als Rezept speichern".</p></div>'; return; }
+    if (!recs.length) { box.innerHTML = head + '<div class="empty-state"><div class="icon">🔁</div><p>Noch keine Templates. Erstelle eines über „Neue Ausgabe → Als Template speichern".</p></div>'; return; }
     box.innerHTML = head + recs.map(r => `
       <div class="episode-item">
         <div style="flex:1">
-          <div class="episode-title">${(r.format==='newsletter'?'✉️ ':'📰 ')}${escHtml(r.name)}</div>
+          <div class="episode-title">${FORMAT_ICONS[r.format]||'📰'} ${escHtml(r.name)}</div>
           <div class="episode-meta">
             <span>${r.date_window_days ? 'letzte '+r.date_window_days+' Tage' : 'alle'}</span>
             <span>Länge ${LEN_LABELS[r.length]}</span><span>Stil ${STYLE_LABELS[r.style]}</span>
@@ -550,7 +617,7 @@ async function saveSchedule(id, enabled) {
   catch(e){ toast(e.message,'error'); }
 }
 async function deleteRecipe(id) {
-  if (!confirm('Rezept löschen?')) return;
+  if (!confirm('Template löschen?')) return;
   try { await API.del(`/api/recipes/${id}`); toast('Gelöscht','success'); loadRecipes(); } catch(e){ toast(e.message,'error'); }
 }
 async function backfillTags() {
@@ -564,6 +631,10 @@ async function backfillTags() {
     const opt = await API.get('/api/issue-options');
     LEN_LABELS = Object.fromEntries(opt.length.map(x => [x.value, x.label]));
     STYLE_LABELS = Object.fromEntries(opt.style.map(x => [x.value, x.label]));
+    if (opt.formats?.length) {
+      allFormats = opt.formats;
+      format = allFormats[0].value;
+    }
   } catch {}
   loadDigests();
 
@@ -579,7 +650,7 @@ async function backfillTags() {
     });
     document.getElementById('digest-title').value = `Podcast-Porträt: ${podTitle}`;
     setTimeframe('all');
-    setFormat('zeitung');
+    setFormat('magazin');
     document.getElementById('len-slider').value = 4;
     document.getElementById('style-slider').value = 3;
     updateSliderLabels(); updateCount();

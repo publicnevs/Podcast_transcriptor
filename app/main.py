@@ -99,9 +99,12 @@ class DigestRequest(BaseModel):
     episode_ids: List[int] = []
     title: str
     mode: str = "theme"          # legacy
-    format: str = "zeitung"      # zeitung | newsletter
+    format: str = "daily_briefing"
     length: int = 3              # 1..5
     style: int = 3               # 1..5
+    model: str = ""              # pro | flash | lite | "" (format default)
+    custom_style: str = ""
+    focus: str = ""
     recipe: Optional[dict] = None  # {date_window_days?, date_from?, date_to?, podcast_ids[], tag_ids[], match}
 
 
@@ -116,7 +119,7 @@ class IssueSelect(BaseModel):
 
 class RecipeCreate(BaseModel):
     name: str
-    format: str = "newsletter"
+    format: str = "daily_briefing"
     date_window_days: Optional[int] = 7
     date_from: Optional[str] = None
     date_to: Optional[str] = None
@@ -125,6 +128,9 @@ class RecipeCreate(BaseModel):
     match: str = "any"
     length: int = 3
     style: int = 3
+    model: str = ""
+    custom_style: str = ""
+    focus: str = ""
 
 
 class ScheduleUpsert(BaseModel):
@@ -431,6 +437,9 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
 @app.delete("/api/podcasts/{podcast_id}")
 async def delete_podcast(podcast_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "DELETE FROM transcripts_fts WHERE episode_id IN "
+            "(SELECT id FROM episodes WHERE podcast_id=?)", (podcast_id,))
         await db.execute("DELETE FROM podcasts WHERE id=?", (podcast_id,))
         await db.commit()
     return {"ok": True}
@@ -635,8 +644,13 @@ async def retranscribe(episode_id: int, background_tasks: BackgroundTasks):
             ep = await cur.fetchone()
         if not ep:
             raise HTTPException(404)
-        await db.execute("UPDATE episodes SET status='queued', error_msg=NULL WHERE id=?",
-                         (episode_id,))
+        await db.execute("DELETE FROM transcripts_fts WHERE episode_id=?", (episode_id,))
+        await db.execute("DELETE FROM transcripts WHERE episode_id=?", (episode_id,))
+        await db.execute("DELETE FROM summaries WHERE episode_id=?", (episode_id,))
+        await db.execute("DELETE FROM episode_tags WHERE episode_id=?", (episode_id,))
+        await db.execute(
+            "UPDATE episodes SET status='queued', error_msg=NULL, processing_started_at=NULL WHERE id=?",
+            (episode_id,))
         await db.commit()
     background_tasks.add_task(
         process_episode, episode_id, ep["audio_url"], ep["title"],
@@ -781,7 +795,7 @@ async def clear_queue():
     (downloading/transcribing) are left untouched."""
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "UPDATE episodes SET status='pending', error_msg=NULL "
+            "UPDATE episodes SET status='pending', error_msg=NULL, processing_started_at=NULL "
             "WHERE status IN ('queued','error')"
         )
         await db.commit()
@@ -940,9 +954,14 @@ async def issues_select(data: IssueSelect):
 
 @app.get("/api/issue-options")
 async def issue_options():
+    from .transcriber import FORMATS
     return {
         "length": [{"value": k, "label": v["label"]} for k, v in _LENGTH_MAP.items()],
         "style": [{"value": k, "label": v[0]} for k, v in _STYLE_MAP.items()],
+        "formats": [
+            {"value": k, "label": v["label"], "uses_sliders": v["uses_sliders"]}
+            for k, v in FORMATS.items()
+        ],
     }
 
 
@@ -974,7 +993,8 @@ async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
             digest_id = (await cur.fetchone())[0]
 
     background_tasks.add_task(_build_issue, digest_id, episode_ids,
-                              data.format, data.length, data.style, data.title)
+                              data.format, data.length, data.style, data.title,
+                              data.model, data.custom_style, data.focus)
     return {"id": digest_id, "status": "generating"}
 
 
@@ -993,15 +1013,16 @@ def _sections_to_md(result: dict) -> str:
 
 
 async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
-                       style: int, title: str):
+                       style: int, title: str, model: str = "",
+                       custom_style: str = "", focus: str = ""):
     try:
         episode_data = []
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
             for ep_id in episode_ids:
                 async with db.execute("""
-                    SELECT e.title, e.pub_date, p.title AS podcast_title,
-                           t.content AS transcript, s.summary
+                    SELECT e.id, e.podcast_id, e.title, e.pub_date, p.title AS podcast_title,
+                           t.content AS transcript, s.summary, s.takeaways_json
                     FROM episodes e
                     LEFT JOIN podcasts p ON p.id=e.podcast_id
                     LEFT JOIN transcripts t ON t.episode_id=e.id
@@ -1012,8 +1033,17 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                     if row:
                         episode_data.append(dict(row))
 
+        # Auto-title if empty
+        if not title.strip():
+            from .transcriber import generate_title
+            title = await generate_title(episode_data, fmt)
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute("UPDATE digests SET title=? WHERE id=?", (title, digest_id))
+                await db.commit()
+
         result = await generate_issue(episode_data, fmt=fmt, length=length,
-                                      style=style, title=title)
+                                      style=style, title=title,
+                                      model=model, custom_style=custom_style, focus=focus)
         content_md = _sections_to_md(result)
         content_html = markdown2.markdown(
             content_md, extras=["fenced-code-blocks", "tables", "header-ids"])
@@ -1151,6 +1181,98 @@ async def _run_backfill():
     logger.info(f"Tag backfill done: {count} episodes")
 
 
+@app.post("/api/summaries/backfill", status_code=202)
+async def backfill_summaries(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_run_summary_backfill)
+    return {"status": "started"}
+
+
+async def _run_summary_backfill():
+    from .transcriber import enrich_text, translate_summary
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        # Episodes with transcript but no summary
+        async with db.execute("""
+            SELECT e.id, t.content
+            FROM episodes e
+            JOIN transcripts t ON t.episode_id = e.id
+            WHERE e.id NOT IN (SELECT episode_id FROM summaries WHERE summary != '')
+        """) as cur:
+            missing = [dict(r) for r in await cur.fetchall()]
+        # Episodes with non-German summary
+        async with db.execute("""
+            SELECT e.id, s.summary, s.takeaways_json
+            FROM episodes e
+            JOIN summaries s ON s.episode_id = e.id
+            WHERE s.summary != '' AND (s.summary_lang IS NULL OR s.summary_lang != 'de')
+        """) as cur:
+            non_de = [dict(r) for r in await cur.fetchall()]
+
+    count = 0
+    for r in missing:
+        try:
+            data = await enrich_text(r["content"])
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute("""
+                    INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
+                    VALUES (?, ?, ?, ?, 'de')
+                    ON CONFLICT(episode_id) DO UPDATE SET
+                        summary=excluded.summary, takeaways_json=excluded.takeaways_json,
+                        chapters_json=excluded.chapters_json, summary_lang='de'
+                """, (r["id"], data.get("summary", ""),
+                      json.dumps(data.get("takeaways", [])),
+                      json.dumps(data.get("chapters", []))))
+                await db.commit()
+            count += 1
+        except Exception as e:
+            logger.warning(f"Summary backfill for episode {r['id']} failed: {e}")
+
+    for r in non_de:
+        try:
+            takeaways = json.loads(r.get("takeaways_json") or "[]")
+            translated = await translate_summary(r["summary"], takeaways)
+            async with aiosqlite.connect(DB_PATH) as db:
+                await db.execute("""
+                    UPDATE summaries SET summary=?, takeaways_json=?, summary_lang='de'
+                    WHERE episode_id=?
+                """, (translated.get("summary", r["summary"]),
+                      json.dumps(translated.get("takeaways", takeaways)),
+                      r["id"]))
+                await db.commit()
+            count += 1
+        except Exception as e:
+            logger.warning(f"Summary translation for episode {r['id']} failed: {e}")
+
+    try:
+        from .notifier import send_notification
+        await send_notification("🧾 Zusammenfassungen fertig", f"{count} Folgen verarbeitet.")
+    except Exception:
+        pass
+    logger.info(f"Summary backfill done: {count} episodes")
+
+
+@app.post("/api/issues/title")
+async def generate_issue_title(data: DigestRequest):
+    from .transcriber import generate_title, FORMATS
+    episode_data = []
+    if data.episode_ids:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            for ep_id in data.episode_ids:
+                async with db.execute("""
+                    SELECT e.id, e.title, e.pub_date, p.title AS podcast_title, s.summary
+                    FROM episodes e
+                    LEFT JOIN podcasts p ON p.id=e.podcast_id
+                    LEFT JOIN summaries s ON s.episode_id=e.id
+                    WHERE e.id=?
+                """, (ep_id,)) as cur:
+                    row = await cur.fetchone()
+                    if row:
+                        episode_data.append(dict(row))
+    title = await generate_title(episode_data, data.format)
+    return {"title": title}
+
+
 # ── Recipes + scheduling ──────────────────────────────────────────────────────
 
 @app.get("/api/recipes")
@@ -1172,11 +1294,12 @@ async def create_recipe(data: RecipeCreate):
         cur = await db.execute("""
             INSERT INTO issue_recipes
               (name, format, date_window_days, date_from, date_to,
-               podcast_ids_json, tag_ids_json, match_mode, length, style)
-            VALUES (?,?,?,?,?,?,?,?,?,?)""",
+               podcast_ids_json, tag_ids_json, match_mode, length, style,
+               model, custom_style, focus)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (data.name, data.format, data.date_window_days, data.date_from, data.date_to,
              json.dumps(data.podcast_ids), json.dumps(data.tag_ids), data.match,
-             data.length, data.style))
+             data.length, data.style, data.model, data.custom_style, data.focus))
         await db.commit()
         return {"id": cur.lastrowid}
 
@@ -1193,7 +1316,7 @@ async def delete_recipe(recipe_id: int):
 async def run_recipe_route(recipe_id: int, background_tasks: BackgroundTasks):
     digest_id = await run_recipe(recipe_id, background_tasks)
     if digest_id is None:
-        raise HTTPException(404, "Rezept nicht gefunden")
+        raise HTTPException(404, "Template nicht gefunden")
     return {"id": digest_id, "status": "generating"}
 
 
@@ -1221,7 +1344,8 @@ async def run_recipe(recipe_id: int, background_tasks: BackgroundTasks = None):
         await db.commit()
         digest_id = cur.lastrowid
 
-    coro_args = (digest_id, episode_ids, r["format"], r["length"], r["style"], title)
+    coro_args = (digest_id, episode_ids, r["format"], r["length"], r["style"], title,
+                 r.get("model", ""), r.get("custom_style", ""), r.get("focus", ""))
     if background_tasks is not None:
         background_tasks.add_task(_build_issue, *coro_args)
     else:

@@ -108,11 +108,12 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                         (episode_id, content),
                     )
                     await db.execute(
-                        """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json)
-                           VALUES (?, ?, ?, ?)
+                        """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
+                           VALUES (?, ?, ?, ?, 'de')
                            ON CONFLICT(episode_id) DO UPDATE SET
                                summary=excluded.summary, takeaways_json=excluded.takeaways_json,
-                               chapters_json=excluded.chapters_json""",
+                               chapters_json=excluded.chapters_json,
+                               summary_lang='de'""",
                         (episode_id, data.get("summary", ""),
                          json.dumps(data.get("takeaways", [])),
                          json.dumps(data.get("chapters", []))),
@@ -184,12 +185,13 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                 (episode_id, full_text),
             )
             await db.execute(
-                """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json)
-                   VALUES (?, ?, ?, ?)
+                """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
+                   VALUES (?, ?, ?, ?, 'de')
                    ON CONFLICT(episode_id) DO UPDATE SET
                        summary=excluded.summary,
                        takeaways_json=excluded.takeaways_json,
-                       chapters_json=excluded.chapters_json""",
+                       chapters_json=excluded.chapters_json,
+                       summary_lang='de'""",
                 (episode_id, data.get("summary", ""),
                  json.dumps(data.get("takeaways", [])),
                  json.dumps(data.get("chapters", []))),

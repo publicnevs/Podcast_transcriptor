@@ -177,6 +177,17 @@
     </div>
   </div>
 
+  <!-- Summary Backfill -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:.5rem">🧾 Zusammenfassungen</h2>
+    <p style="font-size:.875rem;color:var(--text-muted);margin-bottom:.75rem">
+      Fehlende oder nicht-deutsche Zusammenfassungen für alle transkribierten Folgen nachgenerieren.
+    </p>
+    <button class="btn btn-secondary btn-sm" onclick="backfillSummaries()">
+      🔄 Fehlende/anderssprachige Zusammenfassungen nachgenerieren (Deutsch)
+    </button>
+  </div>
+
   <!-- Danger Zone -->
   <div class="card" style="border-color:rgba(239,68,68,0.3)">
     <h2 style="font-size:1rem;margin-bottom:.5rem;color:var(--error)">⚠️ Gefahrenzone</h2>
@@ -343,6 +354,13 @@ async function clearQueue() {
     const r = await API.del('/api/queue');
     toast(`✅ ${r.cleared ?? 0} Einträge geleert`, 'success');
     loadQueue();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function backfillSummaries() {
+  try {
+    await API.post('/api/summaries/backfill', {});
+    toast('🧾 Zusammenfassungen werden im Hintergrund nachgeneriert…', 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 

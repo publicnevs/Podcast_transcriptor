@@ -174,6 +174,12 @@ _MIGRATIONS = [
     # UX: feed health tracking
     "ALTER TABLE podcasts ADD COLUMN last_fetch_error TEXT",
     "ALTER TABLE podcasts ADD COLUMN consecutive_fetch_errors INTEGER DEFAULT 0",
+    # German summaries: track language of generated summary
+    "ALTER TABLE summaries ADD COLUMN summary_lang TEXT",
+    # Extended recipe fields for new formats
+    "ALTER TABLE issue_recipes ADD COLUMN model TEXT DEFAULT ''",
+    "ALTER TABLE issue_recipes ADD COLUMN custom_style TEXT DEFAULT ''",
+    "ALTER TABLE issue_recipes ADD COLUMN focus TEXT DEFAULT ''",
 ]
 
 
