@@ -19,10 +19,15 @@
 
 <div class="main-content">
 
-  <!-- Add Podcast -->
-  <details id="add-section" style="margin-bottom:1.5rem">
-    <summary style="font-size:1rem;color:var(--text)">➕ Podcast abonnieren</summary>
-    <div class="card" style="margin-top:.75rem">
+  <!-- Action Row -->
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem">
+    <button class="btn btn-primary btn-sm" onclick="toggleAddPanel()">➕ Abonnieren</button>
+    <a href="/discover" class="btn btn-secondary btn-sm">✨ Empfohlene</a>
+  </div>
+
+  <!-- Add Podcast Panel (collapsible) -->
+  <div id="add-section" style="display:none;margin-bottom:1.5rem">
+    <div class="card">
       <div style="display:flex;flex-direction:column;gap:1rem">
         <div class="form-group">
           <label class="form-label">RSS-Feed URL oder YouTube-Kanal-URL</label>
@@ -64,15 +69,19 @@
         </details>
       </div>
     </div>
-  </details>
+  </div>
 
   <!-- Queue Banner -->
   <div id="queue-banner" style="display:none" class="card" style="margin-bottom:1rem;background:var(--accent-dim);border-color:var(--accent)">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
       <span id="queue-text" style="font-size:.875rem"></span>
-      <button class="btn btn-ghost btn-sm" onclick="loadQueue()">Aktualisieren</button>
+      <div style="display:flex;gap:.375rem">
+        <button id="errors-toggle" class="btn btn-ghost btn-sm" style="display:none" onclick="toggleErrors()">❌ Fehler anzeigen</button>
+        <button class="btn btn-ghost btn-sm" onclick="loadQueue()">↻</button>
+      </div>
     </div>
     <div id="queue-list" style="margin-top:.75rem;display:flex;flex-direction:column;gap:.375rem"></div>
+    <div id="errors-list" style="display:none;margin-top:.75rem;display:none;flex-direction:column;gap:.375rem"></div>
   </div>
 
   <!-- Watchlist -->
@@ -82,7 +91,7 @@
   </div>
 
   <!-- Podcasts Grid -->
-  <div class="section-title">📚 Meine Podcasts</div>
+  <div class="section-title">📚 Podcasts & Feeds</div>
   <div id="podcast-grid" class="card-grid"></div>
 
 </div>
@@ -134,29 +143,65 @@ async function loadPodcasts() {
 }
 
 
+let _queueErrors = [];
+
+function toggleErrors() {
+  const errList = document.getElementById('errors-list');
+  const btn = document.getElementById('errors-toggle');
+  const shown = errList.style.display !== 'none';
+  errList.style.display = shown ? 'none' : 'flex';
+  btn.textContent = shown ? `❌ ${_queueErrors.length} Fehler anzeigen` : '❌ Fehler ausblenden';
+}
+
+function toggleAddPanel() {
+  const panel = document.getElementById('add-section');
+  const show = panel.style.display === 'none';
+  panel.style.display = show ? '' : 'none';
+  if (show) setTimeout(() => document.getElementById('rss-url')?.focus(), 50);
+}
+
 async function loadQueue() {
   try {
     const q = await API.get('/api/queue');
     const active = q.filter(e => ['queued','downloading','transcribing'].includes(e.status));
+    _queueErrors = q.filter(e => e.status === 'error');
     const banner = document.getElementById('queue-banner');
     const list = document.getElementById('queue-list');
+    const errList = document.getElementById('errors-list');
+    const errToggle = document.getElementById('errors-toggle');
     const txt = document.getElementById('queue-text');
-    if (active.length) {
-      banner.style.display = '';
-      txt.innerHTML = `<strong>⏳ ${active.length} Job${active.length>1?'s':''} in der Warteschlange</strong>`;
-      list.innerHTML = active.slice(0,5).map(e => `
-        <div style="display:flex;align-items:center;gap:.5rem;font-size:.8rem">
-          ${statusBadge(e.status)}
-          <span>${escHtml(e.title)}</span>
-          ${e.podcast_title ? `<span style="color:var(--text-muted)">· ${escHtml(e.podcast_title)}</span>` : ''}
+
+    const hasContent = active.length || _queueErrors.length;
+    banner.style.display = hasContent ? '' : 'none';
+    if (!hasContent) return;
+
+    const parts = [];
+    if (active.length) parts.push(`<strong>⏳ ${active.length} Job${active.length>1?'s':''}</strong>`);
+    if (_queueErrors.length) parts.push(`<span style="color:var(--error)">❌ ${_queueErrors.length} Fehler</span>`);
+    txt.innerHTML = parts.join(' · ');
+
+    list.innerHTML = active.slice(0,5).map(e => `
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.8rem">
+        ${statusBadge(e.status)}
+        <span>${escHtml(e.title)}</span>
+        ${e.podcast_title ? `<span style="color:var(--text-muted)">· ${escHtml(e.podcast_title)}</span>` : ''}
+      </div>`).join('');
+
+    if (_queueErrors.length) {
+      errToggle.style.display = '';
+      errToggle.textContent = `❌ ${_queueErrors.length} Fehler anzeigen`;
+      errList.innerHTML = _queueErrors.map(e => `
+        <div style="display:flex;align-items:flex-start;gap:.5rem;font-size:.8rem">
+          <span style="color:var(--error);flex-shrink:0">❌</span>
+          <div>
+            <span style="font-weight:500">${escHtml(e.title)}</span>
+            ${e.podcast_title ? `<span style="color:var(--text-muted)"> · ${escHtml(e.podcast_title)}</span>` : ''}
+            ${e.error_msg ? `<div style="color:var(--text-muted);font-size:.75rem;font-family:monospace;margin-top:.2rem">${escHtml(e.error_msg.slice(0,120))}</div>` : ''}
+          </div>
         </div>`).join('');
     } else {
-      banner.style.display = 'none';
-    }
-    const errors = q.filter(e => e.status === 'error');
-    if (errors.length) {
-      banner.style.display = '';
-      txt.innerHTML += ` · <span style="color:var(--error)">${errors.length} Fehler</span>`;
+      errToggle.style.display = 'none';
+      errList.style.display = 'none';
     }
   } catch {}
 }
