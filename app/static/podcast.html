@@ -186,6 +186,9 @@ function renderEpisode(e) {
         ${e.status==='error'
           ? `<button class="btn btn-primary btn-icon btn-sm" title="Erneut versuchen" onclick="retryEpisode(${e.id}, this)">🔄</button>`
           : ''}
+        ${e.status==='done'
+          ? `<button class="btn btn-ghost btn-icon btn-sm" title="Neu transkribieren" onclick="retranscribeEpisode(${e.id}, '${titleEsc}', this)">🔁</button>`
+          : ''}
         <button class="btn btn-ghost btn-icon btn-sm" title="${e.watchlist?'Von Leseliste':'Zur Leseliste'}" onclick="toggleWatch(${e.id}, this)">${e.watchlist?'⭐':'☆'}</button>
         <button class="btn btn-ghost btn-icon btn-sm" title="Episode löschen" onclick="deleteEpisode(${e.id}, '${titleEsc}', this)">🗑️</button>
       </div>
@@ -310,6 +313,21 @@ async function retryEpisode(id, btn) {
   try {
     await API.post(`/api/episodes/${id}/retranscribe`, {});
     toast('Erneut in Warteschlange', 'info');
+    setTimeout(() => loadEpisodes(), 1500);
+  } catch(e) { toast(e.message, 'error'); btn.disabled = false; }
+}
+
+async function retranscribeEpisode(id, title, btn) {
+  const ok = await confirmModal(
+    'Neu transkribieren?',
+    `"${title}" — vorhandenes Transkript, Zusammenfassung und Tags werden gelöscht und neu erstellt.`,
+    'Neu transkribieren'
+  );
+  if (!ok) return;
+  btn.disabled = true;
+  try {
+    await API.post(`/api/episodes/${id}/retranscribe`, {});
+    toast('🔁 Erneut in Warteschlange', 'info');
     setTimeout(() => loadEpisodes(), 1500);
   } catch(e) { toast(e.message, 'error'); btn.disabled = false; }
 }
