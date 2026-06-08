@@ -116,6 +116,9 @@ async function loadPodcast() {
           ${podcastData.feed_type==='newsfeed' ? '<span class="badge" style="font-size:.7rem">📰 Newsfeed</span>' : ''}
           ${podcastData.website_url ? `<a href="${escHtml(podcastData.website_url)}" target="_blank" style="font-size:.8rem">🔗 Website</a>` : ''}
           ${podcastData.auto_transcribe ? '<span style="font-size:.8rem;color:var(--success)">🔄 Auto-Transkription an</span>' : ''}
+          ${(podcastData.consecutive_fetch_errors||0) > 2
+            ? `<span class="badge-warn" title="${escHtml(podcastData.last_fetch_error||'')}">⚠️ ${podcastData.consecutive_fetch_errors} Feed-Fehler</span>`
+            : ''}
         </div>
       </div>`;
     document.title = `PodScribe — ${podcastData.title}`;
@@ -142,26 +145,49 @@ async function loadEpisodes(append=false) {
   } catch(e) { list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`; }
 }
 
+function elapsedStr(startedAt, serverNow) {
+  if (!startedAt || !serverNow) return '';
+  // SQLite CURRENT_TIMESTAMP is in UTC without timezone marker — treat both as UTC
+  const start = new Date(startedAt.replace(' ', 'T') + 'Z');
+  const now = new Date(serverNow.replace(' ', 'T') + 'Z');
+  const mins = Math.round((now - start) / 60000);
+  if (mins < 1) return 'gerade gestartet';
+  return `läuft seit ${mins} Min.`;
+}
+
 function renderEpisode(e) {
   const chapters = (() => { try { return JSON.parse(e.chapters_json||'[]'); } catch { return []; } })();
+  const isActive = ['downloading','transcribing'].includes(e.status);
+  const elapsed = isActive ? elapsedStr(e.processing_started_at, e.server_now) : '';
+  // tags_csv: "label|id,label|id"
+  const tags = (e.tags_csv||'').split(',').filter(Boolean)
+    .map(t => { const [label,id]=t.split('|'); return `<a href="/tags/${id||''}" onclick="event.stopPropagation()" class="tag" style="font-size:.68rem">${escHtml(label||t)}</a>`; }).join('');
+  const titleEsc = escHtml(e.title).replace(/'/g, "\\'");
   return `
     <div class="episode-item ${e.read_at?'read':'unread'}" onclick="location.href='/episode/${e.id}'">
-      <div>
+      <div style="flex:1;min-width:0">
         <div class="episode-title">${escHtml(e.title)}</div>
         <div class="episode-meta">
           <span>${fmtDate(e.pub_date)}</span>
           ${e.duration_sec?`<span>${fmtDuration(e.duration_sec)}</span>`:''}
           ${statusBadge(e.status)}
+          ${elapsed ? `<span class="elapsed-badge">${elapsed}</span>` : ''}
           ${e.word_count?`<span>${(e.word_count/1000).toFixed(1)}k Wörter</span>`:''}
         </div>
+        ${e.status==='error'&&e.error_msg ? `<div class="error-detail">${escHtml(e.error_msg.slice(0,160))}</div>` : ''}
         ${e.summary?`<div class="episode-summary">${escHtml(e.summary)}</div>`:''}
         ${chapters.length?`<div style="margin-top:.375rem;font-size:.75rem;color:var(--text-muted)">${chapters.length} Kapitel</div>`:''}
+        ${tags ? `<div class="episode-tags">${tags}</div>` : ''}
       </div>
       <div class="episode-actions" onclick="event.stopPropagation()">
-        ${e.status==='pending'||e.status==='error'
+        ${e.status==='pending'
           ? `<button class="btn btn-primary btn-icon btn-sm" title="Transkribieren" onclick="transcribeOne(${e.id},'${escHtml(e.audio_url)}', this)">🎙️</button>`
           : ''}
+        ${e.status==='error'
+          ? `<button class="btn btn-primary btn-icon btn-sm" title="Erneut versuchen" onclick="retryEpisode(${e.id}, this)">🔄</button>`
+          : ''}
         <button class="btn btn-ghost btn-icon btn-sm" title="${e.watchlist?'Von Leseliste':'Zur Leseliste'}" onclick="toggleWatch(${e.id}, this)">${e.watchlist?'⭐':'☆'}</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Episode löschen" onclick="deleteEpisode(${e.id}, '${titleEsc}', this)">🗑️</button>
       </div>
     </div>`;
 }
@@ -196,8 +222,19 @@ function toggleSettings() {
   const panel = document.getElementById('podcast-settings');
   const show = panel.style.display === 'none';
   panel.style.display = show ? '' : 'none';
+  document.body.classList.toggle('settings-open', show);
   if (show) populateSettings();
 }
+
+// Close bottom-sheet on outside tap (mobile)
+document.addEventListener('click', e => {
+  if (window.innerWidth <= 640 &&
+      document.body.classList.contains('settings-open') &&
+      !e.target.closest('#podcast-settings') &&
+      !e.target.closest('button[onclick="toggleSettings()"]')) {
+    toggleSettings();
+  }
+});
 
 function populateSettings() {
   if (!podcastData) return;
@@ -256,12 +293,36 @@ function generateArticle() {
 }
 
 async function deletePodcast() {
-  if (!confirm(`Podcast "${podcastData?.title}" und alle Transkripte löschen?`)) return;
+  const ok = await confirmModal(
+    'Abonnement löschen?',
+    `"${podcastData?.title}" und alle zugehörigen Transkripte werden dauerhaft entfernt.`
+  );
+  if (!ok) return;
   try {
     await API.del(`/api/podcasts/${podcastId}`);
     toast('Gelöscht', 'success');
     setTimeout(() => location.href='/', 800);
   } catch(e) { toast(e.message,'error'); }
+}
+
+async function retryEpisode(id, btn) {
+  btn.disabled = true;
+  try {
+    await API.post(`/api/episodes/${id}/retranscribe`, {});
+    toast('Erneut in Warteschlange', 'info');
+    setTimeout(() => loadEpisodes(), 1500);
+  } catch(e) { toast(e.message, 'error'); btn.disabled = false; }
+}
+
+async function deleteEpisode(id, title, btn) {
+  const ok = await confirmModal('Episode löschen?', `"${title}" wird dauerhaft entfernt.`);
+  if (!ok) return;
+  btn.disabled = true;
+  try {
+    await API.del(`/api/episodes/${id}`);
+    toast('Episode gelöscht', 'success');
+    loadEpisodes();
+  } catch(e) { toast(e.message, 'error'); btn.disabled = false; }
 }
 
 // Auto-refresh active jobs

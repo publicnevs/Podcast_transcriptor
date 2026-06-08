@@ -169,6 +169,11 @@ _MIGRATIONS = [
     "ALTER TABLE podcasts ADD COLUMN max_transcripts INTEGER DEFAULT 0",
     # Dedup hard guard for newsfeed articles (partial: only non-empty links).
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_ep_url ON episodes(podcast_id, episode_url) WHERE episode_url <> ''",
+    # UX: track when active processing started (for elapsed-time display)
+    "ALTER TABLE episodes ADD COLUMN processing_started_at TIMESTAMP",
+    # UX: feed health tracking
+    "ALTER TABLE podcasts ADD COLUMN last_fetch_error TEXT",
+    "ALTER TABLE podcasts ADD COLUMN consecutive_fetch_errors INTEGER DEFAULT 0",
 ]
 
 

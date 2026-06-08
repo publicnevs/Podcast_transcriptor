@@ -218,6 +218,16 @@ async def page_discover():
     return FileResponse(STATIC_DIR / "discover.html")
 
 
+@app.get("/tags", response_class=HTMLResponse)
+async def page_tags():
+    return FileResponse(STATIC_DIR / "tags.html")
+
+
+@app.get("/tags/{tag_id}", response_class=HTMLResponse)
+async def page_tag_detail(tag_id: int):
+    return FileResponse(STATIC_DIR / "tags.html")
+
+
 @app.get("/digest/{digest_id}", response_class=HTMLResponse)
 async def page_digest_reader(digest_id: int):
     return FileResponse(STATIC_DIR / "digest-reader.html")
@@ -438,7 +448,11 @@ async def get_podcast_episodes(podcast_id: int, status: Optional[str] = None,
             where += " AND e.status=?"
             params.append(status)
         async with db.execute(f"""
-            SELECT e.*, s.summary, s.chapters_json
+            SELECT e.*, s.summary, s.chapters_json,
+                (SELECT GROUP_CONCAT(t.label || '|' || t.id, ',')
+                 FROM episode_tags et JOIN tags t ON t.id=et.tag_id
+                 WHERE et.episode_id=e.id) AS tags_csv,
+                strftime('%Y-%m-%d %H:%M:%S', 'now') AS server_now
             FROM episodes e
             LEFT JOIN summaries s ON s.episode_id = e.id
             {where}
@@ -477,6 +491,16 @@ async def bulk_export(podcast_id: int):
 
 
 # ── Episodes ───────────────────────────────────────────────────────────────────
+
+@app.delete("/api/episodes/{episode_id}")
+async def delete_episode(episode_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        # FTS virtual table is not covered by CASCADE — delete manually first
+        await db.execute("DELETE FROM transcripts_fts WHERE episode_id=?", (episode_id,))
+        await db.execute("DELETE FROM episodes WHERE id=?", (episode_id,))
+        await db.commit()
+    return {"ok": True}
+
 
 @app.post("/api/episodes/transcribe", status_code=202)
 async def transcribe_urls(data: TranscribeRequest, background_tasks: BackgroundTasks):
@@ -713,7 +737,10 @@ async def search(q: str = Query(..., min_length=2), limit: int = 20):
         try:
             async with db.execute("""
                 SELECT e.id, e.title, e.pub_date, p.title AS podcast_title, p.id AS podcast_id,
-                    snippet(transcripts_fts, 1, '<mark>', '</mark>', '…', 25) AS snippet
+                    snippet(transcripts_fts, 1, '<mark>', '</mark>', '…', 40) AS snippet,
+                    (SELECT GROUP_CONCAT(t.label || '|' || t.id, ',')
+                     FROM episode_tags et JOIN tags t ON t.id=et.tag_id
+                     WHERE et.episode_id=e.id) AS tags_csv
                 FROM transcripts_fts
                 JOIN transcripts t ON transcripts_fts.rowid = t.id
                 JOIN episodes e ON t.episode_id = e.id
@@ -1042,6 +1069,20 @@ async def rename_tag_route(tag_id: int, data: TagRename):
     return {"ok": True}
 
 
+@app.get("/api/episodes/{episode_id}/tags")
+async def get_episode_tags(episode_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT t.id, t.label, t.kind, et.source
+            FROM episode_tags et JOIN tags t ON t.id=et.tag_id
+            WHERE et.episode_id=?
+            ORDER BY t.label
+        """, (episode_id,)) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.put("/api/episodes/{episode_id}/tags")
 async def update_episode_tags(episode_id: int, data: EpisodeTagsUpdate):
     for label in data.add:
@@ -1049,6 +1090,27 @@ async def update_episode_tags(episode_id: int, data: EpisodeTagsUpdate):
     for tag_id in data.remove:
         await tagging.remove_tag(episode_id, tag_id)
     return {"ok": True}
+
+
+@app.get("/api/tags/{tag_id}/episodes")
+async def get_tag_episodes(tag_id: int, page: int = 1, limit: int = 30):
+    offset = (page - 1) * limit
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.id, e.title, e.pub_date, e.status, e.read_at, e.word_count,
+                   p.title AS podcast_title, p.id AS podcast_id, p.artwork_url,
+                   s.summary
+            FROM episode_tags et
+            JOIN episodes e ON e.id = et.episode_id
+            LEFT JOIN podcasts p ON p.id = e.podcast_id
+            LEFT JOIN summaries s ON s.episode_id = e.id
+            WHERE et.tag_id = ?
+            ORDER BY e.pub_date DESC NULLS LAST
+            LIMIT ? OFFSET ?
+        """, (tag_id, limit, offset)) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
 
 
 @app.post("/api/tags/backfill", status_code=202)

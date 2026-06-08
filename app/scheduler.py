@@ -60,12 +60,25 @@ async def check_all_feeds():
                 )
                 new_count += inserted
                 await db.execute(
-                    "UPDATE podcasts SET last_checked = CURRENT_TIMESTAMP WHERE id = ?",
+                    """UPDATE podcasts SET last_checked=CURRENT_TIMESTAMP,
+                       consecutive_fetch_errors=0, last_fetch_error=NULL WHERE id=?""",
                     (podcast["id"],),
                 )
                 await db.commit()
         except Exception as e:
             logger.error(f"Feed check failed for {podcast['rss_url']}: {e}")
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        """UPDATE podcasts SET
+                           last_fetch_error=?,
+                           consecutive_fetch_errors=COALESCE(consecutive_fetch_errors,0)+1
+                           WHERE id=?""",
+                        (str(e)[:300], podcast["id"]),
+                    )
+                    await db.commit()
+            except Exception:
+                pass
 
     if new_count > 0:
         await send_notification(

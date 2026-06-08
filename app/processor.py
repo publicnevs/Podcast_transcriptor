@@ -245,11 +245,20 @@ async def _set_status(episode_id: int, status: str, error_msg: str = None):
     async with aiosqlite.connect(DB_PATH) as db:
         if error_msg:
             await db.execute(
-                "UPDATE episodes SET status=?, error_msg=? WHERE id=?",
+                "UPDATE episodes SET status=?, error_msg=?, processing_started_at=NULL WHERE id=?",
                 (status, error_msg, episode_id),
             )
+        elif status in ("downloading", "transcribing"):
+            # Record when active processing began (preserve first timestamp if already set)
+            await db.execute(
+                "UPDATE episodes SET status=?, processing_started_at=COALESCE(processing_started_at, CURRENT_TIMESTAMP) WHERE id=?",
+                (status, episode_id),
+            )
         else:
-            await db.execute("UPDATE episodes SET status=? WHERE id=?", (status, episode_id))
+            await db.execute(
+                "UPDATE episodes SET status=?, processing_started_at=NULL WHERE id=?",
+                (status, episode_id),
+            )
         await db.commit()
 
 
