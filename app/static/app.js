@@ -117,12 +117,13 @@ function renderNav(activePath) {
     <div id="read-progress"></div>
     <nav class="topbar">
       <a class="topbar-logo" href="/">Pod<span>Scribe</span></a>
-      <div class="topbar-logo" style="font-size:.8rem;color:var(--text-muted);margin-left:.5rem;display:none" id="queue-indicator"></div>
+      <a href="/settings" class="queue-indicator" style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem;display:none;text-decoration:none" id="queue-indicator" title="Warteschlange ansehen"></a>
       <div class="search-bar" style="flex:1;max-width:280px;margin-left:1rem">
         <input type="text" id="global-search" placeholder="Transkripte durchsuchen…" autocomplete="off">
       </div>
       <nav class="topbar-nav">
         <a href="/" ${isLib?'class="active"':''}>📚 <span>Bibliothek</span></a>
+        <a href="/?add=1">➕ <span>Abonnieren</span></a>
         <a href="/discover" ${activePath==='/discover'?'class="active"':''}>✨ <span>Entdecken</span></a>
         <a href="/tags" ${isTags?'class="active"':''}>🏷️ <span>Tags</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>📰 <span>Zeitung</span></a>
@@ -132,8 +133,8 @@ function renderNav(activePath) {
     </nav>
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">📚</span>Bibliothek</a>
+      <a href="/?add=1"><span class="bn-icon">➕</span>Abonnieren</a>
       <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">✨</span>Entdecken</a>
-      <a href="/tags" ${isTags?'class="active"':''}><span class="bn-icon">🏷️</span>Tags</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">📰</span>Zeitung</a>
       <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">⚙️</span>Mehr</a>
     </nav>`;
@@ -400,11 +401,15 @@ async function pollQueue() {
   try {
     const q = await API.get('/api/queue');
     const active = q.filter(e => ['queued','downloading','transcribing'].includes(e.status));
+    const errors = q.filter(e => e.status === 'error');
     const ind = document.getElementById('queue-indicator');
     if (ind) {
-      if (active.length) {
-        ind.style.display = 'block';
-        ind.textContent = `⏳ ${active.length}`;
+      const parts = [];
+      if (active.length) parts.push(`⏳ ${active.length}`);
+      if (errors.length) parts.push(`<span style="color:var(--error)">❌ ${errors.length}</span>`);
+      if (parts.length) {
+        ind.style.display = 'inline';
+        ind.innerHTML = parts.join(' · ');
       } else {
         ind.style.display = 'none';
       }

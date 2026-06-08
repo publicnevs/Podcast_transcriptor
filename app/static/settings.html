@@ -331,10 +331,15 @@ async function cancelJob(id) {
 }
 
 async function clearQueue() {
-  if (!confirm('Alle wartenden (noch nicht laufenden) Jobs zurücksetzen auf „Ausstehend"?')) return;
+  const ok = await confirmModal(
+    'Warteschlange leeren?',
+    'Alle wartenden und fehlgeschlagenen Jobs werden auf „Ausstehend" zurückgesetzt und die Fehlermeldungen entfernt. Laufende Jobs bleiben unberührt.',
+    'Leeren'
+  );
+  if (!ok) return;
   try {
-    await API.del('/api/queue');
-    toast('✅ Warteschlange geleert', 'success');
+    const r = await API.del('/api/queue');
+    toast(`✅ ${r.cleared ?? 0} Einträge geleert`, 'success');
     loadQueue();
   } catch(e) { toast(e.message, 'error'); }
 }

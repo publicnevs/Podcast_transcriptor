@@ -776,13 +776,17 @@ async def get_queue():
 
 @app.delete("/api/queue")
 async def clear_queue():
-    """Reset all queued (not yet running) jobs back to pending."""
+    """Clear the queue: reset waiting ('queued') and failed ('error') jobs back
+    to 'pending' (idle, not retried) and wipe their error messages. Running jobs
+    (downloading/transcribing) are left untouched."""
     async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE episodes SET status='pending', error_msg=NULL WHERE status='queued'"
+        cur = await db.execute(
+            "UPDATE episodes SET status='pending', error_msg=NULL "
+            "WHERE status IN ('queued','error')"
         )
         await db.commit()
-    return {"ok": True}
+        cleared = cur.rowcount
+    return {"ok": True, "cleared": cleared}
 
 
 @app.post("/api/episodes/{episode_id}/cancel")
