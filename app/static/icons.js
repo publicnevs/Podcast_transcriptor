@@ -44,6 +44,7 @@ const ICONS = {
   list: '<line x1="8" x2="21" y1="6" y2="6"/><line x1="8" x2="21" y1="12" y2="12"/><line x1="8" x2="21" y1="18" y2="18"/><line x1="3" x2="3.01" y1="6" y2="6"/><line x1="3" x2="3.01" y1="12" y2="12"/><line x1="3" x2="3.01" y1="18" y2="18"/>',
   repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
   bot: '<path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
 };
 
 function icon(name, opts) {
@@ -53,3 +54,16 @@ function icon(name, opts) {
   const body = ICONS[name] || '';
   return `<svg class="icon${cls ? ' ' + cls : ''}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
+
+/* Hydrate static-HTML icons: any element with data-icon gets the SVG prepended.
+   Use in plain HTML where JS template literals aren't available, e.g.
+   <button data-icon="copy">Kopieren</button>  or  <span data-icon="x" data-icon-size="16"></span> */
+function hydrateIcons(root) {
+  (root || document).querySelectorAll('[data-icon]:not([data-icon-done])').forEach(el => {
+    el.setAttribute('data-icon-done', '1');
+    const size = parseInt(el.getAttribute('data-icon-size') || '18', 10);
+    const hasText = el.textContent.trim().length > 0;
+    el.insertAdjacentHTML('afterbegin', icon(el.getAttribute('data-icon'), { size }) + (hasText ? ' ' : ''));
+  });
+}
+document.addEventListener('DOMContentLoaded', () => hydrateIcons());
