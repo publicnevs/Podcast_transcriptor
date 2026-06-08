@@ -106,6 +106,8 @@
           <label class="form-label">Zeitraum</label>
           <div class="segmented" id="tf-seg" style="flex-wrap:wrap">
             <button data-tf="1" onclick="setTimeframe('1')">Heute</button>
+            <button data-tf="2" onclick="setTimeframe('2')">2 Tage</button>
+            <button data-tf="3" onclick="setTimeframe('3')">3 Tage</button>
             <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
             <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
             <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
@@ -407,6 +409,7 @@ async function loadPickerEpisodes() {
       eps.forEach(e => { e._pt = p.title; });
       allEpisodes.push(...eps);
     }
+    allEpisodes.sort((a, b) => (b.pub_date || '').localeCompare(a.pub_date || ''));
     renderPickerList(allEpisodes);
   } catch {}
 }

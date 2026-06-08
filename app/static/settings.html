@@ -113,8 +113,7 @@
       <div id="whisper-status" style="display:none;margin-bottom:.75rem;padding:.75rem;border-radius:var(--radius-sm);font-size:.8rem"></div>
 
       <div style="padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
-        <strong style="color:var(--text)">Kosten Gemini 2.5 Flash:</strong> ~$0.075/h Audio. Kein festes Freikontingent —
-        Rate Limits gelten pro Minute. Zeitungs-Artikel nutzen standardmäßig das stärkere Pro-Modell.
+        <strong style="color:var(--text)">Kosten Gemini 2.5 Flash:</strong> ~$0.075/h Audio. Tagging &amp; Anreicherung laufen auf <strong style="color:var(--text)">Flash-Lite</strong> (~$0.02/1M Token). Zeitung/Artikel-Modell in „Kosten-Optimierung" wählbar.
       </div>
     </div>
   </div>
@@ -133,12 +132,14 @@
       </div>
     </div>
     <label style="display:block;font-size:.875rem;margin-bottom:.5rem">Artikel-Qualität (Zeitung & Podcast-Artikel)</label>
-    <div class="segmented" id="digest-model-seg" style="max-width:360px">
-      <button data-dm="pro" onclick="setDigestModel('pro')">Beste (Pro)</button>
-      <button data-dm="flash" onclick="setDigestModel('flash')">Günstig (Flash)</button>
+    <div class="segmented" id="digest-model-seg" style="max-width:480px">
+      <button data-dm="pro" onclick="setDigestModel('pro')">⭐ Beste (Pro)</button>
+      <button data-dm="flash" onclick="setDigestModel('flash')">💸 Günstig (Flash)</button>
+      <button data-dm="lite" onclick="setDigestModel('lite')">🪙 Sehr günstig (Lite)</button>
     </div>
     <div style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">
-      „Günstig" stellt die Artikel-Generierung von Pro auf Flash um — deutlich billiger, minimal weniger ausgefeilt.
+      <strong>Pro</strong> = beste Qualität, höchste Kosten · <strong>Flash</strong> = gutes Ergebnis, ~8× günstiger ·
+      <strong>Lite</strong> = einfache Ausgaben, ~50× günstiger als Pro
     </div>
   </div>
 
@@ -224,16 +225,17 @@ async function loadSettings() {
 }
 
 function _setDigestModelUI(dm) {
-  const v = dm === 'flash' ? 'flash' : 'pro';
+  const v = ['flash','lite'].includes(dm) ? dm : 'pro';
   document.querySelectorAll('#digest-model-seg button').forEach(b =>
     b.classList.toggle('active', b.dataset.dm === v));
 }
 
 async function setDigestModel(dm) {
   _setDigestModelUI(dm);
+  const labels = { pro: '⭐ Artikel auf Pro (beste Qualität)', flash: '💸 Artikel auf Flash (günstig)', lite: '🪙 Artikel auf Lite (sehr günstig)' };
   try {
     await API.put('/api/settings', { digest_model: dm });
-    toast(dm === 'flash' ? '💸 Artikel auf Flash (günstig) umgestellt' : '⭐ Artikel auf Pro (beste Qualität)', 'success');
+    toast(labels[dm] || 'Gespeichert', 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 

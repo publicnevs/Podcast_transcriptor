@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 # Model names overridable via env — 2.5 Flash for transcription, Lite for enrichment/tagging, Pro for digests
 FLASH_MODEL = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
 PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
-# Lite model: cheaper for enrichment + tagging; falls back to FLASH if not set
-LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", FLASH_MODEL)
+# Lite model: cheaper for enrichment + tagging; defaults to flash-lite (not Flash)
+LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
 # Article/digest model: Pro by default (best quality); set to a Flash model to
 # cut cost. Overridable per request via the 'digest_model' DB setting.
 DIGEST_MODEL = os.getenv("GEMINI_DIGEST_MODEL", PRO_MODEL)
@@ -56,6 +56,8 @@ def _digest_model() -> str:
     choice = (_runtime.get("digest_model") or "").strip().lower()
     if choice == "flash":
         return FLASH_MODEL
+    if choice == "lite":
+        return LITE_MODEL
     if choice == "pro":
         return PRO_MODEL
     return DIGEST_MODEL
@@ -368,7 +370,7 @@ def _translate_sync(text: str) -> str:
         "Gib NUR den übersetzten Text zurück.\n\n" + text[:60000]
     )
     response = client.models.generate_content(
-        model=FLASH_MODEL,
+        model=LITE_MODEL,
         contents=[prompt],
         config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=65536),
     )
