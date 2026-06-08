@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Tags</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content">
+  <div id="tags-view">
+    <!-- Cloud or episode list rendered here -->
+    <div class="empty-state"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/tags');
+initGlobalSearch();
+initReadProgress();
+
+// Detect if we're on /tags/{id}
+const parts = location.pathname.split('/').filter(Boolean);
+const tagId = parts.length >= 2 && parts[0] === 'tags' ? parseInt(parts[1]) : null;
+
+async function load() {
+  if (tagId) {
+    await loadTagEpisodes(tagId);
+  } else {
+    await loadTagCloud();
+  }
+}
+
+async function loadTagCloud() {
+  const view = document.getElementById('tags-view');
+  try {
+    const tags = await API.get('/api/tags');
+    if (!tags.length) {
+      view.innerHTML = `<div class="empty-state"><div class="icon">🏷️</div><p>Noch keine Tags vorhanden.<br>Transkribiere Folgen — Tags werden automatisch vergeben.</p></div>`;
+      return;
+    }
+    const maxCount = Math.max(...tags.map(t => t.episode_count || 1));
+    const minCount = Math.min(...tags.map(t => t.episode_count || 1));
+    const sizeFor = (n) => {
+      if (maxCount === minCount) return 1.0;
+      return 0.75 + ((n - minCount) / (maxCount - minCount)) * 0.9;
+    };
+
+    view.innerHTML = `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+        <h1 style="font-size:1.4rem;font-weight:700">🏷️ Tags</h1>
+        <span style="color:var(--text-muted);font-size:.875rem">${tags.length} Tags</span>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="showBackfillBtn()">⚙️ Tags neu generieren</button>
+      </div>
+      <div id="backfill-wrap" style="display:none;margin-bottom:1rem">
+        <button class="btn btn-primary btn-sm" onclick="runBackfill()">🏷️ Fehlende Tags für alle Folgen generieren</button>
+        <span style="color:var(--text-muted);font-size:.8rem;margin-left:.5rem">(läuft im Hintergrund)</span>
+      </div>
+      <div class="tag-cloud">
+        ${tags.map(t => `
+          <a href="/tags/${t.id}" class="tag tag-cloud-item"
+             style="font-size:${sizeFor(t.episode_count).toFixed(2)}rem"
+             title="${t.episode_count} Folge(n)">
+            ${escHtml(t.label)}
+            <span class="tag-count">${t.episode_count}</span>
+          </a>`).join('')}
+      </div>`;
+  } catch(e) {
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function showBackfillBtn() {
+  document.getElementById('backfill-wrap').style.display = '';
+}
+
+async function runBackfill() {
+  try {
+    await API.post('/api/tags/backfill', {});
+    toast('Tag-Generierung gestartet (läuft im Hintergrund)', 'info');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadTagEpisodes(id) {
+  const view = document.getElementById('tags-view');
+  view.innerHTML = `<div class="empty-state"><div class="spinner"></div></div>`;
+  try {
+    // Fetch tag name from tags list
+    const [allTags, episodes] = await Promise.all([
+      API.get('/api/tags'),
+      API.get(`/api/tags/${id}/episodes?limit=50`)
+    ]);
+    const tag = allTags.find(t => t.id === id);
+    const tagName = tag ? tag.label : `Tag #${id}`;
+
+    document.title = `PodScribe — #${tagName}`;
+
+    view.innerHTML = `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem;flex-wrap:wrap">
+        <a href="/tags" class="btn btn-ghost btn-icon" title="Alle Tags">←</a>
+        <h1 style="font-size:1.3rem;font-weight:700">🏷️ ${escHtml(tagName)}</h1>
+        ${tag ? `<span style="color:var(--text-muted);font-size:.85rem">${tag.episode_count} Folge(n)</span>` : ''}
+        <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:.8rem" onclick="startRename(${id}, '${escHtml(tagName).replace(/'/g,"\\'")}')">✏️ Umbenennen</button>
+      </div>
+      <div id="rename-wrap" style="display:none;margin-bottom:1rem;display:none">
+        <input id="rename-input" type="text" value="${escHtml(tagName)}" style="width:200px;margin-right:.5rem">
+        <button class="btn btn-primary btn-sm" onclick="saveRename(${id})">Speichern</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('rename-wrap').style.display='none'">Abbrechen</button>
+      </div>
+      <div id="tag-episode-list" class="episode-list">
+        ${episodes.length ? episodes.map(e => renderTagEpisode(e)).join('') :
+          '<div class="empty-state"><p>Keine Folgen mit diesem Tag.</p></div>'}
+      </div>`;
+  } catch(e) {
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderTagEpisode(e) {
+  return `
+    <div class="episode-item ${e.read_at?'read':'unread'}" onclick="location.href='/episode/${e.id}'">
+      <div style="flex:1;min-width:0">
+        <div class="episode-title">${escHtml(e.title)}</div>
+        <div class="episode-meta">
+          <span>${fmtDate(e.pub_date)}</span>
+          <span style="color:var(--text-muted)">${escHtml(e.podcast_title||'')}</span>
+          ${statusBadge(e.status)}
+          ${e.word_count ? `<span>${(e.word_count/1000).toFixed(1)}k Wörter</span>` : ''}
+        </div>
+        ${e.summary ? `<div class="episode-summary">${escHtml(e.summary)}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function startRename(id, currentLabel) {
+  const wrap = document.getElementById('rename-wrap');
+  wrap.style.display = '';
+  const inp = document.getElementById('rename-input');
+  if (inp) { inp.value = currentLabel; inp.focus(); inp.select(); }
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') saveRename(id); });
+}
+
+async function saveRename(id) {
+  const inp = document.getElementById('rename-input');
+  const label = inp?.value.trim();
+  if (!label) return;
+  try {
+    await API.put(`/api/tags/${id}`, { label });
+    toast('Tag umbenannt', 'success');
+    await loadTagEpisodes(id);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+load();
+</script>
+</body>
+</html>

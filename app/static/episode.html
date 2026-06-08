@@ -96,8 +96,10 @@ function render(ep) {
           ${ep.pub_date ? `<span>📅 ${fmtDate(ep.pub_date)}</span>` : ''}
           ${ep.duration_sec ? `<span>⏱ ${fmtDuration(ep.duration_sec)}</span>` : ''}
           ${ep.word_count ? `<span>📝 ${ep.word_count.toLocaleString('de')} Wörter</span>` : ''}
+          ${ep.word_count ? `<span>📖 ca. ${Math.ceil(ep.word_count/200)} Min. Lesezeit</span>` : ''}
           ${ep.language ? `<span>🌐 ${ep.language.toUpperCase()}</span>` : ''}
           ${statusBadge(ep.status)}
+          <span id="read-pct" style="font-size:.72rem"></span>
         </div>
       </div>
     </div>
@@ -108,9 +110,10 @@ function render(ep) {
         <button class="btn btn-primary btn-sm" id="listen-btn" onclick="toggleListen()">🎧 Anhören</button>
         <button class="btn btn-secondary btn-sm" onclick="copyTranscript()">📋 Kopieren</button>
         <button class="btn btn-secondary btn-sm" onclick="copyForAI()">🤖 Für KI kopieren</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=md','_blank')">⬇️ MD</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=txt','_blank')">⬇️ TXT</button>
+        <a class="btn btn-secondary btn-sm" href="/api/episodes/${episodeId}/export?format=md" download>⬇️ MD</a>
+        <a class="btn btn-secondary btn-sm" href="/api/episodes/${episodeId}/export?format=txt" download>⬇️ TXT</a>
         <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="shareContent('${escHtml(ep.title).replace(/'/g,"\\'")}','','')">🔗 Teilen</button>
         ${ep.language && ep.language!=='de' ? `<button class="btn btn-secondary btn-sm" id="translate-btn" onclick="requestTranslation()">🇩🇪 Übersetzen</button>` : ''}
         <button class="btn btn-ghost btn-sm" id="watch-btn" onclick="toggleWatch()">${ep.watchlist?'⭐ Leseliste':'☆ Leseliste'}</button>
         <div class="reader-tools">
@@ -121,6 +124,9 @@ function render(ep) {
       ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">🔄 Erneut transkribieren</button>` : ''}
       ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">🎙️ Jetzt transkribieren</button>` : ''}
     </div>
+
+    <!-- Tag chips -->
+    <div id="tag-bar" style="margin-bottom:.75rem"></div>
 
     ${ep.status==='done' ? renderDoneContent(ep, segments, takeaways, chapters) : renderPendingContent(ep)}
   `;
@@ -407,10 +413,92 @@ render = function(ep) { _origRender(ep); applyFont(); };
 window.addEventListener('beforeunload', () => { if (playerActive) AudioPlayer.destroy(); });
 
 initReadProgress();
+// Live "X% gelesen" in episode header
+window.addEventListener('scroll', () => {
+  const h = document.documentElement.scrollHeight - window.innerHeight;
+  const pct = h > 0 ? Math.round((window.scrollY / h) * 100) : 0;
+  const el = document.getElementById('read-pct');
+  if (el) el.textContent = pct > 2 ? `${pct}% gelesen` : '';
+}, { passive: true });
+
 load().then(() => {
   applyFont();
+  loadEpisodeTags();
   if (epData && ['queued','downloading','transcribing'].includes(epData.status)) pollStatus();
 });
+
+let _episodeTags = []; // [{id, label}]
+
+async function loadEpisodeTags() {
+  try {
+    const tags = await API.get(`/api/episodes/${episodeId}/tags`);
+    renderTagBar(tags);
+  } catch {}
+}
+
+function renderTagBar(tags) {
+  _episodeTags = tags;
+  const bar = document.getElementById('tag-bar');
+  if (!bar) return;
+  bar.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:.375rem;align-items:center">
+      ${tags.map(t => `
+        <span class="tag" style="cursor:default">
+          <a href="/tags/${t.id}" style="color:inherit;text-decoration:none">${escHtml(t.label)}</a>
+          <button onclick="removeTag(${t.id})" title="Entfernen" style="background:none;border:none;cursor:pointer;padding:0 0 0 .25rem;color:var(--text-muted);font-size:.8rem">✕</button>
+        </span>`).join('')}
+      <button class="btn btn-ghost btn-sm" onclick="showTagInput()" style="font-size:.72rem;padding:.15rem .5rem">+ Tag</button>
+    </div>
+    <div id="tag-input-wrap" style="display:none;margin-top:.375rem">
+      <input id="tag-input" type="text" placeholder="Tag-Name…" style="width:160px;font-size:.8rem" list="tag-suggestions">
+      <datalist id="tag-suggestions"></datalist>
+      <button class="btn btn-primary btn-sm" style="font-size:.75rem" onclick="addTag()">Hinzufügen</button>
+      <button class="btn btn-ghost btn-sm" style="font-size:.75rem" onclick="document.getElementById('tag-input-wrap').style.display='none'">×</button>
+    </div>`;
+
+  // Fetch tag suggestions
+  const inp = bar.querySelector('#tag-input');
+  if (inp) {
+    inp.addEventListener('input', async () => {
+      const q = inp.value.trim();
+      if (q.length < 1) return;
+      try {
+        const all = await API.get(`/api/tags?q=${encodeURIComponent(q)}`);
+        const dl = bar.querySelector('#tag-suggestions');
+        if (dl) dl.innerHTML = all.slice(0,10).map(t => `<option value="${escHtml(t.label)}">`).join('');
+      } catch {}
+    });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') addTag(); });
+  }
+}
+
+function showTagInput() {
+  document.getElementById('tag-input-wrap').style.display = '';
+  setTimeout(() => document.getElementById('tag-input')?.focus(), 50);
+}
+
+async function addTag() {
+  const inp = document.getElementById('tag-input');
+  const label = inp?.value.trim();
+  if (!label) return;
+  try {
+    await API.put(`/api/episodes/${episodeId}/tags`, { add: [label], remove: [] });
+    inp.value = '';
+    document.getElementById('tag-input-wrap').style.display = 'none';
+    const updatedTags = await API.get(`/api/episodes/${episodeId}/tags`);
+    renderTagBar(updatedTags);
+    toast('Tag hinzugefügt', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function removeTag(tagId) {
+  try {
+    await API.put(`/api/episodes/${episodeId}/tags`, { add: [], remove: [tagId] });
+    const updatedTags = await API.get(`/api/episodes/${episodeId}/tags`);
+    renderTagBar(updatedTags);
+    toast('Tag entfernt', 'info');
+  } catch(e) { toast(e.message, 'error'); }
+}
 </script>
 </body>
 </html>

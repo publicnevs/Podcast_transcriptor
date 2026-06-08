@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Artikel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+<style>
+  .reader-page { max-width: 780px; margin: 0 auto; }
+  .reader-header { margin-bottom: 1.5rem; }
+  .reader-header h1 { font-size: 1.8rem; font-weight: 700; line-height: 1.25; margin-bottom: .5rem; }
+  .reader-header .subtitle { color: var(--text-muted); font-size: 1rem; margin-bottom: .75rem; }
+  .reader-toolbar { display: flex; gap: .5rem; flex-wrap: wrap; padding: .75rem 0; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; align-items: center; }
+  .view-toggle { margin-right: auto; }
+  .tldr-box { background: var(--bg-card2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  .tldr-box h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-muted); margin-bottom: .75rem; }
+  .digest-section { margin-bottom: 2rem; }
+  .digest-section h2 { font-size: 1.2rem; font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: .4rem; margin-bottom: .875rem; }
+  .digest-section p { margin-bottom: .875rem; line-height: 1.8; }
+  .digest-section blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: .5rem 1rem; background: var(--accent-dim); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-style: italic; }
+  @media print { .topbar, .reader-toolbar, .bottom-nav { display: none !important; } body { background: #fff; color: #000; } }
+</style>
+</head>
+<body>
+<div id="nav-mount"></div>
+<div class="main-content reader-page" id="page">
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+    <a href="/digests" class="btn btn-ghost btn-icon">←</a>
+    <span style="color:var(--text-muted);font-size:.875rem"><a href="/digests">Zeitung</a> › Artikel</span>
+  </div>
+  <div class="empty-state"><div class="spinner"></div><p style="margin-top:.75rem">Lade Artikel…</p></div>
+</div>
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/digests');
+initGlobalSearch();
+initReadProgress();
+
+const digestId = pageId();
+let digest = null;
+let view = 'long';
+
+async function load() {
+  try {
+    digest = await API.get(`/api/digests/${digestId}`);
+    document.title = `PodScribe — ${digest.title}`;
+    render();
+  } catch(e) {
+    document.getElementById('page').innerHTML = `<div class="empty-state" style="color:var(--error)">Fehler: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function render() {
+  const page = document.getElementById('page');
+  if (!digest) return;
+
+  if (digest.status === 'generating') {
+    page.innerHTML = `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+        <a href="/digests" class="btn btn-ghost btn-icon">←</a>
+      </div>
+      <div class="card" style="text-align:center;padding:2.5rem">
+        <div class="spinner" style="width:42px;height:42px;margin:0 auto 1rem"></div>
+        <h2 style="font-size:1.1rem;margin-bottom:.5rem">${escHtml(digest.title)}</h2>
+        <p style="color:var(--text-muted)">Artikel wird generiert… (ca. 1–2 Minuten)</p>
+      </div>`;
+    setTimeout(load, 5000);
+    return;
+  }
+
+  if (digest.status === 'error') {
+    page.innerHTML = `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+        <a href="/digests" class="btn btn-ghost btn-icon">←</a>
+      </div>
+      <div class="card" style="border-color:var(--error)"><p style="color:var(--error)">Fehler beim Generieren.</p></div>`;
+    return;
+  }
+
+  const tldrHtml = renderTldr(digest.tldr_md || '');
+  const bodyHtml = digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
+
+  page.innerHTML = `
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+      <a href="/digests" class="btn btn-ghost btn-icon">←</a>
+      <span style="color:var(--text-muted);font-size:.875rem"><a href="/digests">Zeitung</a> › Artikel</span>
+    </div>
+
+    <div class="reader-header">
+      <h1 id="reader-h1">${escHtml(digest.title)}</h1>
+      ${digest.subtitle ? `<div class="subtitle">${escHtml(digest.subtitle)}</div>` : ''}
+      <div style="font-size:.8rem;color:var(--text-muted)">${fmtDate(digest.created_at)} · ${digest.reading_time_min || '?'} Min Lesezeit</div>
+    </div>
+
+    <div class="reader-toolbar">
+      <div class="segmented view-toggle">
+        <button id="rv-long" class="${view==='long'?'active':''}" onclick="setView('long')">Langfassung</button>
+        <button id="rv-short" class="${view==='short'?'active':''}" onclick="setView('short')">Kurzfassung</button>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="copyContent()">📋 Kopieren</button>
+      <button class="btn btn-secondary btn-sm" onclick="shareDigestPage()">🔗 Teilen</button>
+      <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️</button>
+    </div>
+
+    <div id="reader-body" class="digest-body fs-md"></div>`;
+
+  renderBody();
+}
+
+function renderBody() {
+  const el = document.getElementById('reader-body');
+  if (!el || !digest) return;
+  if (view === 'short') {
+    el.innerHTML = `<div class="tldr-box"><h3>Kurzfassung</h3>${renderTldr(digest.tldr_md || 'Keine Kurzfassung verfügbar.')}</div>`;
+  } else {
+    el.innerHTML = digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
+  }
+}
+
+function renderTldr(md) {
+  const lines = (md||'').split('\n').map(l=>l.trim()).filter(Boolean);
+  let html = '', inList = false;
+  for (const l of lines) {
+    if (l.startsWith('- ') || l.startsWith('* ')) {
+      if (!inList) { html += '<ul style="padding-left:1.25rem;line-height:1.8">'; inList = true; }
+      html += '<li>' + escHtml(l.slice(2)) + '</li>';
+    } else {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += '<p>' + escHtml(l) + '</p>';
+    }
+  }
+  if (inList) html += '</ul>';
+  return html;
+}
+
+function setView(v) {
+  view = v;
+  document.getElementById('rv-long').classList.toggle('active', v==='long');
+  document.getElementById('rv-short').classList.toggle('active', v==='short');
+  renderBody();
+}
+
+async function copyContent() {
+  const txt = view === 'short'
+    ? (digest?.tldr_md || '')
+    : (digest?.content_md || document.getElementById('reader-body').innerText);
+  await copyText(txt, '📋 Kopiert' + (view==='short' ? ' (Kurzfassung)' : ' (Markdown)'));
+}
+
+async function shareDigestPage() {
+  if (!digest) return;
+  try {
+    const r = await API.post(`/api/digests/${digestId}/share`, {});
+    const shareUrl = location.origin + r.url;
+    await shareContent(digest.title, digest.subtitle || '', r.url);
+  } catch {
+    await shareContent(digest?.title || 'PodScribe Artikel', '', `/digest/${digestId}`);
+  }
+}
+
+load();
+</script>
+</body>
+</html>

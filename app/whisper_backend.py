@@ -20,16 +20,29 @@ _model_cache = {}
 def _get_model(model_size: str):
     if model_size in _model_cache:
         return _model_cache[model_size]
-    from faster_whisper import WhisperModel
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        raise RuntimeError(
+            "faster-whisper ist nicht installiert. "
+            "Container mit 'INSTALL_WHISPER=true' in der .env-Datei neu bauen: "
+            "docker-compose build && docker-compose up -d"
+        )
     threads = int(os.getenv("WHISPER_THREADS", "0")) or os.cpu_count() or 2
     logger.info(f"Loading faster-whisper model '{model_size}' (int8, {threads} threads)...")
-    model = WhisperModel(
-        model_size,
-        device="cpu",
-        compute_type="int8",
-        cpu_threads=threads,
-        download_root=os.getenv("WHISPER_CACHE", "/app/data/whisper_models"),
-    )
+    try:
+        model = WhisperModel(
+            model_size,
+            device="cpu",
+            compute_type="int8",
+            cpu_threads=threads,
+            download_root=os.getenv("WHISPER_CACHE", "/app/data/whisper_models"),
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Whisper-Modell '{model_size}' konnte nicht geladen werden: {e}. "
+            "Tipp für Synology DS218+: Modell 'base' oder 'tiny' verwenden (kein AVX2)."
+        )
     _model_cache[model_size] = model
     return model
 

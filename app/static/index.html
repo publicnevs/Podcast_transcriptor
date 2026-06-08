@@ -19,10 +19,13 @@
 
 <div class="main-content">
 
-  <!-- Add Podcast -->
-  <details id="add-section" style="margin-bottom:1.5rem">
-    <summary style="font-size:1rem;color:var(--text)">➕ Podcast abonnieren</summary>
-    <div class="card" style="margin-top:.75rem">
+  <!-- Add Podcast Panel (opens via ➕ Abonnieren in nav, or ?add=1) -->
+  <div id="add-section" style="display:none;margin-bottom:1.5rem">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+        <h3 style="font-size:1rem;font-weight:700">➕ Podcast oder Feed abonnieren</h3>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Schließen" onclick="toggleAddPanel()">✕</button>
+      </div>
       <div style="display:flex;flex-direction:column;gap:1rem">
         <div class="form-group">
           <label class="form-label">RSS-Feed URL oder YouTube-Kanal-URL</label>
@@ -36,8 +39,12 @@
             <input type="checkbox" id="auto-transcribe" style="width:auto">
             Auto-Transkription neuer Folgen
           </label>
+          <label style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;cursor:pointer">
+            <input type="checkbox" id="full-text" style="width:auto">
+            Volltext von Seite laden (Newsfeed)
+          </label>
           <div class="form-group" style="flex-direction:row;align-items:center;gap:.5rem">
-            <label class="form-label" style="white-space:nowrap">Max. Folgen:</label>
+            <label class="form-label" style="white-space:nowrap">Max. Einträge:</label>
             <input type="number" id="max-eps" value="0" min="0" style="width:70px">
             <span style="font-size:.8rem;color:var(--text-muted)">(0 = alle)</span>
           </div>
@@ -60,25 +67,6 @@
         </details>
       </div>
     </div>
-  </details>
-
-  <!-- Recommended -->
-  <details id="recommended-section" style="margin-bottom:1.5rem">
-    <summary style="font-size:1rem;color:var(--text)">✨ Empfohlene KI-Podcasts</summary>
-    <p style="font-size:.8rem;color:var(--text-muted);margin:.5rem 0 .75rem">
-      Kuratierte Auswahl. Feeds mit 📝 liefern fertige Transkripte direkt im Feed —
-      die werden kostenlos genutzt (keine Gemini-Transkription nötig).
-    </p>
-    <div id="recommended-grid" class="card-grid"></div>
-  </details>
-
-  <!-- Queue Banner -->
-  <div id="queue-banner" style="display:none" class="card" style="margin-bottom:1rem;background:var(--accent-dim);border-color:var(--accent)">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">
-      <span id="queue-text" style="font-size:.875rem"></span>
-      <button class="btn btn-ghost btn-sm" onclick="loadQueue()">Aktualisieren</button>
-    </div>
-    <div id="queue-list" style="margin-top:.75rem;display:flex;flex-direction:column;gap:.375rem"></div>
   </div>
 
   <!-- Watchlist -->
@@ -87,11 +75,8 @@
     <div id="watchlist-list" class="episode-list"></div>
   </div>
 
-  <!-- Stats -->
-  <div id="stats-row" class="stats-row" style="display:none"></div>
-
   <!-- Podcasts Grid -->
-  <div class="section-title">📚 Meine Podcasts</div>
+  <div class="section-title">📚 Podcasts & Feeds</div>
   <div id="podcast-grid" class="card-grid"></div>
 
 </div>
@@ -116,7 +101,6 @@ async function loadPodcasts() {
   try {
     const podcasts = await API.get('/api/podcasts');
     firstLoad = false;
-    renderStats(podcasts);
     if (!podcasts.length) {
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">🎙️</div><p>Noch keine Podcasts abonniert.<br>Füge deinen ersten Podcast oben hinzu.</p></div>`;
       return;
@@ -131,8 +115,9 @@ async function loadPodcasts() {
           <div class="podcast-card-title">${escHtml(p.title)}</div>
           <div class="podcast-card-meta">
             ${p.unread_count > 0 ? `<span class="unread-badge">${p.unread_count} neu</span>` : ''}
-            <span>${p.done_count} Transkripte</span>
-            ${p.auto_transcribe ? '<span title="Auto-Transkription aktiv">🔄</span>' : ''}
+            <span>${p.done_count} ${p.feed_type==='newsfeed'?'Artikel':'Transkripte'}</span>
+            ${p.auto_transcribe && p.feed_type!=='newsfeed' ? '<span title="Auto-Transkription aktiv">🔄</span>' : ''}
+            ${p.feed_type==='newsfeed' ? '<span title="Newsfeed">📰</span>' : ''}
           </div>
         </div>
       </div>`).join('');
@@ -142,79 +127,15 @@ async function loadPodcasts() {
   }
 }
 
-function renderStats(podcasts) {
-  const row = document.getElementById('stats-row');
-  if (!podcasts.length) { row.style.display = 'none'; return; }
-  const totalTranscripts = podcasts.reduce((s,p)=>s+(p.done_count||0),0);
-  const totalUnread = podcasts.reduce((s,p)=>s+(p.unread_count||0),0);
-  row.style.display = 'flex';
-  row.innerHTML = `
-    <div class="stat"><div class="num">${podcasts.length}</div><div class="label">Podcasts</div></div>
-    <div class="stat"><div class="num">${totalTranscripts}</div><div class="label">Transkripte</div></div>
-    <div class="stat"><div class="num">${totalUnread}</div><div class="label">Ungelesen</div></div>`;
-}
 
-async function loadRecommended() {
-  const grid = document.getElementById('recommended-grid');
-  try {
-    const recs = await API.get('/api/recommended');
-    grid.innerHTML = recs.map((r, i) => `
-      <div class="podcast-card" style="cursor:default">
-        <div class="podcast-card-placeholder">${r.lang === 'de' ? '🇩🇪' : '🇬🇧'}</div>
-        <div class="podcast-card-body">
-          <div class="podcast-card-title">${escHtml(r.title)} ${r.transcripts ? '<span title="Liefert Transkripte im Feed — kostenlos">📝</span>' : ''}</div>
-          <div style="font-size:.74rem;color:var(--text-muted);margin:.25rem 0 .6rem;line-height:1.4">${escHtml(r.desc)}</div>
-          ${r.subscribed
-            ? `<button class="btn btn-ghost btn-sm" disabled style="width:100%">✓ Abonniert</button>`
-            : `<button class="btn btn-primary btn-sm" style="width:100%" onclick='subscribeRec(this, ${JSON.stringify(r.rss)})'>+ Abonnieren</button>`}
-        </div>
-      </div>`).join('');
-  } catch(e) {
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;color:var(--text-muted)">${escHtml(e.message)}</div>`;
+function toggleAddPanel() {
+  const panel = document.getElementById('add-section');
+  const show = panel.style.display === 'none';
+  panel.style.display = show ? '' : 'none';
+  if (show) {
+    setTimeout(() => document.getElementById('rss-url')?.focus(), 50);
+    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-}
-
-async function subscribeRec(btn, rss) {
-  btn.disabled = true;
-  btn.textContent = '⏳ Lädt…';
-  try {
-    const res = await API.post('/api/podcasts', { rss_url: rss, auto_transcribe: false, max_episodes: 10 });
-    btn.textContent = '✓ Abonniert';
-    btn.className = 'btn btn-ghost btn-sm';
-    toast(`✅ "${res.title}" abonniert (${res.episode_count} Folgen)`, 'success');
-    loadPodcasts();
-  } catch(e) {
-    btn.disabled = false;
-    btn.textContent = '+ Abonnieren';
-    toast(e.message, 'error');
-  }
-}
-
-async function loadQueue() {
-  try {
-    const q = await API.get('/api/queue');
-    const active = q.filter(e => ['queued','downloading','transcribing'].includes(e.status));
-    const banner = document.getElementById('queue-banner');
-    const list = document.getElementById('queue-list');
-    const txt = document.getElementById('queue-text');
-    if (active.length) {
-      banner.style.display = '';
-      txt.innerHTML = `<strong>⏳ ${active.length} Job${active.length>1?'s':''} in der Warteschlange</strong>`;
-      list.innerHTML = active.slice(0,5).map(e => `
-        <div style="display:flex;align-items:center;gap:.5rem;font-size:.8rem">
-          ${statusBadge(e.status)}
-          <span>${escHtml(e.title)}</span>
-          ${e.podcast_title ? `<span style="color:var(--text-muted)">· ${escHtml(e.podcast_title)}</span>` : ''}
-        </div>`).join('');
-    } else {
-      banner.style.display = 'none';
-    }
-    const errors = q.filter(e => e.status === 'error');
-    if (errors.length) {
-      banner.style.display = '';
-      txt.innerHTML += ` · <span style="color:var(--error)">${errors.length} Fehler</span>`;
-    }
-  } catch {}
 }
 
 async function loadWatchlist() {
@@ -245,17 +166,17 @@ async function addPodcast() {
   const url = document.getElementById('rss-url').value.trim();
   if (!url) return toast('Bitte eine URL eingeben', 'error');
   const autoT = document.getElementById('auto-transcribe').checked;
+  const fullText = document.getElementById('full-text').checked;
   const maxEps = parseInt(document.getElementById('max-eps').value)||0;
   const btn = event.target;
   btn.disabled = true;
   btn.textContent = 'Lädt…';
   try {
-    const r = await API.post('/api/podcasts', { rss_url: url, auto_transcribe: autoT, max_episodes: maxEps });
+    const r = await API.post('/api/podcasts', { rss_url: url, auto_transcribe: autoT, max_episodes: maxEps, full_text_extraction: fullText });
     toast(`✅ "${r.title}" abonniert (${r.episode_count} Folgen)`, 'success');
     document.getElementById('rss-url').value = '';
-    document.getElementById('add-section').removeAttribute('open');
+    document.getElementById('add-section').style.display = 'none';
     await loadPodcasts();
-    await loadQueue();
   } catch(e) {
     toast(e.message, 'error');
   } finally {
@@ -285,7 +206,6 @@ async function directTranscribe() {
     const r = await API.post('/api/episodes/transcribe', { urls });
     toast(`✅ ${r.queued} URL(s) in die Warteschlange gestellt`, 'success');
     document.getElementById('direct-urls').value = '';
-    setTimeout(loadQueue, 1000);
   } catch(e) { toast(e.message, 'error'); }
 }
 
@@ -294,12 +214,16 @@ async function toggleWatch(id, btn) {
   await loadWatchlist();
 }
 
+// Open add panel when arriving via ➕ Abonnieren (/?add=1)
+if (new URLSearchParams(location.search).get('add') === '1') {
+  toggleAddPanel();
+  history.replaceState(null, '', '/');
+}
+
 // Init
 loadPodcasts();
-loadQueue();
 loadWatchlist();
-loadRecommended();
-setInterval(() => { loadQueue(); loadPodcasts(); }, 10000);
+setInterval(() => { loadPodcasts(); }, 10000);
 </script>
 </body>
 </html>

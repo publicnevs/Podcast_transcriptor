@@ -110,9 +110,68 @@
         <button class="btn btn-primary btn-sm" style="margin-top:.75rem" onclick="saveBackend()">💾 Speichern</button>
       </div>
 
+      <div id="whisper-status" style="display:none;margin-bottom:.75rem;padding:.75rem;border-radius:var(--radius-sm);font-size:.8rem"></div>
+
       <div style="padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
-        <strong style="color:var(--text)">Kosten Gemini:</strong> 1.5 Flash ist sehr günstig (~$0.075/h Audio).
-        Der Free-Tier reicht für ~15 Folgen/Tag kostenlos. 1.5 Pro (Zeitungs-Artikel) nur bei Bedarf.
+        <strong style="color:var(--text)">Kosten Gemini 2.5 Flash:</strong> ~$0.075/h Audio. Kein festes Freikontingent —
+        Rate Limits gelten pro Minute. Zeitungs-Artikel nutzen standardmäßig das stärkere Pro-Modell.
+      </div>
+    </div>
+  </div>
+
+  <!-- Cost optimization (CR D) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem">💸 Kosten-Optimierung</h2>
+    <div style="font-size:.85rem;color:var(--text-muted);line-height:1.7;margin-bottom:1rem">
+      Pro Folge fallen 2 Gemini-Aufrufe an: <strong style="color:var(--text)">Transkription</strong> (Flash) und
+      <strong style="color:var(--text)">Tagging/Anreicherung</strong> (Lite). Für die leichten Aufgaben ist
+      <strong style="color:var(--text)">Flash-Lite</strong> ~3–5× günstiger als Flash und qualitativ ausreichend.
+      <div style="margin-top:.625rem;padding:.625rem;background:var(--bg-card2);border-radius:var(--radius-sm)">
+        💡 Aktiviere Lite über die Env-Var in deiner <code style="background:var(--bg-card);padding:0 3px;border-radius:3px">.env</code>:<br>
+        <code style="background:var(--bg-card);padding:2px 4px;border-radius:3px;display:inline-block;margin-top:.35rem">GEMINI_LITE_MODEL=gemini-2.5-flash-lite</code>
+        <br><span style="font-size:.75rem">Ohne diese Variable nutzt „Lite" automatisch Flash — du sparst dann nichts.</span>
+      </div>
+    </div>
+    <label style="display:block;font-size:.875rem;margin-bottom:.5rem">Artikel-Qualität (Zeitung & Podcast-Artikel)</label>
+    <div class="segmented" id="digest-model-seg" style="max-width:360px">
+      <button data-dm="pro" onclick="setDigestModel('pro')">Beste (Pro)</button>
+      <button data-dm="flash" onclick="setDigestModel('flash')">Günstig (Flash)</button>
+    </div>
+    <div style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">
+      „Günstig" stellt die Artikel-Generierung von Pro auf Flash um — deutlich billiger, minimal weniger ausgefeilt.
+    </div>
+  </div>
+
+  <!-- External access (CR 12) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem">🌐 Externer Zugang (außerhalb des Heimnetzwerks)</h2>
+    <p style="font-size:.875rem;color:var(--text-muted);margin-bottom:.75rem">
+      Für PWA-Features, Web Share API und mobilen Zugang von außen benötigst du HTTPS.
+      Drei empfohlene Wege:
+    </p>
+    <div style="display:flex;flex-direction:column;gap:.75rem;font-size:.85rem">
+      <div class="card" style="padding:.875rem;border-color:var(--accent-dim)">
+        <strong>☁️ Cloudflare Tunnel</strong> (empfohlen — kostenlos, kein Port-Forwarding)
+        <ol style="margin:.5rem 0 0 1.2rem;color:var(--text-muted);line-height:2">
+          <li>Kostenloses Cloudflare-Konto anlegen</li>
+          <li>Cloudflare Tunnel (<code>cloudflared</code>) als Docker-Container auf Synology starten</li>
+          <li>Tunnel zeigt auf <code>http://podscribe:7878</code></li>
+          <li>HTTPS-Domain wird automatisch vergeben (z.B. <code>podscribe.deinname.de</code>)</li>
+        </ol>
+      </div>
+      <div class="card" style="padding:.875rem">
+        <strong>🔒 Tailscale VPN</strong> (einfach, sicher, privat)
+        <div style="color:var(--text-muted);margin-top:.35rem;line-height:1.6">
+          Tailscale-App auf Synology + Handy installieren. PodScribe ist dann nur über das
+          private VPN-Netz erreichbar — keine öffentliche Domain nötig.
+        </div>
+      </div>
+      <div class="card" style="padding:.875rem">
+        <strong>🔧 Synology DSM Reverse Proxy</strong>
+        <div style="color:var(--text-muted);margin-top:.35rem;line-height:1.6">
+          DSM → Systemsteuerung → Anwendungsportal → Reverse Proxy. Port 7878 auf eine
+          Subdomain mappen. Let's Encrypt-Zertifikat über DSM kostenlos einrichten.
+        </div>
       </div>
     </div>
   </div>
@@ -160,7 +219,22 @@ async function loadSettings() {
       ? '<span style="color:var(--success)">✓ Key gesetzt</span>'
       : '<span style="color:var(--warning)">kein Key</span>';
     setBackend(currentBackend, false);
+    _setDigestModelUI(s.digest_model || 'pro');
   } catch {}
+}
+
+function _setDigestModelUI(dm) {
+  const v = dm === 'flash' ? 'flash' : 'pro';
+  document.querySelectorAll('#digest-model-seg button').forEach(b =>
+    b.classList.toggle('active', b.dataset.dm === v));
+}
+
+async function setDigestModel(dm) {
+  _setDigestModelUI(dm);
+  try {
+    await API.put('/api/settings', { digest_model: dm });
+    toast(dm === 'flash' ? '💸 Artikel auf Flash (günstig) umgestellt' : '⭐ Artikel auf Pro (beste Qualität)', 'success');
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 function setBackend(backend, save=true) {
@@ -241,19 +315,60 @@ async function loadQueue() {
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title)}</span>
         ${e.podcast_title ? `<span style="color:var(--text-muted);font-size:.78rem">${escHtml(e.podcast_title)}</span>` : ''}
         ${e.error_msg ? `<span style="color:var(--error);font-size:.75rem" title="${escHtml(e.error_msg)}">⚠️</span>` : ''}
+        ${['queued','error'].includes(e.status) ? `<button class="btn btn-ghost btn-icon btn-sm" title="Abbrechen" onclick="cancelJob(${e.id})">✕</button>` : ''}
       </div>`).join('');
   } catch(e) {
     view.innerHTML = `<p style="color:var(--error)">${escHtml(e.message)}</p>`;
   }
 }
 
+async function cancelJob(id) {
+  try {
+    await API.post(`/api/episodes/${id}/cancel`, {});
+    toast('Job abgebrochen', 'info');
+    loadQueue();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 async function clearQueue() {
-  if (!confirm('Alle wartenden Jobs aus der Warteschlange entfernen?')) return;
-  toast('Funktion noch nicht implementiert — setze Status manuell in der DB zurück', 'info');
+  const ok = await confirmModal(
+    'Warteschlange leeren?',
+    'Alle wartenden und fehlgeschlagenen Jobs werden auf „Ausstehend" zurückgesetzt und die Fehlermeldungen entfernt. Laufende Jobs bleiben unberührt.',
+    'Leeren'
+  );
+  if (!ok) return;
+  try {
+    const r = await API.del('/api/queue');
+    toast(`✅ ${r.cleared ?? 0} Einträge geleert`, 'success');
+    loadQueue();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function loadWhisperStatus() {
+  try {
+    const s = await API.get('/api/health/whisper');
+    const el = document.getElementById('whisper-status');
+    if (!el) return;
+    if (s.installed) {
+      el.style.display = '';
+      el.style.background = 'rgba(34,197,94,0.1)';
+      el.style.border = '1px solid rgba(34,197,94,0.3)';
+      el.style.color = 'var(--text-muted)';
+      el.innerHTML = `<span style="color:var(--success)">✓ faster-whisper installiert</span>
+        ${s.cached_models.length ? ` · gecachte Modelle: <strong>${s.cached_models.join(', ')}</strong>` : ' · noch kein Modell geladen (wird beim ersten Transkribieren heruntergeladen)'}`;
+    } else {
+      el.style.display = '';
+      el.style.background = 'rgba(245,158,11,0.1)';
+      el.style.border = '1px solid rgba(245,158,11,0.3)';
+      el.style.color = 'var(--warning)';
+      el.innerHTML = '⚠️ faster-whisper nicht installiert — Container mit <strong>INSTALL_WHISPER=true</strong> in der .env neu bauen.';
+    }
+  } catch {}
 }
 
 loadSettings();
 loadQueue();
+loadWhisperStatus();
 setInterval(loadQueue, 8000);
 </script>
 </body>

@@ -104,12 +104,21 @@
 
         <div class="form-group">
           <label class="form-label">Zeitraum</label>
-          <div class="segmented" id="tf-seg">
+          <div class="segmented" id="tf-seg" style="flex-wrap:wrap">
+            <button data-tf="1" onclick="setTimeframe('1')">Heute</button>
             <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
             <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
             <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
             <button data-tf="all" onclick="setTimeframe('all')">Alles</button>
-            <button data-tf="manual" onclick="setTimeframe('manual')">Eigene Auswahl</button>
+            <button data-tf="daterange" onclick="setTimeframe('daterange')">Datum-Bereich</button>
+            <button data-tf="manual" onclick="setTimeframe('manual')">Einzelne Folgen</button>
+          </div>
+          <!-- Date range picker (shown when daterange selected) -->
+          <div id="daterange-picker" style="display:none;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;align-items:center">
+            <label style="font-size:.85rem;color:var(--text-muted)">Von:</label>
+            <input type="date" id="date-from" style="width:auto;min-width:0" oninput="updateCount()">
+            <label style="font-size:.85rem;color:var(--text-muted)">Bis:</label>
+            <input type="date" id="date-to" style="width:auto;min-width:0" oninput="updateCount()">
           </div>
         </div>
 
@@ -223,26 +232,8 @@ async function loadDigests() {
 }
 
 // ── Reader ──────────────────────────────────────────────────────────────────
-async function openDigest(id) {
-  const modal = document.getElementById('reader-modal');
-  const body = document.getElementById('reader-body');
-  body.innerHTML = '<div class="spinner" style="margin:2rem auto;display:block"></div>';
-  modal.style.display = ''; readerView = 'long';
-  document.getElementById('rv-long').classList.add('active');
-  document.getElementById('rv-short').classList.remove('active');
-  try {
-    const d = await API.get(`/api/digests/${id}`);
-    currentDigest = d;
-    document.getElementById('reader-title').textContent = d.title;
-    if (d.status === 'generating') {
-      body.innerHTML = `<div style="text-align:center;padding:2rem"><div class="spinner" style="width:36px;height:36px;margin:0 auto 1rem"></div><p>Ausgabe wird generiert… (ca. 1–2 Min)</p></div>`;
-      setTimeout(() => { if (document.getElementById('reader-modal').style.display !== 'none') openDigest(id); }, 5000);
-    } else if (d.status === 'error') {
-      body.innerHTML = `<div style="color:var(--error)">Fehler beim Generieren.</div>`;
-    } else {
-      renderReader();
-    }
-  } catch(e) { body.innerHTML = `<div style="color:var(--error)">${escHtml(e.message)}</div>`; }
+function openDigest(id) {
+  location.href = `/digest/${id}`;
 }
 
 function renderReader() {
@@ -334,7 +325,9 @@ function setTimeframe(tf) {
   timeframe = tf;
   document.querySelectorAll('#tf-seg button').forEach(b => b.classList.toggle('active', b.dataset.tf===tf));
   const manual = tf==='manual';
+  const daterange = tf==='daterange';
   document.getElementById('episode-picker').style.display = manual ? '' : 'none';
+  document.getElementById('daterange-picker').style.display = daterange ? 'flex' : 'none';
   document.getElementById('tag-group').style.display = manual ? 'none' : '';
   document.getElementById('pod-group').style.display = manual ? 'none' : '';
   updateCount();
@@ -374,12 +367,21 @@ function togglePod(id, el) {
 }
 
 function currentRecipe() {
-  return {
-    date_window_days: (timeframe==='all'||timeframe==='manual') ? null : parseInt(timeframe),
+  const recipe = {
     podcast_ids: [...selPods],
     tag_ids: [...selTags],
     match: document.getElementById('match-all').checked ? 'all' : 'any',
   };
+  if (timeframe === 'daterange') {
+    recipe.date_from = document.getElementById('date-from').value || null;
+    recipe.date_to = document.getElementById('date-to').value || null;
+    recipe.date_window_days = null;
+  } else if (timeframe === 'all' || timeframe === 'manual') {
+    recipe.date_window_days = null;
+  } else {
+    recipe.date_window_days = parseInt(timeframe);
+  }
+  return recipe;
 }
 
 function updateCount() {
@@ -561,6 +563,24 @@ async function backfillTags() {
     STYLE_LABELS = Object.fromEntries(opt.style.map(x => [x.value, x.label]));
   } catch {}
   loadDigests();
+
+  // CR 5: Auto-open modal when coming from podcast.html (?generate=podcast&id=X&title=Y)
+  const params = new URLSearchParams(location.search);
+  if (params.get('generate') === 'podcast' && params.get('id')) {
+    await openNewDigest();
+    const podId = parseInt(params.get('id'));
+    const podTitle = params.get('title') || '';
+    // Pre-select the podcast chip
+    document.querySelectorAll('#pod-chips .chip').forEach(el => {
+      if (parseInt(el.dataset.pod) === podId) { el.classList.add('active'); selPods.add(podId); }
+    });
+    document.getElementById('digest-title').value = `Podcast-Porträt: ${podTitle}`;
+    setTimeframe('all');
+    setFormat('zeitung');
+    document.getElementById('len-slider').value = 4;
+    document.getElementById('style-slider').value = 3;
+    updateSliderLabels(); updateCount();
+  }
 })();
 </script>
 </body>

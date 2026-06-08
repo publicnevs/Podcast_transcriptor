@@ -42,6 +42,27 @@ function toast(msg, type='info') {
   setTimeout(() => t.remove(), 3500);
 }
 
+function confirmModal(title, body, confirmLabel = 'Löschen') {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.className = 'modal-overlay';
+    ov.innerHTML = `
+      <div class="modal">
+        <div class="modal-title">${escHtml(title)}</div>
+        <p style="font-size:.875rem;color:var(--text-muted);margin:.5rem 0 1.25rem">${escHtml(body)}</p>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="cm-cancel">Abbrechen</button>
+          <button class="btn btn-danger" id="cm-confirm">${escHtml(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const close = (val) => { ov.remove(); resolve(val); };
+    ov.querySelector('#cm-cancel').onclick = () => close(false);
+    ov.querySelector('#cm-confirm').onclick = () => close(true);
+    ov.addEventListener('click', e => { if (e.target === ov) close(false); });
+  });
+}
+
 async function copyText(text, label='Kopiert!') {
   try {
     await navigator.clipboard.writeText(text);
@@ -91,25 +112,30 @@ function setActive(href) {
 // Nav markup (injected into each page) — topbar (desktop) + bottom-nav (mobile)
 function renderNav(activePath) {
   const isLib = activePath === '/' || activePath.startsWith('/podcast') || activePath.startsWith('/episode');
+  const isTags = activePath.startsWith('/tags');
   return `
     <div id="read-progress"></div>
     <nav class="topbar">
       <a class="topbar-logo" href="/">Pod<span>Scribe</span></a>
-      <div class="topbar-logo" style="font-size:.8rem;color:var(--text-muted);margin-left:.5rem;display:none" id="queue-indicator"></div>
+      <a href="/settings" class="queue-indicator" style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem;display:none;text-decoration:none" id="queue-indicator" title="Warteschlange ansehen"></a>
       <div class="search-bar" style="flex:1;max-width:280px;margin-left:1rem">
         <input type="text" id="global-search" placeholder="Transkripte durchsuchen…" autocomplete="off">
       </div>
       <nav class="topbar-nav">
         <a href="/" ${isLib?'class="active"':''}>📚 <span>Bibliothek</span></a>
+        <a href="/?add=1">➕ <span>Abonnieren</span></a>
+        <a href="/discover" ${activePath==='/discover'?'class="active"':''}>✨ <span>Entdecken</span></a>
+        <a href="/tags" ${isTags?'class="active"':''}>🏷️ <span>Tags</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>📰 <span>Zeitung</span></a>
-        <a href="/about" ${activePath==='/about'?'class="active"':''}>💡 <span>Features</span></a>
         <a href="/settings" ${activePath==='/settings'?'class="active"':''}>⚙️ <span>Settings</span></a>
+        <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">☀️</button>
       </nav>
     </nav>
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">📚</span>Bibliothek</a>
+      <a href="/?add=1"><span class="bn-icon">➕</span>Abonnieren</a>
+      <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">✨</span>Entdecken</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">📰</span>Zeitung</a>
-      <a href="/about" ${activePath==='/about'?'class="active"':''}><span class="bn-icon">💡</span>Features</a>
       <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">⚙️</span>Mehr</a>
     </nav>`;
 }
@@ -164,7 +190,7 @@ function initGlobalSearch() {
       const q = inp.value.trim();
       if (q.length < 2) { hideSearchResults(); return; }
       try {
-        const results = await API.get(`/api/search?q=${encodeURIComponent(q)}&limit=8`);
+        const results = await API.get(`/api/search?q=${encodeURIComponent(q)}&limit=10`);
         showSearchResults(results, inp);
       } catch {}
     }, 350);
@@ -179,16 +205,23 @@ function showSearchResults(results, anchor) {
   if (!dd) {
     dd = document.createElement('div');
     dd.id = 'search-dropdown';
-    dd.style.cssText = 'position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:200;max-height:320px;overflow-y:auto;';
+    dd.style.cssText = 'position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:200;max-height:420px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.25);';
     anchor.parentNode.style.position = 'relative';
     anchor.parentNode.appendChild(dd);
   }
   if (!results.length) { dd.innerHTML = '<div style="padding:.75rem;color:var(--text-muted);font-size:.85rem">Keine Treffer</div>'; return; }
-  dd.innerHTML = results.map(r => `
-    <a href="/episode/${r.id}" style="display:block;padding:.625rem .875rem;border-bottom:1px solid var(--border);color:var(--text);" onclick="hideSearchResults()">
+  dd.innerHTML = results.map(r => {
+    // tags_csv format: "label|id,label|id"
+    const tags = (r.tags_csv || '').split(',').filter(Boolean).slice(0, 3)
+      .map(t => { const [label, id] = t.split('|'); return `<a href="/tags/${id||''}" onclick="hideSearchResults()" class="tag" style="font-size:.65rem">${escHtml(label||t)}</a>`; }).join('');
+    return `
+    <a href="/episode/${r.id}" style="display:block;padding:.75rem .875rem;border-bottom:1px solid var(--border);color:var(--text);text-decoration:none;" onclick="hideSearchResults()">
       <div style="font-size:.85rem;font-weight:500">${escHtml(r.title)}</div>
-      <div style="font-size:.75rem;color:var(--text-muted)">${escHtml(r.podcast_title||'')} · ${r.snippet||''}</div>
-    </a>`).join('');
+      <div style="font-size:.72rem;color:var(--text-muted);margin:.125rem 0">${escHtml(r.podcast_title||'')}${r.pub_date ? ' · ' + fmtDate(r.pub_date) : ''}</div>
+      ${r.snippet ? `<div style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem;line-height:1.5">${r.snippet}</div>` : ''}
+      ${tags ? `<div style="margin-top:.375rem;display:flex;flex-wrap:wrap;gap:.25rem">${tags}</div>` : ''}
+    </a>`;
+  }).join('');
 }
 
 function hideSearchResults() {
@@ -326,15 +359,57 @@ function fmtClock(s) {
   return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
 }
 
+// ── Theme management (CR 8) ─────────────────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem('ps-theme');
+  const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  _applyTheme(saved || preferred);
+}
+
+function _applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    btn.title = theme === 'light' ? 'Dunkles Design aktivieren' : 'Helles Design aktivieren';
+  });
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  localStorage.setItem('ps-theme', next);
+  _applyTheme(next);
+}
+
+// Call early so there's no flash of wrong theme
+initTheme();
+
+// ── Share content (CR 13) ────────────────────────────────────────────────────
+async function shareContent(title, text, url) {
+  const fullUrl = url ? (location.origin + url) : location.href;
+  if (navigator.share) {
+    try { await navigator.share({ title, text: text || title, url: fullUrl }); return; } catch {}
+  }
+  await copyText(fullUrl, '🔗 Link kopiert');
+}
+
 async function pollQueue() {
   try {
     const q = await API.get('/api/queue');
     const active = q.filter(e => ['queued','downloading','transcribing'].includes(e.status));
+    const errors = q.filter(e => e.status === 'error');
     const ind = document.getElementById('queue-indicator');
     if (ind) {
-      if (active.length) {
-        ind.style.display = 'block';
-        ind.textContent = `⏳ ${active.length}`;
+      const parts = [];
+      if (active.length) parts.push(`⏳ ${active.length}`);
+      if (errors.length) parts.push(`<span style="color:var(--error)">❌ ${errors.length}</span>`);
+      if (parts.length) {
+        ind.style.display = 'inline';
+        ind.innerHTML = parts.join(' · ');
       } else {
         ind.style.display = 'none';
       }

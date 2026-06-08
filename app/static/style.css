@@ -868,3 +868,137 @@ details[open] summary::before { transform: rotate(90deg); }
 .app-footer a { color: var(--accent); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 .app-footer strong { color: var(--text); }
+
+/* ── Light theme (CR 8) ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg: #f2f2fb;
+  --bg-card: #ffffff;
+  --bg-card2: #e8e8f6;
+  --bg-hover: #ddddf8;
+  --accent: #5a4fd4;
+  --accent-dark: #4a3fc4;
+  --accent-dim: rgba(90,79,212,0.12);
+  --text: #1a1a2e;
+  --text-muted: #5a5a7a;
+  --border: #c8c8e4;
+  --shadow: 0 4px 24px rgba(0,0,0,0.06);
+}
+
+[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(90,79,212,0.05), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, rgba(90,79,212,0.03), transparent 55%),
+    var(--bg);
+}
+
+[data-theme="light"] .topbar { background: rgba(242,242,251,0.92); }
+[data-theme="light"] .bottom-nav { background: rgba(242,242,251,0.96); }
+[data-theme="light"] .audio-player { background: rgba(255,255,255,0.97); border-color: var(--border); }
+[data-theme="light"] mark { color: var(--text); }
+
+/* theme toggle button in topbar */
+.theme-btn {
+  font-size: 1.1rem !important;
+  padding: .35rem .45rem !important;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+/* ── UX improvements ────────────────────────────────────────────────────── */
+
+/* #2 elapsed time badge */
+.elapsed-badge {
+  font-size: .72rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* #3 error detail in episode list */
+.error-detail {
+  font-size: .72rem;
+  color: var(--error);
+  margin-top: .25rem;
+  font-family: monospace;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* #4 tag chips on episode cards */
+.episode-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  margin-top: .375rem;
+}
+.tag:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* #4 tag cloud */
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .625rem;
+  align-items: center;
+  line-height: 1.8;
+}
+.tag-cloud-item {
+  text-decoration: none;
+  transition: transform .15s;
+}
+.tag-cloud-item:hover {
+  transform: scale(1.05);
+}
+.tag-count {
+  font-size: .65em;
+  color: var(--text-muted);
+  margin-left: .2rem;
+}
+
+/* #11 feed health warning badge */
+.badge-warn {
+  background: rgba(255,160,0,.15);
+  border: 1px solid rgba(255,160,0,.4);
+  color: #ffa000;
+  font-size: .7rem;
+  padding: .15rem .5rem;
+  border-radius: 20px;
+  cursor: default;
+}
+
+/* #8 mobile settings bottom-sheet */
+@media (max-width: 640px) {
+  #podcast-settings {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 500;
+    margin: 0;
+    border-radius: 12px 12px 0 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    border-bottom: none;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 24px rgba(0,0,0,.4);
+  }
+  #podcast-settings::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 0 auto .875rem;
+  }
+  body.settings-open::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 499;
+  }
+}

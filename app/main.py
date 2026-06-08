@@ -21,7 +21,7 @@ from .database import DB_PATH, init_db, get_setting, set_setting
 from .exporter import (bulk_export_markdown, export_ai_copy,
                         export_markdown, export_txt)
 from .feed_parser import parse_rss_feed, parse_opml
-from .processor import process_episode, process_queued
+from .processor import process_episode, process_queued, insert_new_episodes
 from .scheduler import start_scheduler
 from . import transcriber
 from .transcriber import (generate_digest, generate_issue, translate_to_german,
@@ -38,10 +38,12 @@ async def _apply_runtime_config():
     api_key = await get_setting("gemini_api_key")
     backend = await get_setting("transcription_backend")
     whisper_model = await get_setting("whisper_model")
+    digest_model = await get_setting("digest_model")
     transcriber.configure(
         gemini_api_key=api_key or os.getenv("GEMINI_API_KEY", ""),
         backend=backend or os.getenv("TRANSCRIPTION_BACKEND", "gemini"),
         whisper_model=whisper_model or os.getenv("WHISPER_MODEL", "base"),
+        digest_model=digest_model or "",
     )
 
 
@@ -63,12 +65,15 @@ class PodcastCreate(BaseModel):
     rss_url: str
     auto_transcribe: bool = False
     max_episodes: int = 0
+    full_text_extraction: bool = False
 
 
 class PodcastUpdate(BaseModel):
     auto_transcribe: Optional[bool] = None
     max_episodes: Optional[int] = None
     check_interval_hours: Optional[int] = None
+    full_text_extraction: Optional[bool] = None
+    max_transcripts: Optional[int] = None
 
 
 class TranscribeRequest(BaseModel):
@@ -87,6 +92,7 @@ class SettingsUpdate(BaseModel):
     transcription_backend: Optional[str] = None
     whisper_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
+    digest_model: Optional[str] = None
 
 
 class DigestRequest(BaseModel):
@@ -144,6 +150,26 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/health/whisper")
+async def health_whisper():
+    """Check whether faster-whisper is installed and which models are cached."""
+    try:
+        import faster_whisper  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
+    cached_models: list[str] = []
+    cache_dir = os.getenv("WHISPER_CACHE", "/app/data/whisper_models")
+    try:
+        from pathlib import Path as _P
+        for p in _P(cache_dir).iterdir():
+            if p.is_dir():
+                cached_models.append(p.name)
+    except Exception:
+        pass
+    return {"installed": installed, "cached_models": cached_models, "cache_dir": cache_dir}
+
+
 # ── Frontend pages ─────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -185,6 +211,26 @@ async def manifest():
 @app.get("/about", response_class=HTMLResponse)
 async def page_about():
     return FileResponse(STATIC_DIR / "about.html")
+
+
+@app.get("/discover", response_class=HTMLResponse)
+async def page_discover():
+    return FileResponse(STATIC_DIR / "discover.html")
+
+
+@app.get("/tags", response_class=HTMLResponse)
+async def page_tags():
+    return FileResponse(STATIC_DIR / "tags.html")
+
+
+@app.get("/tags/{tag_id}", response_class=HTMLResponse)
+async def page_tag_detail(tag_id: int):
+    return FileResponse(STATIC_DIR / "tags.html")
+
+
+@app.get("/digest/{digest_id}", response_class=HTMLResponse)
+async def page_digest_reader(digest_id: int):
+    return FileResponse(STATIC_DIR / "digest-reader.html")
 
 
 # ── Podcasts ───────────────────────────────────────────────────────────────────
@@ -299,17 +345,22 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
 
     podcast = feed_data["podcast"]
     episodes = feed_data["episodes"]
+    feed_type = feed_data.get("feed_type", "podcast")
+    # When a web page URL was given, autodiscovery resolves the real feed URL —
+    # persist that so future scheduler checks hit the feed directly.
+    feed_url = podcast.get("rss_url") or data.rss_url
 
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute(
                 """INSERT INTO podcasts
                        (title, rss_url, artwork_url, description, website_url,
-                        language, auto_transcribe, max_episodes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (podcast["title"], data.rss_url, podcast["artwork_url"],
+                        language, auto_transcribe, max_episodes, feed_type, full_text_extraction)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (podcast["title"], feed_url, podcast["artwork_url"],
                  podcast["description"], podcast["website_url"], podcast["language"],
-                 1 if data.auto_transcribe else 0, data.max_episodes),
+                 1 if data.auto_transcribe else 0, data.max_episodes,
+                 feed_type, 1 if data.full_text_extraction else 0),
             )
             await db.commit()
         except Exception as e:
@@ -320,28 +371,20 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
         async with db.execute("SELECT last_insert_rowid()") as cur:
             podcast_id = (await cur.fetchone())[0]
 
-        limit = data.max_episodes if data.max_episodes > 0 else len(episodes)
-        for ep in episodes[:limit]:
-            status = "queued" if data.auto_transcribe else "pending"
-            try:
-                await db.execute(
-                    """INSERT OR IGNORE INTO episodes
-                           (podcast_id, title, audio_url, episode_url, pub_date,
-                            duration_sec, description, status,
-                            transcript_url, transcript_type)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (podcast_id, ep["title"], ep["audio_url"], ep["episode_url"],
-                     ep["pub_date"], ep["duration_sec"], ep["description"], status,
-                     ep.get("transcript_url", ""), ep.get("transcript_type", "")),
-                )
-            except Exception:
-                pass
+        await insert_new_episodes(
+            db, podcast_id, episodes,
+            feed_type=feed_type,
+            full_text_extraction=data.full_text_extraction,
+            auto_transcribe=data.auto_transcribe,
+            limit=data.max_episodes if data.max_episodes > 0 else 0,
+        )
         await db.commit()
 
-    if data.auto_transcribe:
+    if data.auto_transcribe or (feed_type == "newsfeed" and data.full_text_extraction):
         background_tasks.add_task(process_queued)
 
-    return {"id": podcast_id, "title": podcast["title"], "episode_count": len(episodes)}
+    return {"id": podcast_id, "title": podcast["title"],
+            "episode_count": len(episodes), "feed_type": feed_type}
 
 
 @app.post("/api/podcasts/opml")
@@ -371,6 +414,10 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
         fields["max_episodes"] = data.max_episodes
     if data.check_interval_hours is not None:
         fields["check_interval_hours"] = data.check_interval_hours
+    if data.full_text_extraction is not None:
+        fields["full_text_extraction"] = 1 if data.full_text_extraction else 0
+    if data.max_transcripts is not None:
+        fields["max_transcripts"] = data.max_transcripts
     if not fields:
         return {"ok": True}
     set_clause = ", ".join(f"{k}=?" for k in fields)
@@ -401,7 +448,11 @@ async def get_podcast_episodes(podcast_id: int, status: Optional[str] = None,
             where += " AND e.status=?"
             params.append(status)
         async with db.execute(f"""
-            SELECT e.*, s.summary, s.chapters_json
+            SELECT e.*, s.summary, s.chapters_json,
+                (SELECT GROUP_CONCAT(t.label || '|' || t.id, ',')
+                 FROM episode_tags et JOIN tags t ON t.id=et.tag_id
+                 WHERE et.episode_id=e.id) AS tags_csv,
+                strftime('%Y-%m-%d %H:%M:%S', 'now') AS server_now
             FROM episodes e
             LEFT JOIN summaries s ON s.episode_id = e.id
             {where}
@@ -440,6 +491,16 @@ async def bulk_export(podcast_id: int):
 
 
 # ── Episodes ───────────────────────────────────────────────────────────────────
+
+@app.delete("/api/episodes/{episode_id}")
+async def delete_episode(episode_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        # FTS virtual table is not covered by CASCADE — delete manually first
+        await db.execute("DELETE FROM transcripts_fts WHERE episode_id=?", (episode_id,))
+        await db.execute("DELETE FROM episodes WHERE id=?", (episode_id,))
+        await db.commit()
+    return {"ok": True}
+
 
 @app.post("/api/episodes/transcribe", status_code=202)
 async def transcribe_urls(data: TranscribeRequest, background_tasks: BackgroundTasks):
@@ -676,7 +737,10 @@ async def search(q: str = Query(..., min_length=2), limit: int = 20):
         try:
             async with db.execute("""
                 SELECT e.id, e.title, e.pub_date, p.title AS podcast_title, p.id AS podcast_id,
-                    snippet(transcripts_fts, 1, '<mark>', '</mark>', '…', 25) AS snippet
+                    snippet(transcripts_fts, 1, '<mark>', '</mark>', '…', 40) AS snippet,
+                    (SELECT GROUP_CONCAT(t.label || '|' || t.id, ',')
+                     FROM episode_tags et JOIN tags t ON t.id=et.tag_id
+                     WHERE et.episode_id=e.id) AS tags_csv
                 FROM transcripts_fts
                 JOIN transcripts t ON transcripts_fts.rowid = t.id
                 JOIN episodes e ON t.episode_id = e.id
@@ -708,6 +772,34 @@ async def get_queue():
         """) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+@app.delete("/api/queue")
+async def clear_queue():
+    """Clear the queue: reset waiting ('queued') and failed ('error') jobs back
+    to 'pending' (idle, not retried) and wipe their error messages. Running jobs
+    (downloading/transcribing) are left untouched."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "UPDATE episodes SET status='pending', error_msg=NULL "
+            "WHERE status IN ('queued','error')"
+        )
+        await db.commit()
+        cleared = cur.rowcount
+    return {"ok": True, "cleared": cleared}
+
+
+@app.post("/api/episodes/{episode_id}/cancel")
+async def cancel_episode(episode_id: int):
+    """Cancel a single queued or errored episode (reset to pending)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE episodes SET status='pending', error_msg=NULL "
+            "WHERE id=? AND status IN ('queued','error')",
+            (episode_id,),
+        )
+        await db.commit()
+    return {"ok": True}
 
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────
@@ -755,6 +847,8 @@ async def update_settings(data: SettingsUpdate):
         await set_setting("whisper_model", data.whisper_model)
     if data.gemini_api_key:  # only overwrite when a non-empty value is sent
         await set_setting("gemini_api_key", data.gemini_api_key.strip())
+    if data.digest_model is not None:
+        await set_setting("digest_model", data.digest_model)
     await _apply_runtime_config()
     return {"ok": True}
 
@@ -979,6 +1073,20 @@ async def rename_tag_route(tag_id: int, data: TagRename):
     return {"ok": True}
 
 
+@app.get("/api/episodes/{episode_id}/tags")
+async def get_episode_tags(episode_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT t.id, t.label, t.kind, et.source
+            FROM episode_tags et JOIN tags t ON t.id=et.tag_id
+            WHERE et.episode_id=?
+            ORDER BY t.label
+        """, (episode_id,)) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
 @app.put("/api/episodes/{episode_id}/tags")
 async def update_episode_tags(episode_id: int, data: EpisodeTagsUpdate):
     for label in data.add:
@@ -986,6 +1094,27 @@ async def update_episode_tags(episode_id: int, data: EpisodeTagsUpdate):
     for tag_id in data.remove:
         await tagging.remove_tag(episode_id, tag_id)
     return {"ok": True}
+
+
+@app.get("/api/tags/{tag_id}/episodes")
+async def get_tag_episodes(tag_id: int, page: int = 1, limit: int = 30):
+    offset = (page - 1) * limit
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.id, e.title, e.pub_date, e.status, e.read_at, e.word_count,
+                   p.title AS podcast_title, p.id AS podcast_id, p.artwork_url,
+                   s.summary
+            FROM episode_tags et
+            JOIN episodes e ON e.id = et.episode_id
+            LEFT JOIN podcasts p ON p.id = e.podcast_id
+            LEFT JOIN summaries s ON s.episode_id = e.id
+            WHERE et.tag_id = ?
+            ORDER BY e.pub_date DESC NULLS LAST
+            LIMIT ? OFFSET ?
+        """, (tag_id, limit, offset)) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
 
 
 @app.post("/api/tags/backfill", status_code=202)

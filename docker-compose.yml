@@ -5,8 +5,8 @@ services:
     build:
       context: .
       args:
-        # Für lokales Whisper-Backend auf "true" setzen (größeres Image):
-        INSTALL_WHISPER: "false"
+        # Whisper-Backend: INSTALL_WHISPER=true in .env setzen → größeres Image mit faster-whisper
+        INSTALL_WHISPER: ${INSTALL_WHISPER:-false}
     container_name: podscribe
     ports:
       - "7878:7878"
@@ -14,6 +14,8 @@ services:
       - ./data:/app/data
       - ./downloads:/app/downloads
     env_file:
+      # Enthält API-Key, Backend und Modell-Vars (z.B. GEMINI_LITE_MODEL=gemini-2.5-flash-lite
+      # zum Kostensparen). Siehe .env.example.
       - .env
     restart: unless-stopped
     healthcheck:
