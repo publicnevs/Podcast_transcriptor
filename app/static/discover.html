@@ -18,7 +18,7 @@
 <div class="main-content">
 
   <div class="page-header" style="display:block;margin-bottom:1.5rem">
-    <h1 style="font-size:1.6rem;font-weight:700">✨ Entdecken</h1>
+    <h1 style="font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:.5rem" data-icon="compass" data-icon-size="22">Entdecken</h1>
     <p style="color:var(--text-muted);margin-top:.375rem;font-size:.9rem">Empfohlene Podcasts — kuratierte Auswahl für direkten Start</p>
   </div>
 
@@ -58,26 +58,26 @@ function renderRec(p) {
         <div class="episode-title" style="display:flex;align-items:center;gap:.5rem">
           ${escHtml(p.title)}
           ${p.lang === 'en' ? '<span style="font-size:.7rem;color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:.1rem .35rem">EN</span>' : ''}
-          ${p.transcripts ? '<span style="font-size:.7rem;color:var(--success);border:1px solid var(--success);border-radius:4px;padding:.1rem .35rem" title="Feed liefert Transkripte – kein Audio-Download nötig">✓ Transkripte</span>' : ''}
+          ${p.transcripts ? `<span style="font-size:.7rem;color:var(--success);border:1px solid var(--success);border-radius:4px;padding:.1rem .35rem;display:inline-flex;align-items:center;gap:.2rem" title="Feed liefert Transkripte – kein Audio-Download nötig">${icon('check',{size:12})} Transkripte</span>` : ''}
         </div>
         <div class="episode-summary" style="margin-top:.375rem">${escHtml(p.desc)}</div>
       </div>
       <div style="flex-shrink:0">
         ${subscribed
-          ? `<span class="badge" style="color:var(--success);border-color:var(--success)">✓ Abonniert</span>`
-          : `<button class="btn btn-primary btn-sm" onclick="subscribe(this, ${JSON.stringify(p.rss)})">+ Abonnieren</button>`}
+          ? `<span class="badge" style="color:var(--success);border-color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('check',{size:13})} Abonniert</span>`
+          : `<button class="btn btn-primary btn-sm" onclick="subscribe(this, ${JSON.stringify(p.rss)})">${icon('plus',{size:15})} Abonnieren</button>`}
       </div>
     </div>`;
 }
 
 async function subscribe(btn, rss) {
   btn.disabled = true;
-  btn.textContent = '⏳';
+  btn.innerHTML = '…';
   try {
     await API.post('/api/podcasts', { rss_url: rss, auto_transcribe: false, max_episodes: 10 });
     toast('Abonniert!', 'success');
     btn.closest('.episode-item').querySelector('div:last-child').innerHTML =
-      '<span class="badge" style="color:var(--success);border-color:var(--success)">✓ Abonniert</span>';
+      `<span class="badge" style="color:var(--success);border-color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('check',{size:13})} Abonniert</span>`;
   } catch(e) {
     toast(e.message, 'error');
     btn.disabled = false;

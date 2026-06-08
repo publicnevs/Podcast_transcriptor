@@ -23,8 +23,8 @@
   <div id="add-section" style="display:none;margin-bottom:1.5rem">
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
-        <h3 style="font-size:1rem;font-weight:700">➕ Podcast oder Feed abonnieren</h3>
-        <button class="btn btn-ghost btn-icon btn-sm" title="Schließen" onclick="toggleAddPanel()">✕</button>
+        <h3 style="font-size:1rem;font-weight:700;display:flex;align-items:center;gap:.4rem" data-icon="plus" data-icon-size="18">Podcast oder Feed abonnieren</h3>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Schließen" data-icon="x" onclick="toggleAddPanel()"></button>
       </div>
       <div style="display:flex;flex-direction:column;gap:1rem">
         <div class="form-group">
@@ -51,7 +51,7 @@
         </div>
 
         <details style="margin-top:.25rem">
-          <summary style="color:var(--text-muted);font-size:.875rem">📎 OPML-Import (alle Podcasts auf einmal)</summary>
+          <summary style="color:var(--text-muted);font-size:.875rem" data-icon="download" data-icon-size="15">OPML-Import (alle Podcasts auf einmal)</summary>
           <div style="margin-top:.75rem;display:flex;gap:.5rem;align-items:center">
             <input type="file" id="opml-file" accept=".opml,.xml" style="flex:1">
             <button class="btn btn-secondary" onclick="importOpml()">Importieren</button>
@@ -59,10 +59,10 @@
         </details>
 
         <details style="margin-top:.25rem">
-          <summary style="color:var(--text-muted);font-size:.875rem">🎵 Einzelne URLs direkt transkribieren</summary>
+          <summary style="color:var(--text-muted);font-size:.875rem" data-icon="headphones" data-icon-size="15">Einzelne URLs direkt transkribieren</summary>
           <div style="margin-top:.75rem;display:flex;flex-direction:column;gap:.5rem">
             <textarea id="direct-urls" placeholder="Eine URL pro Zeile&#10;https://example.com/episode.mp3&#10;https://youtube.com/watch?v=..." style="min-height:80px"></textarea>
-            <button class="btn btn-secondary" style="align-self:flex-start" onclick="directTranscribe()">🎙️ Transkribieren</button>
+            <button class="btn btn-secondary" style="align-self:flex-start" data-icon="sparkles" data-icon-size="16" onclick="directTranscribe()">Transkribieren</button>
           </div>
         </details>
       </div>
@@ -71,12 +71,12 @@
 
   <!-- Watchlist -->
   <div id="watchlist-section" style="display:none;margin-bottom:1.5rem">
-    <div class="section-title">⭐ Leseliste</div>
+    <div class="section-title" data-icon="bookmark" data-icon-size="16">Leseliste</div>
     <div id="watchlist-list" class="episode-list"></div>
   </div>
 
   <!-- Podcasts Grid -->
-  <div class="section-title">📚 Podcasts & Feeds</div>
+  <div class="section-title" data-icon="library" data-icon-size="16">Podcasts &amp; Feeds</div>
   <div id="podcast-grid" class="card-grid"></div>
 
 </div>
@@ -103,22 +103,22 @@ async function loadPodcasts() {
     const podcasts = await API.get('/api/podcasts');
     firstLoad = false;
     if (!podcasts.length) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">🎙️</div><p>Noch keine Podcasts abonniert.<br>Füge deinen ersten Podcast oben hinzu.</p></div>`;
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">${icon('headphones',{size:44})}</div><p>Noch keine Podcasts abonniert.<br>Füge deinen ersten Podcast oben hinzu.</p></div>`;
       return;
     }
     grid.classList.add('fade-in');
     grid.innerHTML = podcasts.map(p => `
       <div class="podcast-card" onclick="location.href='/podcast/${p.id}'">
         ${p.artwork_url
-          ? `<img src="${escHtml(p.artwork_url)}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<div class=podcast-card-placeholder>🎙️</div>'">`
-          : `<div class="podcast-card-placeholder">🎙️</div>`}
+          ? `<img src="${escHtml(p.artwork_url)}" alt="" loading="lazy" onerror="podcastImgFallback(this)">`
+          : `<div class="podcast-card-placeholder">${icon('headphones',{size:40})}</div>`}
         <div class="podcast-card-body">
           <div class="podcast-card-title">${escHtml(p.title)}</div>
           <div class="podcast-card-meta">
             ${p.unread_count > 0 ? `<span class="unread-badge">${p.unread_count} neu</span>` : ''}
             <span>${p.done_count} ${p.feed_type==='newsfeed'?'Artikel':'Transkripte'}</span>
-            ${p.auto_transcribe && p.feed_type!=='newsfeed' ? '<span title="Auto-Transkription aktiv">🔄</span>' : ''}
-            ${p.feed_type==='newsfeed' ? '<span title="Newsfeed">📰</span>' : ''}
+            ${p.auto_transcribe && p.feed_type!=='newsfeed' ? `<span title="Auto-Transkription aktiv" style="display:inline-flex">${icon('refresh-cw',{size:14})}</span>` : ''}
+            ${p.feed_type==='newsfeed' ? `<span title="Newsfeed" style="display:inline-flex">${icon('newspaper',{size:14})}</span>` : ''}
           </div>
         </div>
       </div>`).join('');
@@ -157,7 +157,7 @@ async function loadWatchlist() {
           </div>
         </div>
         <div class="episode-actions">
-          <button class="btn btn-ghost btn-icon btn-sm" title="Aus Leseliste entfernen" onclick="event.stopPropagation();toggleWatch(${e.id}, this)">⭐</button>
+          <button class="btn btn-ghost btn-icon btn-sm" title="Aus Leseliste entfernen" onclick="event.stopPropagation();toggleWatch(${e.id}, this)">${icon('bookmark-check')}</button>
         </div>
       </div>`).join('');
   } catch {}
@@ -213,6 +213,10 @@ async function directTranscribe() {
 async function toggleWatch(id, btn) {
   await API.patch(`/api/episodes/${id}/watchlist`);
   await loadWatchlist();
+}
+
+function podcastImgFallback(img) {
+  img.parentNode.innerHTML = `<div class="podcast-card-placeholder">${icon('headphones',{size:40})}</div>`;
 }
 
 // Open add panel when arriving via ➕ Abonnieren (/?add=1)
