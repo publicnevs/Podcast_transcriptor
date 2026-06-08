@@ -673,7 +673,7 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
 
     continuity = ""
     if prev_tldr:
-        continuity = ("ANSCHLUSS: Beginne mit einem kurzen Abschnitt „Neu seit der letzten Ausgabe", "
+        continuity = ("ANSCHLUSS: Beginne mit einem kurzen Abschnitt 'Neu seit der letzten Ausgabe', "
                       "der auf folgende vorige Kurzfassung Bezug nimmt:\n" + prev_tldr[:1500])
 
     episodes_text = _build_episodes_text(episode_data, 10000)
