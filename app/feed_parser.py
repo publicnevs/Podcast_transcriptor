@@ -26,23 +26,39 @@ async def parse_rss_feed(url: str) -> dict:
     }
 
     episodes = []
+    has_audio = False
     for entry in feed.entries:
         audio_url = _extract_audio(entry)
-        if not audio_url:
-            continue
-        transcript_url, transcript_type = _extract_transcript(entry)
-        episodes.append({
-            "title": _clean(entry.get("title", "Unbekannte Folge")),
-            "audio_url": audio_url,
-            "episode_url": entry.get("link", ""),
-            "pub_date": entry.get("published", ""),
-            "duration_sec": _parse_duration(entry.get("itunes_duration", "")),
-            "description": _clean(entry.get("summary", "")),
-            "transcript_url": transcript_url,
-            "transcript_type": transcript_type,
-        })
+        if audio_url:
+            has_audio = True
+            transcript_url, transcript_type = _extract_transcript(entry)
+            episodes.append({
+                "title": _clean(entry.get("title", "Unbekannte Folge")),
+                "audio_url": audio_url,
+                "episode_url": entry.get("link", ""),
+                "pub_date": entry.get("published", ""),
+                "duration_sec": _parse_duration(entry.get("itunes_duration", "")),
+                "description": _clean(entry.get("summary", "")),
+                "transcript_url": transcript_url,
+                "transcript_type": transcript_type,
+            })
+        else:
+            # Text/article entry (newsfeed)
+            link = entry.get("link", "")
+            if link:
+                episodes.append({
+                    "title": _clean(entry.get("title", "Unbekannter Artikel")),
+                    "audio_url": "",
+                    "episode_url": link,
+                    "pub_date": entry.get("published", ""),
+                    "duration_sec": 0,
+                    "description": _clean(entry.get("summary", "")),
+                    "transcript_url": "",
+                    "transcript_type": "",
+                })
 
-    return {"podcast": podcast, "episodes": episodes}
+    feed_type = "podcast" if has_audio else "newsfeed"
+    return {"podcast": podcast, "episodes": episodes, "feed_type": feed_type}
 
 
 # Transcript types we can parse (Podcast Index <podcast:transcript> tag)

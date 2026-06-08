@@ -108,9 +108,10 @@ function render(ep) {
         <button class="btn btn-primary btn-sm" id="listen-btn" onclick="toggleListen()">🎧 Anhören</button>
         <button class="btn btn-secondary btn-sm" onclick="copyTranscript()">📋 Kopieren</button>
         <button class="btn btn-secondary btn-sm" onclick="copyForAI()">🤖 Für KI kopieren</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=md','_blank')">⬇️ MD</button>
-        <button class="btn btn-secondary btn-sm" onclick="window.open('/api/episodes/${episodeId}/export?format=txt','_blank')">⬇️ TXT</button>
+        <a class="btn btn-secondary btn-sm" href="/api/episodes/${episodeId}/export?format=md" download>⬇️ MD</a>
+        <a class="btn btn-secondary btn-sm" href="/api/episodes/${episodeId}/export?format=txt" download>⬇️ TXT</a>
         <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️ PDF</button>
+        <button class="btn btn-secondary btn-sm" onclick="shareContent('${escHtml(ep.title).replace(/'/g,"\\'")}','','')">🔗 Teilen</button>
         ${ep.language && ep.language!=='de' ? `<button class="btn btn-secondary btn-sm" id="translate-btn" onclick="requestTranslation()">🇩🇪 Übersetzen</button>` : ''}
         <button class="btn btn-ghost btn-sm" id="watch-btn" onclick="toggleWatch()">${ep.watchlist?'⭐ Leseliste':'☆ Leseliste'}</button>
         <div class="reader-tools">

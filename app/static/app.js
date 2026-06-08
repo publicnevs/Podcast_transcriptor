@@ -101,15 +101,16 @@ function renderNav(activePath) {
       </div>
       <nav class="topbar-nav">
         <a href="/" ${isLib?'class="active"':''}>📚 <span>Bibliothek</span></a>
+        <a href="/discover" ${activePath==='/discover'?'class="active"':''}>✨ <span>Entdecken</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>📰 <span>Zeitung</span></a>
-        <a href="/about" ${activePath==='/about'?'class="active"':''}>💡 <span>Features</span></a>
         <a href="/settings" ${activePath==='/settings'?'class="active"':''}>⚙️ <span>Settings</span></a>
+        <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">☀️</button>
       </nav>
     </nav>
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">📚</span>Bibliothek</a>
+      <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">✨</span>Entdecken</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">📰</span>Zeitung</a>
-      <a href="/about" ${activePath==='/about'?'class="active"':''}><span class="bn-icon">💡</span>Features</a>
       <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">⚙️</span>Mehr</a>
     </nav>`;
 }
@@ -324,6 +325,44 @@ function fmtClock(s) {
   s = Math.floor(s);
   const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
   return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
+}
+
+// ── Theme management (CR 8) ─────────────────────────────────────────────────
+function initTheme() {
+  const saved = localStorage.getItem('ps-theme');
+  const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  _applyTheme(saved || preferred);
+}
+
+function _applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  document.querySelectorAll('.theme-btn').forEach(btn => {
+    btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    btn.title = theme === 'light' ? 'Dunkles Design aktivieren' : 'Helles Design aktivieren';
+  });
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const next = isLight ? 'dark' : 'light';
+  localStorage.setItem('ps-theme', next);
+  _applyTheme(next);
+}
+
+// Call early so there's no flash of wrong theme
+initTheme();
+
+// ── Share content (CR 13) ────────────────────────────────────────────────────
+async function shareContent(title, text, url) {
+  const fullUrl = url ? (location.origin + url) : location.href;
+  if (navigator.share) {
+    try { await navigator.share({ title, text: text || title, url: fullUrl }); return; } catch {}
+  }
+  await copyText(fullUrl, '🔗 Link kopiert');
 }
 
 async function pollQueue() {

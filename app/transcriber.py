@@ -20,9 +20,11 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-# Model names overridable via env (Gemini 1.5 was retired; default to 2.5)
+# Model names overridable via env — 2.5 Flash for transcription, Lite for enrichment/tagging, Pro for digests
 FLASH_MODEL = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
 PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
+# Lite model: cheaper for enrichment + tagging; falls back to FLASH if not set
+LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", FLASH_MODEL)
 
 # Runtime-overridable settings (set from DB at startup / on change)
 _runtime = {
@@ -333,7 +335,7 @@ def _gemini_full_sync(audio_path: Path) -> dict:
 def _enrich_sync(transcript: str) -> dict:
     client = _client()
     response = client.models.generate_content(
-        model=FLASH_MODEL,
+        model=LITE_MODEL,
         contents=[ENRICH_PROMPT.format(transcript=transcript[:120000])],
         config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=8192),
     )
@@ -394,7 +396,7 @@ def _extract_tags_sync(summary: str, takeaways: list, chapters: list) -> list:
     )
     client = _client()
     response = client.models.generate_content(
-        model=FLASH_MODEL,
+        model=LITE_MODEL,
         contents=[prompt],
         config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=1024),
     )

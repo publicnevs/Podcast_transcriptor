@@ -868,3 +868,39 @@ details[open] summary::before { transform: rotate(90deg); }
 .app-footer a { color: var(--accent); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 .app-footer strong { color: var(--text); }
+
+/* ── Light theme (CR 8) ─────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg: #f2f2fb;
+  --bg-card: #ffffff;
+  --bg-card2: #e8e8f6;
+  --bg-hover: #ddddf8;
+  --accent: #5a4fd4;
+  --accent-dark: #4a3fc4;
+  --accent-dim: rgba(90,79,212,0.12);
+  --text: #1a1a2e;
+  --text-muted: #5a5a7a;
+  --border: #c8c8e4;
+  --shadow: 0 4px 24px rgba(0,0,0,0.06);
+}
+
+[data-theme="light"] body {
+  background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(90,79,212,0.05), transparent 60%),
+    radial-gradient(900px 500px at -10% 10%, rgba(90,79,212,0.03), transparent 55%),
+    var(--bg);
+}
+
+[data-theme="light"] .topbar { background: rgba(242,242,251,0.92); }
+[data-theme="light"] .bottom-nav { background: rgba(242,242,251,0.96); }
+[data-theme="light"] .audio-player { background: rgba(255,255,255,0.97); border-color: var(--border); }
+[data-theme="light"] mark { color: var(--text); }
+
+/* theme toggle button in topbar */
+.theme-btn {
+  font-size: 1.1rem !important;
+  padding: .35rem .45rem !important;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}

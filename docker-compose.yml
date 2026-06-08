@@ -5,8 +5,8 @@ services:
     build:
       context: .
       args:
-        # Für lokales Whisper-Backend auf "true" setzen (größeres Image):
-        INSTALL_WHISPER: "false"
+        # Whisper-Backend: INSTALL_WHISPER=true in .env setzen → größeres Image mit faster-whisper
+        INSTALL_WHISPER: ${INSTALL_WHISPER:-false}
     container_name: podscribe
     ports:
       - "7878:7878"

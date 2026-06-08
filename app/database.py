@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS podcasts (
     check_interval_hours INTEGER DEFAULT 24,
     last_checked TIMESTAMP,
     max_episodes INTEGER DEFAULT 0,
+    feed_type TEXT DEFAULT 'podcast',
+    full_text_extraction INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -160,6 +162,9 @@ _MIGRATIONS = [
     "ALTER TABLE digests ADD COLUMN subtitle TEXT DEFAULT ''",
     "ALTER TABLE digests ADD COLUMN recipe_json TEXT DEFAULT ''",
     "ALTER TABLE digests ADD COLUMN share_token TEXT",
+    # CR 10: RSS Newsfeed support
+    "ALTER TABLE podcasts ADD COLUMN feed_type TEXT DEFAULT 'podcast'",
+    "ALTER TABLE podcasts ADD COLUMN full_text_extraction INTEGER DEFAULT 0",
 ]
 
 

@@ -63,6 +63,7 @@ class PodcastCreate(BaseModel):
     rss_url: str
     auto_transcribe: bool = False
     max_episodes: int = 0
+    full_text_extraction: bool = False
 
 
 class PodcastUpdate(BaseModel):
@@ -144,6 +145,26 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/health/whisper")
+async def health_whisper():
+    """Check whether faster-whisper is installed and which models are cached."""
+    try:
+        import faster_whisper  # noqa: F401
+        installed = True
+    except ImportError:
+        installed = False
+    cached_models: list[str] = []
+    cache_dir = os.getenv("WHISPER_CACHE", "/app/data/whisper_models")
+    try:
+        from pathlib import Path as _P
+        for p in _P(cache_dir).iterdir():
+            if p.is_dir():
+                cached_models.append(p.name)
+    except Exception:
+        pass
+    return {"installed": installed, "cached_models": cached_models, "cache_dir": cache_dir}
+
+
 # ── Frontend pages ─────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -185,6 +206,16 @@ async def manifest():
 @app.get("/about", response_class=HTMLResponse)
 async def page_about():
     return FileResponse(STATIC_DIR / "about.html")
+
+
+@app.get("/discover", response_class=HTMLResponse)
+async def page_discover():
+    return FileResponse(STATIC_DIR / "discover.html")
+
+
+@app.get("/digest/{digest_id}", response_class=HTMLResponse)
+async def page_digest_reader(digest_id: int):
+    return FileResponse(STATIC_DIR / "digest-reader.html")
 
 
 # ── Podcasts ───────────────────────────────────────────────────────────────────
@@ -299,17 +330,19 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
 
     podcast = feed_data["podcast"]
     episodes = feed_data["episodes"]
+    feed_type = feed_data.get("feed_type", "podcast")
 
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute(
                 """INSERT INTO podcasts
                        (title, rss_url, artwork_url, description, website_url,
-                        language, auto_transcribe, max_episodes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        language, auto_transcribe, max_episodes, feed_type, full_text_extraction)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (podcast["title"], data.rss_url, podcast["artwork_url"],
                  podcast["description"], podcast["website_url"], podcast["language"],
-                 1 if data.auto_transcribe else 0, data.max_episodes),
+                 1 if data.auto_transcribe else 0, data.max_episodes,
+                 feed_type, 1 if data.full_text_extraction else 0),
             )
             await db.commit()
         except Exception as e:
@@ -322,7 +355,12 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
 
         limit = data.max_episodes if data.max_episodes > 0 else len(episodes)
         for ep in episodes[:limit]:
-            status = "queued" if data.auto_transcribe else "pending"
+            # Newsfeeds are imported as 'done' (no audio to process) unless full_text_extraction requested
+            if feed_type == "newsfeed":
+                status = "queued" if (data.full_text_extraction and ep.get("episode_url")) else "done"
+            else:
+                status = "queued" if data.auto_transcribe else "pending"
+            audio_url = ep.get("audio_url") or ep.get("episode_url") or ""
             try:
                 await db.execute(
                     """INSERT OR IGNORE INTO episodes
@@ -330,7 +368,7 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
                             duration_sec, description, status,
                             transcript_url, transcript_type)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (podcast_id, ep["title"], ep["audio_url"], ep["episode_url"],
+                    (podcast_id, ep["title"], audio_url, ep.get("episode_url", ""),
                      ep["pub_date"], ep["duration_sec"], ep["description"], status,
                      ep.get("transcript_url", ""), ep.get("transcript_type", "")),
                 )
@@ -338,10 +376,11 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
                 pass
         await db.commit()
 
-    if data.auto_transcribe:
+    if data.auto_transcribe or (feed_type == "newsfeed" and data.full_text_extraction):
         background_tasks.add_task(process_queued)
 
-    return {"id": podcast_id, "title": podcast["title"], "episode_count": len(episodes)}
+    return {"id": podcast_id, "title": podcast["title"],
+            "episode_count": len(episodes), "feed_type": feed_type}
 
 
 @app.post("/api/podcasts/opml")
@@ -708,6 +747,30 @@ async def get_queue():
         """) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+@app.delete("/api/queue")
+async def clear_queue():
+    """Reset all queued (not yet running) jobs back to pending."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE episodes SET status='pending', error_msg=NULL WHERE status='queued'"
+        )
+        await db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/episodes/{episode_id}/cancel")
+async def cancel_episode(episode_id: int):
+    """Cancel a single queued or errored episode (reset to pending)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE episodes SET status='pending', error_msg=NULL "
+            "WHERE id=? AND status IN ('queued','error')",
+            (episode_id,),
+        )
+        await db.commit()
+    return {"ok": True}
 
 
 # ── Watchlist ──────────────────────────────────────────────────────────────────

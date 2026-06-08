@@ -31,6 +31,7 @@
   <!-- Actions -->
   <div class="action-bar" id="podcast-actions" style="display:none">
     <button class="btn btn-secondary btn-sm" onclick="triggerCheck()">🔄 Auf neue Folgen prüfen</button>
+    <button class="btn btn-primary btn-sm" onclick="generateArticle()">📰 Podcast-Artikel</button>
     <button class="btn btn-secondary btn-sm" onclick="bulkExport()">📦 Alle Transkripte exportieren</button>
     <button class="btn btn-danger btn-sm" onclick="deletePodcast()">🗑️ Abonnement löschen</button>
   </div>
@@ -177,6 +178,11 @@ async function triggerCheck() {
 
 async function bulkExport() {
   window.open(`/api/podcasts/${podcastId}/export`, '_blank');
+}
+
+function generateArticle() {
+  // Navigate to digest page with pre-filled podcast filter
+  location.href = `/digests?generate=podcast&id=${podcastId}&title=${encodeURIComponent(podcastData?.title||'')}`;
 }
 
 async function deletePodcast() {
