@@ -63,6 +63,68 @@ function confirmModal(title, body, confirmLabel = 'Löschen') {
   });
 }
 
+/* Reliable download that works in the installed PWA (the service worker no longer
+   intercepts /export, but fetching as a blob + programmatic click is the most
+   robust path across mobile browsers). */
+async function downloadFile(url, filename) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Download fehlgeschlagen');
+    const blob = await r.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objUrl; a.download = filename || 'download';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(objUrl), 1000);
+  } catch (e) { toast(e.message || 'Download fehlgeschlagen', 'error'); }
+}
+
+/* Bottom-sheet (mobile) / centered dialog (desktop).
+   items: [{ icon, label, onClick, danger }] */
+function openSheet(title, items) {
+  const ov = document.createElement('div');
+  ov.className = 'sheet-overlay';
+  const rows = items.map((it, i) => `
+    <button class="sheet-item${it.danger ? ' danger' : ''}" data-i="${i}">
+      ${it.icon ? icon(it.icon, { size: 20 }) : ''}<span>${escHtml(it.label)}</span>
+    </button>`).join('');
+  ov.innerHTML = `<div class="sheet" role="menu">
+    ${title ? `<div class="sheet-title">${escHtml(title)}</div>` : ''}${rows}</div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener('click', e => { if (e.target === ov) close(); });
+  ov.querySelectorAll('.sheet-item').forEach(btn => {
+    btn.onclick = () => { close(); const it = items[+btn.dataset.i]; it.onClick && it.onClick(); };
+  });
+  return close;
+}
+
+/* Small context menu anchored to a trigger element.
+   items: [{ icon, label, onClick, danger }] */
+function openMenu(anchorEl, items) {
+  document.querySelectorAll('.menu-popover').forEach(m => m.remove());
+  const menu = document.createElement('div');
+  menu.className = 'menu-popover';
+  menu.innerHTML = items.map((it, i) => `
+    <button class="${it.danger ? 'danger' : ''}" data-i="${i}">
+      ${it.icon ? icon(it.icon, { size: 18 }) : ''}<span>${escHtml(it.label)}</span>
+    </button>`).join('');
+  document.body.appendChild(menu);
+  const rect = anchorEl.getBoundingClientRect();
+  const mw = menu.offsetWidth;
+  let left = rect.right + window.scrollX - mw;
+  if (left < 8) left = 8;
+  menu.style.top = (rect.bottom + window.scrollY + 4) + 'px';
+  menu.style.left = left + 'px';
+  const close = () => { menu.remove(); document.removeEventListener('click', onDoc, true); };
+  const onDoc = (e) => { if (!menu.contains(e.target) && e.target !== anchorEl) close(); };
+  setTimeout(() => document.addEventListener('click', onDoc, true), 0);
+  menu.querySelectorAll('button').forEach(btn => {
+    btn.onclick = () => { close(); const it = items[+btn.dataset.i]; it.onClick && it.onClick(); };
+  });
+  return close;
+}
+
 async function copyText(text, label='Kopiert!') {
   try {
     await navigator.clipboard.writeText(text);
@@ -122,21 +184,21 @@ function renderNav(activePath) {
         <input type="text" id="global-search" placeholder="Transkripte durchsuchen…" autocomplete="off">
       </div>
       <nav class="topbar-nav">
-        <a href="/" ${isLib?'class="active"':''}>📚 <span>Bibliothek</span></a>
-        <a href="/?add=1">➕ <span>Abonnieren</span></a>
-        <a href="/discover" ${activePath==='/discover'?'class="active"':''}>✨ <span>Entdecken</span></a>
-        <a href="/tags" ${isTags?'class="active"':''}>🏷️ <span>Tags</span></a>
-        <a href="/digests" ${activePath==='/digests'?'class="active"':''}>📰 <span>Zeitung</span></a>
-        <a href="/settings" ${activePath==='/settings'?'class="active"':''}>⚙️ <span>Settings</span></a>
-        <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">☀️</button>
+        <a href="/" ${isLib?'class="active"':''}>${icon('library')} <span>Bibliothek</span></a>
+        <a href="/?add=1">${icon('plus')} <span>Abonnieren</span></a>
+        <a href="/discover" ${activePath==='/discover'?'class="active"':''}>${icon('compass')} <span>Entdecken</span></a>
+        <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
+        <a href="/digests" ${activePath==='/digests'?'class="active"':''}>${icon('newspaper')} <span>Zeitung</span></a>
+        <a href="/settings" ${activePath==='/settings'?'class="active"':''}>${icon('settings')} <span>Settings</span></a>
+        <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">${icon('sun')}</button>
       </nav>
     </nav>
     <nav class="bottom-nav">
-      <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">📚</span>Bibliothek</a>
-      <a href="/?add=1"><span class="bn-icon">➕</span>Abonnieren</a>
-      <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">✨</span>Entdecken</a>
-      <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">📰</span>Zeitung</a>
-      <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">⚙️</span>Mehr</a>
+      <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">${icon('library', {size:22})}</span>Bibliothek</a>
+      <a href="/?add=1"><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
+      <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">${icon('compass', {size:22})}</span>Entdecken</a>
+      <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Zeitung</a>
+      <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
     </nav>`;
 }
 
@@ -373,7 +435,7 @@ function _applyTheme(theme) {
     document.documentElement.removeAttribute('data-theme');
   }
   document.querySelectorAll('.theme-btn').forEach(btn => {
-    btn.textContent = theme === 'light' ? '🌙' : '☀️';
+    btn.innerHTML = theme === 'light' ? icon('moon') : icon('sun');
     btn.title = theme === 'light' ? 'Dunkles Design aktivieren' : 'Helles Design aktivieren';
   });
 }

@@ -685,17 +685,21 @@ async def export_episode(episode_id: int, format: str = "txt"):
     transcript = d.get("content") or ""
     summary = d.get("summary") or ""
 
+    import re as _re
+    slug = _re.sub(r"[^A-Za-z0-9._-]+", "_", (title or "transcript")).strip("_")[:60] or "transcript"
+
     if format == "txt":
         body = export_txt(title, podcast, date, transcript, summary, takeaways)
         return Response(body.encode("utf-8"), media_type="text/plain",
-                        headers={"Content-Disposition": "attachment; filename=transcript.txt"})
+                        headers={"Content-Disposition": f'attachment; filename="{slug}.txt"'})
     if format == "md":
         body = export_markdown(title, podcast, date, transcript, summary, takeaways, chapters)
         return Response(body.encode("utf-8"), media_type="text/markdown",
-                        headers={"Content-Disposition": "attachment; filename=transcript.md"})
+                        headers={"Content-Disposition": f'attachment; filename="{slug}.md"'})
     if format == "ai":
         body = export_ai_copy(title, podcast, date, transcript, summary, takeaways)
-        return Response(body.encode("utf-8"), media_type="text/plain")
+        return Response(body.encode("utf-8"), media_type="text/plain",
+                        headers={"Content-Disposition": f'attachment; filename="{slug}_ai.txt"'})
 
     raise HTTPException(400, "Unbekanntes Format: txt, md, ai")
 
@@ -727,6 +731,44 @@ async def _do_translate(episode_id: int, content: str):
             await db.commit()
     except Exception as e:
         logger.error(f"Translation failed for episode {episode_id}: {e}")
+
+
+@app.post("/api/episodes/{episode_id}/regenerate-summary")
+async def regenerate_summary(episode_id: int, background_tasks: BackgroundTasks):
+    """(Re)generate the German summary/takeaways/chapters for a done episode.
+
+    Works whether a summary already exists (overwrites) or not (creates it) —
+    so summaries can be produced retroactively per episode on demand.
+    """
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT content FROM transcripts WHERE episode_id=?", (episode_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row or not row[0]:
+        return {"error": "no transcript"}
+    background_tasks.add_task(_do_regenerate_summary, episode_id, row[0])
+    return {"ok": True, "message": "Zusammenfassung wird neu erstellt…"}
+
+
+async def _do_regenerate_summary(episode_id: int, content: str):
+    from .transcriber import enrich_text
+    try:
+        data = await enrich_text(content)
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
+                   VALUES (?, ?, ?, ?, 'de')
+                   ON CONFLICT(episode_id) DO UPDATE SET
+                       summary=excluded.summary, takeaways_json=excluded.takeaways_json,
+                       chapters_json=excluded.chapters_json, summary_lang='de'""",
+                (episode_id, data.get("summary", ""),
+                 json.dumps(data.get("takeaways", [])),
+                 json.dumps(data.get("chapters", []))),
+            )
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Summary regeneration failed for episode {episode_id}: {e}")
 
 
 @app.post("/api/episodes/{episode_id}/notes")
@@ -874,6 +916,53 @@ async def trigger_check(background_tasks: BackgroundTasks):
     from .scheduler import check_all_feeds
     background_tasks.add_task(check_all_feeds)
     return {"ok": True, "message": "Feed-Check gestartet"}
+
+
+@app.post("/api/podcasts/{podcast_id}/check")
+async def check_podcast(podcast_id: int, background_tasks: BackgroundTasks):
+    """Re-scan a single feed for new episodes — runs regardless of the podcast's
+    auto_transcribe setting (unlike the scheduler), so the manual 'check for new
+    episodes' button always lists newly published episodes as 'pending'."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM podcasts WHERE id=?", (podcast_id,)) as cur:
+            p = await cur.fetchone()
+    if not p:
+        raise HTTPException(404, "Podcast nicht gefunden")
+
+    try:
+        feed_data = await parse_rss_feed(p["rss_url"])
+    except Exception as e:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """UPDATE podcasts SET last_fetch_error=?,
+                   consecutive_fetch_errors=COALESCE(consecutive_fetch_errors,0)+1
+                   WHERE id=?""",
+                (str(e)[:300], podcast_id),
+            )
+            await db.commit()
+        raise HTTPException(400, f"Feed konnte nicht gelesen werden: {e}")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        inserted = await insert_new_episodes(
+            db, podcast_id, feed_data["episodes"],
+            feed_type=p["feed_type"] or "podcast",
+            full_text_extraction=bool(p["full_text_extraction"]),
+            auto_transcribe=bool(p["auto_transcribe"]),
+            limit=p["max_episodes"] or 0,
+        )
+        await db.execute(
+            """UPDATE podcasts SET last_checked=CURRENT_TIMESTAMP,
+               consecutive_fetch_errors=0, last_fetch_error=NULL WHERE id=?""",
+            (podcast_id,),
+        )
+        await db.commit()
+
+    if inserted and (p["auto_transcribe"]
+                     or (p["feed_type"] == "newsfeed" and p["full_text_extraction"])):
+        background_tasks.add_task(process_queued)
+
+    return {"ok": True, "new": inserted}
 
 
 # ── Digests ────────────────────────────────────────────────────────────────────

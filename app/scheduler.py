@@ -32,14 +32,13 @@ async def check_all_feeds():
     from .feed_parser import parse_rss_feed
     from .processor import process_queued, insert_new_episodes
 
-    # Newsfeeds are checked even without auto_transcribe so new articles keep
-    # flowing in; podcasts only when the user opted into auto-transcription.
+    # Check ALL feeds so new episodes get listed even when auto-transcription is
+    # off. insert_new_episodes assigns 'pending' for non-auto podcasts, and
+    # process_queued() below only processes 'queued' rows — so nothing is
+    # auto-transcribed that the user didn't opt into.
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT * FROM podcasts
-               WHERE auto_transcribe = 1 OR feed_type = 'newsfeed'"""
-        ) as cur:
+        async with db.execute("SELECT * FROM podcasts") as cur:
             podcasts = await cur.fetchall()
 
     new_count = 0

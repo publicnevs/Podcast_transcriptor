@@ -1,9 +1,27 @@
 import asyncio
 import re
+import time
 from typing import Optional
 
 import feedparser
 import httpx
+
+
+def _normalize_pub_date(entry) -> str:
+    """Return a text-sortable 'YYYY-MM-DD HH:MM:SS' from the entry's parsed date.
+
+    Feeds ship dates as RFC-822 strings (e.g. 'Wed, 08 Jun 2026 10:00:00 +0000')
+    which sort meaninglessly as text. feedparser also exposes a parsed struct_time;
+    convert that to ISO so ORDER BY pub_date DESC sorts chronologically.
+    """
+    for key in ("published_parsed", "updated_parsed"):
+        st = entry.get(key)
+        if st:
+            try:
+                return time.strftime("%Y-%m-%d %H:%M:%S", st)
+            except Exception:
+                continue
+    return ""
 
 
 async def parse_rss_feed(url: str) -> dict:
@@ -45,7 +63,7 @@ async def parse_rss_feed(url: str) -> dict:
                 "title": _clean(entry.get("title", "Unbekannte Folge")),
                 "audio_url": audio_url,
                 "episode_url": entry.get("link", ""),
-                "pub_date": entry.get("published", ""),
+                "pub_date": _normalize_pub_date(entry),
                 "duration_sec": _parse_duration(entry.get("itunes_duration", "")),
                 "description": _clean(entry.get("summary", "")),
                 "transcript_url": transcript_url,
@@ -59,7 +77,7 @@ async def parse_rss_feed(url: str) -> dict:
                     "title": _clean(entry.get("title", "Unbekannter Artikel")),
                     "audio_url": "",
                     "episode_url": link,
-                    "pub_date": entry.get("published", ""),
+                    "pub_date": _normalize_pub_date(entry),
                     "duration_sec": 0,
                     # Prefer the full article body (<content:encoded>) over the
                     # short <summary>; many Ghost/WordPress feeds ship full text.

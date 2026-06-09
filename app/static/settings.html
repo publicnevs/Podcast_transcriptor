@@ -17,11 +17,11 @@
 <div id="nav-mount"></div>
 
 <div class="main-content" style="max-width:640px">
-  <h1 style="margin-bottom:1.5rem;font-size:1.4rem">⚙️ Einstellungen</h1>
+  <h1 style="margin-bottom:1.5rem;font-size:1.4rem" data-icon="settings" data-icon-size="22">Einstellungen</h1>
 
   <!-- Push Notifications -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem">📲 Push-Benachrichtigungen (ntfy.sh)</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="bell" data-icon-size="18">Push-Benachrichtigungen (ntfy.sh)</h2>
     <div style="display:flex;flex-direction:column;gap:.875rem">
       <div class="form-group">
         <label class="form-label">ntfy Server URL</label>
@@ -39,28 +39,28 @@
           Danach <a href="https://ntfy.sh" target="_blank">ntfy-App</a> auf dem Handy installieren und diesen Kanal abonnieren.
         </span>
       </div>
-      <button class="btn btn-primary" style="align-self:flex-start" onclick="saveNtfy()">💾 Speichern</button>
+      <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveNtfy()">Speichern</button>
     </div>
   </div>
 
   <!-- Scheduler -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem">🔄 Automatischer Feed-Check</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="refresh-cw" data-icon-size="18">Automatischer Feed-Check</h2>
     <div style="display:flex;flex-direction:column;gap:.875rem">
       <div class="form-group">
         <label class="form-label">Prüf-Intervall (Stunden)</label>
         <input type="number" id="check-interval" value="24" min="1" max="168" style="width:100px">
       </div>
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <button class="btn btn-primary" style="align-self:flex-start" onclick="saveInterval()">💾 Speichern</button>
-        <button class="btn btn-secondary" onclick="triggerNow()">▶️ Jetzt alle Feeds prüfen</button>
+        <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveInterval()">Speichern</button>
+        <button class="btn btn-secondary" data-icon="play" data-icon-size="16" onclick="triggerNow()">Jetzt alle Feeds prüfen</button>
       </div>
     </div>
   </div>
 
   <!-- Queue Status -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem">📋 Aktuelle Warteschlange</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="list" data-icon-size="18">Aktuelle Warteschlange</h2>
     <div id="queue-view">
       <div class="spinner"></div>
     </div>
@@ -69,13 +69,13 @@
 
   <!-- Transcription Backend -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem">🎙️ Transkriptions-Engine</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="headphones" data-icon-size="18">Transkriptions-Engine</h2>
     <div style="display:flex;flex-direction:column;gap:1rem">
       <div class="form-group">
         <label class="form-label">Backend</label>
         <div class="segmented" id="backend-seg">
-          <button data-backend="gemini" onclick="setBackend('gemini')">☁️ Gemini (Cloud)</button>
-          <button data-backend="whisper" onclick="setBackend('whisper')">💻 Whisper (lokal)</button>
+          <button data-backend="gemini" data-icon="cloud" data-icon-size="15" onclick="setBackend('gemini')">Gemini (Cloud)</button>
+          <button data-backend="whisper" data-icon="cpu" data-icon-size="15" onclick="setBackend('whisper')">Whisper (lokal)</button>
         </div>
       </div>
 
@@ -107,7 +107,7 @@
           Eine 60-Min-Folge dauert mit <code>base</code> ca. 2-3 Stunden. Vorteil: kostenlos & offline.
           Zusammenfassung/Kapitel werden weiterhin günstig per Gemini-Text erstellt (Key nötig).
         </div>
-        <button class="btn btn-primary btn-sm" style="margin-top:.75rem" onclick="saveBackend()">💾 Speichern</button>
+        <button class="btn btn-primary btn-sm" style="margin-top:.75rem" data-icon="save" data-icon-size="15" onclick="saveBackend()">Speichern</button>
       </div>
 
       <div id="whisper-status" style="display:none;margin-bottom:.75rem;padding:.75rem;border-radius:var(--radius-sm);font-size:.8rem"></div>
@@ -120,7 +120,7 @@
 
   <!-- Cost optimization (CR D) -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem">💸 Kosten-Optimierung</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="coins" data-icon-size="18">Kosten-Optimierung</h2>
     <div style="font-size:.85rem;color:var(--text-muted);line-height:1.7;margin-bottom:1rem">
       Pro Folge fallen 2 Gemini-Aufrufe an: <strong style="color:var(--text)">Transkription</strong> (Flash) und
       <strong style="color:var(--text)">Tagging/Anreicherung</strong> (Lite). Für die leichten Aufgaben ist
@@ -133,9 +133,9 @@
     </div>
     <label style="display:block;font-size:.875rem;margin-bottom:.5rem">Artikel-Qualität (Zeitung & Podcast-Artikel)</label>
     <div class="segmented" id="digest-model-seg" style="max-width:480px">
-      <button data-dm="pro" onclick="setDigestModel('pro')">⭐ Beste (Pro)</button>
-      <button data-dm="flash" onclick="setDigestModel('flash')">💸 Günstig (Flash)</button>
-      <button data-dm="lite" onclick="setDigestModel('lite')">🪙 Sehr günstig (Lite)</button>
+      <button data-dm="pro" data-icon="star" data-icon-size="15" onclick="setDigestModel('pro')">Beste (Pro)</button>
+      <button data-dm="flash" data-icon="coins" data-icon-size="15" onclick="setDigestModel('flash')">Günstig (Flash)</button>
+      <button data-dm="lite" data-icon="coins" data-icon-size="15" onclick="setDigestModel('lite')">Sehr günstig (Lite)</button>
     </div>
     <div style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">
       <strong>Pro</strong> = beste Qualität, höchste Kosten · <strong>Flash</strong> = gutes Ergebnis, ~8× günstiger ·
@@ -145,7 +145,7 @@
 
   <!-- External access (CR 12) -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem">🌐 Externer Zugang (außerhalb des Heimnetzwerks)</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="globe" data-icon-size="18">Externer Zugang (außerhalb des Heimnetzwerks)</h2>
     <p style="font-size:.875rem;color:var(--text-muted);margin-bottom:.75rem">
       Für PWA-Features, Web Share API und mobilen Zugang von außen benötigst du HTTPS.
       Drei empfohlene Wege:
@@ -179,18 +179,18 @@
 
   <!-- Summary Backfill -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:.5rem">🧾 Zusammenfassungen</h2>
+    <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="file-text" data-icon-size="18">Zusammenfassungen</h2>
     <p style="font-size:.875rem;color:var(--text-muted);margin-bottom:.75rem">
       Fehlende oder nicht-deutsche Zusammenfassungen für alle transkribierten Folgen nachgenerieren.
     </p>
-    <button class="btn btn-secondary btn-sm" onclick="backfillSummaries()">
-      🔄 Fehlende/anderssprachige Zusammenfassungen nachgenerieren (Deutsch)
+    <button class="btn btn-secondary btn-sm" data-icon="refresh-cw" data-icon-size="15" onclick="backfillSummaries()">
+      Fehlende/anderssprachige Zusammenfassungen nachgenerieren (Deutsch)
     </button>
   </div>
 
   <!-- Danger Zone -->
   <div class="card" style="border-color:rgba(239,68,68,0.3)">
-    <h2 style="font-size:1rem;margin-bottom:.5rem;color:var(--error)">⚠️ Gefahrenzone</h2>
+    <h2 style="font-size:1rem;margin-bottom:.5rem;color:var(--error)" data-icon="alert-triangle" data-icon-size="18">Gefahrenzone</h2>
     <p style="font-size:.875rem;color:var(--text-muted);margin-bottom:1rem">
       Diese Aktionen können nicht rückgängig gemacht werden.
     </p>
@@ -201,7 +201,7 @@
 
   <!-- PWA Install hint -->
   <div class="card" style="margin-top:1rem;background:var(--accent-dim);border-color:var(--accent)">
-    <h2 style="font-size:1rem;margin-bottom:.5rem">📱 App auf Handy installieren</h2>
+    <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="smartphone" data-icon-size="18">App auf Handy installieren</h2>
     <p style="font-size:.875rem;color:var(--text-muted)">
       Öffne PodScribe auf deinem Samsung S23 Ultra im Chrome-Browser → Menü (⋮) →
       <strong style="color:var(--text)">"Zum Startbildschirm hinzufügen"</strong> → PodScribe erscheint als App-Icon.
@@ -212,6 +212,7 @@
 
 <footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
 <div id="toast-container"></div>
+<script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
 <script>
 document.getElementById('nav-mount').innerHTML = renderNav('/settings');
@@ -228,7 +229,7 @@ async function loadSettings() {
     currentBackend = s.transcription_backend || 'gemini';
     document.getElementById('whisper-model').value = s.whisper_model || 'base';
     document.getElementById('key-status').innerHTML = s.gemini_api_key_set
-      ? '<span style="color:var(--success)">✓ Key gesetzt</span>'
+      ? `<span style="color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('check',{size:14})} Key gesetzt</span>`
       : '<span style="color:var(--warning)">kein Key</span>';
     setBackend(currentBackend, false);
     _setDigestModelUI(s.digest_model || 'pro');
@@ -327,8 +328,8 @@ async function loadQueue() {
         ${statusBadge(e.status)}
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(e.title)}</span>
         ${e.podcast_title ? `<span style="color:var(--text-muted);font-size:.78rem">${escHtml(e.podcast_title)}</span>` : ''}
-        ${e.error_msg ? `<span style="color:var(--error);font-size:.75rem" title="${escHtml(e.error_msg)}">⚠️</span>` : ''}
-        ${['queued','error'].includes(e.status) ? `<button class="btn btn-ghost btn-icon btn-sm" title="Abbrechen" onclick="cancelJob(${e.id})">✕</button>` : ''}
+        ${e.error_msg ? `<span style="color:var(--error);font-size:.75rem;display:inline-flex" title="${escHtml(e.error_msg)}">${icon('alert-triangle',{size:14})}</span>` : ''}
+        ${['queued','error'].includes(e.status) ? `<button class="btn btn-ghost btn-icon btn-sm" title="Abbrechen" onclick="cancelJob(${e.id})">${icon('x',{size:15})}</button>` : ''}
       </div>`).join('');
   } catch(e) {
     view.innerHTML = `<p style="color:var(--error)">${escHtml(e.message)}</p>`;
@@ -374,14 +375,14 @@ async function loadWhisperStatus() {
       el.style.background = 'rgba(34,197,94,0.1)';
       el.style.border = '1px solid rgba(34,197,94,0.3)';
       el.style.color = 'var(--text-muted)';
-      el.innerHTML = `<span style="color:var(--success)">✓ faster-whisper installiert</span>
+      el.innerHTML = `<span style="color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('check',{size:14})} faster-whisper installiert</span>
         ${s.cached_models.length ? ` · gecachte Modelle: <strong>${s.cached_models.join(', ')}</strong>` : ' · noch kein Modell geladen (wird beim ersten Transkribieren heruntergeladen)'}`;
     } else {
       el.style.display = '';
       el.style.background = 'rgba(245,158,11,0.1)';
       el.style.border = '1px solid rgba(245,158,11,0.3)';
       el.style.color = 'var(--warning)';
-      el.innerHTML = '⚠️ faster-whisper nicht installiert — Container mit <strong>INSTALL_WHISPER=true</strong> in der .env neu bauen.';
+      el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:.3rem">${icon('alert-triangle',{size:15})} faster-whisper nicht installiert — Container mit <strong>INSTALL_WHISPER=true</strong> in der .env neu bauen.</span>`;
     }
   } catch {}
 }

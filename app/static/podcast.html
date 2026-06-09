@@ -20,7 +20,7 @@
 
   <!-- Header -->
   <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
-    <a href="/" class="btn btn-ghost btn-icon" title="Zurück">←</a>
+    <a href="/" class="btn btn-ghost btn-icon" title="Zurück" data-icon="chevron-left"></a>
     <span id="breadcrumb" style="color:var(--text-muted);font-size:.875rem">Bibliothek</span>
   </div>
 
@@ -30,16 +30,16 @@
 
   <!-- Actions -->
   <div class="action-bar" id="podcast-actions" style="display:none">
-    <button class="btn btn-secondary btn-sm" onclick="triggerCheck()">🔄 Auf neue Folgen prüfen</button>
-    <button class="btn btn-primary btn-sm" onclick="generateArticle()">📰 Podcast-Artikel</button>
-    <button class="btn btn-secondary btn-sm" onclick="bulkExport()">📦 Alle Transkripte exportieren</button>
-    <button class="btn btn-secondary btn-sm" onclick="toggleSettings()">⚙️ Einstellungen</button>
-    <button class="btn btn-danger btn-sm" onclick="deletePodcast()">🗑️ Abonnement löschen</button>
+    <button class="btn btn-secondary btn-sm" data-icon="refresh-cw" data-icon-size="15" onclick="triggerCheck()">Auf neue Folgen prüfen</button>
+    <button class="btn btn-primary btn-sm" data-icon="newspaper" data-icon-size="15" onclick="generateArticle()">Podcast-Artikel</button>
+    <button class="btn btn-secondary btn-sm" data-icon="download" data-icon-size="15" onclick="bulkExport()">Alle Transkripte exportieren</button>
+    <button class="btn btn-secondary btn-sm" data-icon="settings" data-icon-size="15" onclick="toggleSettings()">Einstellungen</button>
+    <button class="btn btn-danger btn-sm" data-icon="trash-2" data-icon-size="15" onclick="deletePodcast()">Abonnement löschen</button>
   </div>
 
   <!-- Settings panel (collapsible) -->
   <div id="podcast-settings" class="card" style="display:none;margin-bottom:1.25rem">
-    <h3 style="font-size:.95rem;font-weight:700;margin-bottom:.875rem">⚙️ Feed-Einstellungen</h3>
+    <h3 style="font-size:.95rem;font-weight:700;margin-bottom:.875rem;display:flex;align-items:center;gap:.4rem" data-icon="settings" data-icon-size="16">Feed-Einstellungen</h3>
     <div style="display:grid;gap:1rem;max-width:480px">
       <label style="display:flex;align-items:center;gap:.625rem;font-size:.875rem;cursor:pointer">
         <input type="checkbox" id="set-auto" style="width:auto" onchange="markDirty()">
@@ -60,7 +60,7 @@
       </label>
       <label id="set-fulltext-wrap" style="display:none;align-items:center;gap:.625rem;font-size:.875rem;cursor:pointer">
         <input type="checkbox" id="set-fulltext" style="width:auto" onchange="markDirty()">
-        📰 Volltext von der Artikelseite laden (Newsfeed)
+        <span data-icon="newspaper" data-icon-size="15">Volltext von der Artikelseite laden (Newsfeed)</span>
       </label>
       <div>
         <button class="btn btn-primary btn-sm" id="set-save" onclick="savePodcastSettings()" disabled>Speichern</button>
@@ -71,9 +71,9 @@
   <!-- Filter Tabs -->
   <div style="display:flex;gap:.375rem;margin-bottom:1rem;flex-wrap:wrap" id="filter-tabs">
     <button class="btn btn-primary btn-sm active-tab" data-status="" onclick="setFilter('')">Alle</button>
-    <button class="btn btn-secondary btn-sm" data-status="done" onclick="setFilter('done')">✅ Fertig</button>
-    <button class="btn btn-secondary btn-sm" data-status="pending" onclick="setFilter('pending')">⏸ Ausstehend</button>
-    <button class="btn btn-secondary btn-sm" data-status="error" onclick="setFilter('error')">❌ Fehler</button>
+    <button class="btn btn-secondary btn-sm" data-status="done" data-icon="check" data-icon-size="15" onclick="setFilter('done')">Fertig</button>
+    <button class="btn btn-secondary btn-sm" data-status="pending" data-icon="clock" data-icon-size="15" onclick="setFilter('pending')">Ausstehend</button>
+    <button class="btn btn-secondary btn-sm" data-status="error" data-icon="alert-triangle" data-icon-size="15" onclick="setFilter('error')">Fehler</button>
   </div>
 
   <!-- Episodes -->
@@ -89,6 +89,7 @@
 
 <footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
 <div id="toast-container"></div>
+<script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
 <script>
 document.getElementById('nav-mount').innerHTML = renderNav('/podcast');
@@ -108,16 +109,16 @@ async function loadPodcast() {
     h.innerHTML = `
       ${podcastData.artwork_url
         ? `<img class="page-header-art" src="${escHtml(podcastData.artwork_url)}" alt="" onerror="this.style.display='none'">`
-        : `<div class="page-header-art" style="background:var(--accent-dim);display:flex;align-items:center;justify-content:center;font-size:2rem">🎙️</div>`}
+        : `<div class="page-header-art" style="background:var(--accent-dim);display:flex;align-items:center;justify-content:center">${icon('headphones',{size:40})}</div>`}
       <div class="page-header-info">
         <h1>${escHtml(podcastData.title)}</h1>
         <p>${escHtml((podcastData.description||'').slice(0,200))}</p>
         <div style="display:flex;gap:.75rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">
-          ${podcastData.feed_type==='newsfeed' ? '<span class="badge" style="font-size:.7rem">📰 Newsfeed</span>' : ''}
-          ${podcastData.website_url ? `<a href="${escHtml(podcastData.website_url)}" target="_blank" style="font-size:.8rem">🔗 Website</a>` : ''}
-          ${podcastData.auto_transcribe ? '<span style="font-size:.8rem;color:var(--success)">🔄 Auto-Transkription an</span>' : ''}
+          ${podcastData.feed_type==='newsfeed' ? `<span class="badge" style="font-size:.7rem;display:inline-flex;align-items:center;gap:.25rem">${icon('newspaper',{size:13})} Newsfeed</span>` : ''}
+          ${podcastData.website_url ? `<a href="${escHtml(podcastData.website_url)}" target="_blank" style="font-size:.8rem;display:inline-flex;align-items:center;gap:.25rem">${icon('globe',{size:13})} Website</a>` : ''}
+          ${podcastData.auto_transcribe ? `<span style="font-size:.8rem;color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('refresh-cw',{size:13})} Auto-Transkription an</span>` : ''}
           ${(podcastData.consecutive_fetch_errors||0) > 2
-            ? `<span class="badge-warn" title="${escHtml(podcastData.last_fetch_error||'')}">⚠️ ${podcastData.consecutive_fetch_errors} Feed-Fehler</span>`
+            ? `<span class="badge-warn" style="display:inline-flex;align-items:center;gap:.25rem" title="${escHtml(podcastData.last_fetch_error||'')}">${icon('alert-triangle',{size:13})} ${podcastData.consecutive_fetch_errors} Feed-Fehler</span>`
             : ''}
         </div>
       </div>`;
@@ -136,7 +137,7 @@ async function loadEpisodes(append=false) {
     const episodes = await API.get(url);
     if (!append) list.innerHTML = '';
     if (!episodes.length && !append) {
-      list.innerHTML = '<div class="empty-state"><div class="icon">🎵</div><p>Keine Folgen in dieser Kategorie</p></div>';
+      list.innerHTML = `<div class="empty-state"><div class="icon">${icon('headphones',{size:44})}</div><p>Keine Folgen in dieser Kategorie</p></div>`;
       document.getElementById('load-more').style.display = 'none';
       return;
     }
@@ -181,16 +182,16 @@ function renderEpisode(e) {
       </div>
       <div class="episode-actions" onclick="event.stopPropagation()">
         ${e.status==='pending'
-          ? `<button class="btn btn-primary btn-icon btn-sm" title="Transkribieren" onclick="transcribeOne(${e.id},'${escHtml(e.audio_url)}', this)">🎙️</button>`
+          ? `<button class="btn btn-primary btn-icon btn-sm" title="Transkribieren" onclick="transcribeOne(${e.id},'${escHtml(e.audio_url)}', this)">${icon('sparkles',{size:16})}</button>`
           : ''}
         ${e.status==='error'
-          ? `<button class="btn btn-primary btn-icon btn-sm" title="Erneut versuchen" onclick="retryEpisode(${e.id}, this)">🔄</button>`
+          ? `<button class="btn btn-primary btn-icon btn-sm" title="Erneut versuchen" onclick="retryEpisode(${e.id}, this)">${icon('refresh-cw',{size:16})}</button>`
           : ''}
         ${e.status==='done'
-          ? `<button class="btn btn-ghost btn-icon btn-sm" title="Neu transkribieren" onclick="retranscribeEpisode(${e.id}, '${titleEsc}', this)">🔁</button>`
+          ? `<button class="btn btn-ghost btn-icon btn-sm" title="Neu transkribieren" onclick="retranscribeEpisode(${e.id}, '${titleEsc}', this)">${icon('repeat',{size:16})}</button>`
           : ''}
-        <button class="btn btn-ghost btn-icon btn-sm" title="${e.watchlist?'Von Leseliste':'Zur Leseliste'}" onclick="toggleWatch(${e.id}, this)">${e.watchlist?'⭐':'☆'}</button>
-        <button class="btn btn-ghost btn-icon btn-sm" title="Episode löschen" onclick="deleteEpisode(${e.id}, '${titleEsc}', this)">🗑️</button>
+        <button class="btn btn-ghost btn-icon btn-sm" data-on="${e.watchlist?'1':'0'}" title="${e.watchlist?'Von Leseliste':'Zur Leseliste'}" onclick="toggleWatch(${e.id}, this)">${icon(e.watchlist?'bookmark-check':'bookmark',{size:16})}</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Episode löschen" onclick="deleteEpisode(${e.id}, '${titleEsc}', this)">${icon('trash-2',{size:16})}</button>
       </div>
     </div>`;
 }
@@ -206,18 +207,20 @@ function setFilter(status) {
 function loadMore() { currentPage++; loadEpisodes(true); }
 
 async function transcribeOne(id, url, btn) {
-  btn.disabled = true; btn.textContent = '⏳';
+  btn.disabled = true; btn.innerHTML = '…';
   try {
     await API.post('/api/episodes/transcribe', { urls: [url] });
     toast('In Warteschlange', 'info');
     setTimeout(() => loadEpisodes(), 1500);
-  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.textContent='🎙️'; }
+  } catch(e) { toast(e.message,'error'); btn.disabled=false; btn.innerHTML=icon('sparkles',{size:16}); }
 }
 
 async function toggleWatch(id, btn) {
   try {
     await API.patch(`/api/episodes/${id}/watchlist`);
-    btn.textContent = btn.textContent==='☆'?'⭐':'☆';
+    const on = btn.dataset.on === '1';
+    btn.dataset.on = on ? '0' : '1';
+    btn.innerHTML = icon(on ? 'bookmark' : 'bookmark-check', {size:16});
   } catch {}
 }
 
@@ -280,9 +283,9 @@ async function savePodcastSettings() {
 
 async function triggerCheck() {
   try {
-    await API.post('/api/scheduler/trigger', {});
-    toast('Feed-Check gestartet', 'info');
-    setTimeout(loadEpisodes, 3000);
+    const r = await API.post(`/api/podcasts/${podcastId}/check`, {});
+    toast(r.new > 0 ? `${r.new} neue Folge(n) gefunden` : 'Keine neuen Folgen', r.new > 0 ? 'success' : 'info');
+    if (r.new > 0) loadEpisodes();
   } catch(e) { toast(e.message,'error'); }
 }
 
