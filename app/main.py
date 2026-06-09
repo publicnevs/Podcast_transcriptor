@@ -918,6 +918,53 @@ async def trigger_check(background_tasks: BackgroundTasks):
     return {"ok": True, "message": "Feed-Check gestartet"}
 
 
+@app.post("/api/podcasts/{podcast_id}/check")
+async def check_podcast(podcast_id: int, background_tasks: BackgroundTasks):
+    """Re-scan a single feed for new episodes — runs regardless of the podcast's
+    auto_transcribe setting (unlike the scheduler), so the manual 'check for new
+    episodes' button always lists newly published episodes as 'pending'."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM podcasts WHERE id=?", (podcast_id,)) as cur:
+            p = await cur.fetchone()
+    if not p:
+        raise HTTPException(404, "Podcast nicht gefunden")
+
+    try:
+        feed_data = await parse_rss_feed(p["rss_url"])
+    except Exception as e:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """UPDATE podcasts SET last_fetch_error=?,
+                   consecutive_fetch_errors=COALESCE(consecutive_fetch_errors,0)+1
+                   WHERE id=?""",
+                (str(e)[:300], podcast_id),
+            )
+            await db.commit()
+        raise HTTPException(400, f"Feed konnte nicht gelesen werden: {e}")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        inserted = await insert_new_episodes(
+            db, podcast_id, feed_data["episodes"],
+            feed_type=p["feed_type"] or "podcast",
+            full_text_extraction=bool(p["full_text_extraction"]),
+            auto_transcribe=bool(p["auto_transcribe"]),
+            limit=p["max_episodes"] or 0,
+        )
+        await db.execute(
+            """UPDATE podcasts SET last_checked=CURRENT_TIMESTAMP,
+               consecutive_fetch_errors=0, last_fetch_error=NULL WHERE id=?""",
+            (podcast_id,),
+        )
+        await db.commit()
+
+    if inserted and (p["auto_transcribe"]
+                     or (p["feed_type"] == "newsfeed" and p["full_text_extraction"])):
+        background_tasks.add_task(process_queued)
+
+    return {"ok": True, "new": inserted}
+
+
 # ── Digests ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/digests")

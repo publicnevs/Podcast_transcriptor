@@ -98,7 +98,7 @@ function render(ep) {
         </div>` : ''}
       <div class="page-header-info">
         <h1 style="font-size:1.25rem">${escHtml(ep.title)}</h1>
-        <div class="meta-line" style="display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;margin-top:.45rem;font-size:.82rem;color:var(--text-muted)">
+        <div class="meta-line" style="margin-top:.45rem">
           ${metaLine}
           ${!ep.artwork_url ? statusBadge(ep.status) : ''}
           <span id="read-pct" style="font-size:.72rem"></span>
@@ -379,6 +379,10 @@ function _resetRegenBtn() {
 }
 
 async function regenerateSummary() {
+  if (!(await confirmModal(
+        'Zusammenfassung neu erstellen?',
+        'Die vorhandene Zusammenfassung, Themenübersicht und Key Takeaways werden überschrieben und neu generiert (verbraucht API-Tokens).',
+        'Neu erstellen'))) return;
   const btn = document.getElementById('regen-summary-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = icon('refresh-cw',{size:16}) + ' Erstelle…'; }
   const prev = (epData && epData.summary) || '';

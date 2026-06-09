@@ -65,7 +65,7 @@ function renderRec(p) {
       <div style="flex-shrink:0">
         ${subscribed
           ? `<span class="badge" style="color:var(--success);border-color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('check',{size:13})} Abonniert</span>`
-          : `<button class="btn btn-primary btn-sm" onclick="subscribe(this, ${JSON.stringify(p.rss)})">${icon('plus',{size:15})} Abonnieren</button>`}
+          : `<button class="btn btn-primary btn-sm" onclick="subscribe(this, '${escHtml(p.rss)}')">${icon('plus',{size:15})} Abonnieren</button>`}
       </div>
     </div>`;
 }
@@ -81,7 +81,7 @@ async function subscribe(btn, rss) {
   } catch(e) {
     toast(e.message, 'error');
     btn.disabled = false;
-    btn.textContent = '+ Abonnieren';
+    btn.innerHTML = icon('plus',{size:15}) + ' Abonnieren';
   }
 }
 

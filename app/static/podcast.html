@@ -283,9 +283,9 @@ async function savePodcastSettings() {
 
 async function triggerCheck() {
   try {
-    await API.post('/api/scheduler/trigger', {});
-    toast('Feed-Check gestartet', 'info');
-    setTimeout(loadEpisodes, 3000);
+    const r = await API.post(`/api/podcasts/${podcastId}/check`, {});
+    toast(r.new > 0 ? `${r.new} neue Folge(n) gefunden` : 'Keine neuen Folgen', r.new > 0 ? 'success' : 'info');
+    if (r.new > 0) loadEpisodes();
   } catch(e) { toast(e.message,'error'); }
 }
 

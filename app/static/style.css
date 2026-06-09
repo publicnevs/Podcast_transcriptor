@@ -470,11 +470,31 @@ mark { background: rgba(124,111,247,0.3); color: var(--text); border-radius: 2px
 .action-bar {
   display: flex;
   gap: 0.5rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;            /* Firefox */
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--border);
   margin-bottom: 1.5rem;
 }
+.action-bar::-webkit-scrollbar { display: none; }   /* WebKit */
+.action-bar > * { flex-shrink: 0; }
+
+/* Episode metadata strip: stays on one line, horizontally swipeable on mobile */
+.meta-line {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.meta-line::-webkit-scrollbar { display: none; }
+.meta-line > * { flex-shrink: 0; white-space: nowrap; }
 
 /* ── Page Header ───────────────────────────────────────────── */
 .page-header {
