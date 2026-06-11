@@ -21,7 +21,7 @@ PodScribe ist eine vollständige Self-Hosting-Lösung für Podcast-Transkription
 ### 🎙️ Transkription (umschaltbares Backend)
 | Backend | Qualität | Geschwindigkeit | Kosten |
 |---|---|---|---|
-| **Gemini 1.5 Flash** (empfohlen) | ⭐⭐⭐⭐⭐ | Sehr schnell | Free-Tier ~15 Folgen/Tag |
+| **Gemini 2.5 Flash** (empfohlen) | ⭐⭐⭐⭐⭐ | Sehr schnell | Free-Tier ~15 Folgen/Tag |
 | **Whisper local** (optional) | ⭐⭐⭐ | Langsam auf DS218+ | Kostenlos, offline |
 
 Whisper ist als optionaler Docker-Build-Arg verfügbar (`INSTALL_WHISPER=true`). Auf der DS218+ (Intel Celeron J3355, kein AVX2) empfiehlt sich Modell `base` — eine 60-Min-Folge dauert ca. 2-3 Stunden.
@@ -45,6 +45,8 @@ Beide Backends erzeugen:
 - **Auto-Zusammenfassung** nach jeder Transkription
 - **Key Takeaways** — die wichtigsten Erkenntnisse auf einen Blick
 - **Automatische Kapitel** mit Zeitstempeln (klickbare Navigation)
+- **Themenübersicht + Zusammenfassung + Key Takeaways** stehen (auf Deutsch) immer über dem Transkript
+- **Zusammenfassung pro Folge neu erstellbar** — auch nachträglich, auf Knopfdruck (mit Bestätigung)
 - **Deutsche Übersetzung** on demand (kein Auto-Übersetzen — spart Kosten)
 - **Für KI kopieren** — Transkript + Metadaten optimal formatiert für Claude / Gemini
 
@@ -61,7 +63,7 @@ Beide Backends erzeugen:
 - Drucken/PDF direkt aus dem Browser
 
 ### 📰 PodScribe Zeitung (Digest)
-- Gemini 1.5 Pro generiert **journalistische Artikel** aus Transkripten (kein Stichpunkt-Summary, echter Redaktionstext, 1200-2000 Wörter)
+- Gemini 2.5 Pro generiert **journalistische Artikel** aus Transkripten (kein Stichpunkt-Summary, echter Redaktionstext, 1200-2000 Wörter)
 - **Wochenzeitung** — alle Folgen der letzten 7 Tage
 - **Themen-Report** — manuell ausgewählte Folgen kombinieren
 - **Podcast-Portrait** — alle Folgen eines Casts analysieren
@@ -144,7 +146,9 @@ transcripts (
 )
 
 summaries (
-  id, episode_id, summary, takeaways_json, chapters_json, created_at
+  id, episode_id, summary, takeaways_json, chapters_json,
+  summary_lang,     -- Sprache der Zusammenfassung ('de')
+  created_at
 )
 
 digests (
@@ -154,9 +158,18 @@ digests (
 
 settings (key, value)             -- Key-Value-Store für App-Einstellungen
 
+-- Auto-Tagging
+tags / tag_aliases / episode_tags
+-- Wiederkehrende Zeitungs-Ausgaben
+issue_recipes / scheduled_issues
+
 -- FTS5 Virtual Table (Volltextsuche)
 transcripts_fts (content)
 ```
+
+> Schema-Änderungen laufen über additive `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE`-Migrationen
+> in `app/database.py`. Beim Start werden alte RFC-822-`pub_date`-Werte einmalig in ein
+> sortierbares ISO-Format überführt (neueste Folge zuerst).
 
 ---
 
@@ -170,17 +183,20 @@ GET    /api/podcasts              — Alle Podcasts + Counts
 DELETE /api/podcasts/{id}
 GET    /api/podcasts/{id}/episodes
 GET    /api/podcasts/{id}/export  — Bulk-Export als Markdown
+POST   /api/podcasts/{id}/check   — Diesen Feed auf neue Folgen prüfen (immer, auch ohne Auto-Transkription)
+GET    /api/recommended           — Kuratierte Empfehlungen (Entdecken)
 
 # Episoden
 GET    /api/episodes/{id}
-GET    /api/episodes/{id}/export?format=md|txt|pdf
+GET    /api/episodes/{id}/export?format=md|txt|ai
 GET    /api/episodes/{id}/audio   — Audio-Proxy mit Range-Support (für Player)
 PATCH  /api/episodes/{id}/read
 PATCH  /api/episodes/{id}/watchlist
 POST   /api/episodes/{id}/notes
-POST   /api/episodes/{id}/transcribe    — Manuell transkribieren
-POST   /api/episodes/{id}/translate     — Deutsche Übersetzung anfordern
-POST   /api/episodes/{id}/retranscribe  — Erneut transkribieren
+POST   /api/episodes/{id}/transcribe         — Manuell transkribieren
+POST   /api/episodes/{id}/translate          — Deutsche Übersetzung anfordern
+POST   /api/episodes/{id}/retranscribe       — Erneut transkribieren
+POST   /api/episodes/{id}/regenerate-summary — Zusammenfassung/Themen/Takeaways neu erstellen (Deutsch)
 
 # Batch-Transkription (direkte URLs)
 POST   /api/transcribe/batch      — { "urls": ["url1", ...] }
@@ -264,7 +280,7 @@ DB_PATH=/app/data/podscribe.db
 DOWNLOAD_DIR=/app/downloads
 ```
 
-Alle Einstellungen können auch **in der App unter Einstellungen** geändert werden — kein SSH nötig.
+Alle Einstellungen können auch **in der App unter Einstellungen** geändert werden — kein SSH nötig. Die `.env` ist **optional**: Fehlt sie, startet der Container mit Default-Werten (`docker-compose.yml` nutzt `environment:` mit Fallbacks statt einer Pflicht-`env_file`); den API-Key trägst du dann einfach in der App nach.
 
 ---
 
@@ -275,15 +291,16 @@ Alle Einstellungen können auch **in der App unter Einstellungen** geändert wer
 | Backend | Python 3.11 + FastAPI + uvicorn |
 | Datenbank | SQLite + FTS5 (Volltextsuche eingebaut) |
 | Audio-Download | yt-dlp + ffmpeg |
-| Transkription (Cloud) | Google Gemini 1.5 Flash |
+| Transkription (Cloud) | Google Gemini 2.5 Flash (Modelle env-überschreibbar) |
 | Transkription (lokal) | faster-whisper (CTranslate2, int8) |
-| KI-Anreicherung | Google Gemini 1.5 Flash (Summary/Kapitel) |
-| KI-Artikel | Google Gemini 1.5 Pro (Digest-Modus) |
+| KI-Anreicherung | Google Gemini 2.5 Flash / Flash-Lite (Summary/Kapitel/Tags) |
+| KI-Artikel | Google Gemini 2.5 Pro (Digest-Modus) |
 | RSS/OPML-Parsing | feedparser |
 | Hintergrund-Jobs | APScheduler 3.x |
 | HTTP-Client | httpx (async, mit Range-Proxy) |
 | Push-Benachrichtigungen | ntfy.sh |
 | Frontend | Vanilla JavaScript (kein Framework, kein Build-Tool) |
+| Icons | Lokales Lucide-Outline-SVG-Set (offline, kein CDN) |
 | CSS | Custom Design-System (Dark Mode, CSS-Variables) |
 | PWA | Service Worker + Web App Manifest |
 | Schriften | Inter (Google Fonts) |
