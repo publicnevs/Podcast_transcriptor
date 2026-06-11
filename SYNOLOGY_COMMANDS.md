@@ -126,7 +126,7 @@ sudo docker-compose up -d --build
 
 > **Nach jedem Update:** im Browser einmal **hart neu laden** (`Strg+F5`) bzw. die PWA neu
 > öffnen. Sonst zeigt der Service-Worker evtl. noch die alte Version (Cache wird bei
-> Shell-Änderungen über einen neuen Cache-Namen, z. B. `podscribe-v2`, automatisch ersetzt).
+> Shell-Änderungen über einen neuen Cache-Namen, z. B. `podscribe-v3`, automatisch ersetzt).
 
 ---
 
