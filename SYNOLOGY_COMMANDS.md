@@ -108,10 +108,13 @@ sudo docker exec -it podscribe /bin/bash
 ```bash
 cd /volume1/docker/Podcast_transcriptor
 
+# Datenbank sichern (empfohlen vor Updates)
+sudo cp data/podscribe.db data/podscribe.db.backup
+
 # Neue Version herunterladen
 wget https://github.com/publicnevs/Podcast_transcriptor/archive/refs/heads/main.tar.gz
 
-# Entpacken (überschreibt bestehende Dateien)
+# Entpacken (überschreibt bestehende Dateien — .env und data/ bleiben unangetastet)
 tar -xzf main.tar.gz --strip-components=1
 
 # Archiv aufräumen
@@ -120,6 +123,10 @@ rm main.tar.gz
 # Container neu bauen & starten
 sudo docker-compose up -d --build
 ```
+
+> **Nach jedem Update:** im Browser einmal **hart neu laden** (`Strg+F5`) bzw. die PWA neu
+> öffnen. Sonst zeigt der Service-Worker evtl. noch die alte Version (Cache wird bei
+> Shell-Änderungen über einen neuen Cache-Namen, z. B. `podscribe-v2`, automatisch ersetzt).
 
 ---
 
