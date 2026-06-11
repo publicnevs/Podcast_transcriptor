@@ -140,12 +140,38 @@ CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
     tokenize='unicode61'
 );
 
+CREATE TABLE IF NOT EXISTS episode_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER REFERENCES episodes(id) ON DELETE CASCADE,
+    chunk_idx INTEGER DEFAULT 0,
+    start_time TEXT DEFAULT '00:00:00',
+    text TEXT,
+    vector BLOB
+);
+CREATE INDEX IF NOT EXISTS idx_episode_chunks_ep ON episode_chunks(episode_id);
+
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_topic', '');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_url', 'https://ntfy.sh');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('check_interval_hours', '24');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('transcription_backend', 'gemini');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('whisper_model', 'base');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('gemini_api_key', '');
+-- Newsletter inbox (IMAP)
+INSERT OR IGNORE INTO settings (key, value) VALUES ('newsletter_enabled', '0');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('newsletter_imap_host', 'imap.hosting.de');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('newsletter_imap_port', '993');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('newsletter_imap_user', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('newsletter_imap_password', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('newsletter_check_interval_hours', '24');
+-- Digest email delivery (SMTP)
+INSERT OR IGNORE INTO settings (key, value) VALUES ('digest_email_enabled', '0');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('digest_email_to', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('smtp_host', 'smtp.hosting.de');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('smtp_port', '465');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('smtp_user', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('smtp_password', '');
+-- Deep links in push notifications
+INSERT OR IGNORE INTO settings (key, value) VALUES ('public_base_url', '');
 """
 
 # Additive migrations for existing databases (CREATE TABLE IF NOT EXISTS

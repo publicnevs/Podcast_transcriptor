@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Themen-Radar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content">
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
+    <h1 style="font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.45rem"><span id="title-icon"></span> Themen-Radar</h1>
+    <div class="segmented" id="window-toggle" style="margin-left:auto">
+      <button class="active" data-days="7" onclick="setWindow(7)">7 Tage</button>
+      <button data-days="30" onclick="setWindow(30)">30 Tage</button>
+    </div>
+  </div>
+  <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1.25rem">
+    Welche Themen tauchen aktuell gehäuft auf — über Podcasts, News und Newsletter hinweg.
+  </p>
+  <div id="radar-view"><div class="empty-state"><div class="spinner"></div></div></div>
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/radar');
+initGlobalSearch();
+initReadProgress();
+document.getElementById('title-icon').innerHTML = icon('radar', {size:20});
+
+let curDays = 7;
+
+function setWindow(days) {
+  curDays = days;
+  document.querySelectorAll('#window-toggle button').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.days) === days));
+  load();
+}
+
+function deltaBadge(d) {
+  if (d > 0) return `<span style="color:var(--success);font-weight:600">▲ +${d}</span>`;
+  if (d < 0) return `<span style="color:var(--error)">▼ ${d}</span>`;
+  return `<span style="color:var(--text-muted)">– 0</span>`;
+}
+
+function row(t) {
+  return `
+    <a href="/tags/${t.id}" class="episode-item" style="text-decoration:none">
+      <div style="flex:1;min-width:0;display:flex;align-items:center;gap:.6rem">
+        <span class="tag">${escHtml(t.label)}</span>
+        <span style="color:var(--text-muted);font-size:.85rem">${t.count_now} Erwähnung(en)</span>
+        <span style="margin-left:auto;font-size:.85rem">${deltaBadge(t.delta)}</span>
+      </div>
+    </a>`;
+}
+
+async function load() {
+  const view = document.getElementById('radar-view');
+  view.innerHTML = `<div class="empty-state"><div class="spinner"></div></div>`;
+  try {
+    const r = await API.get(`/api/radar?days=${curDays}`);
+    if (!r.top || !r.top.length) {
+      view.innerHTML = `<div class="empty-state"><div class="icon">${icon('radar',{size:44})}</div>
+        <p>Noch keine getaggten Inhalte im Zeitfenster.<br>Transkribiere Folgen oder warte auf neue Ausgaben.</p></div>`;
+      return;
+    }
+    const trending = (r.trending || []).map(row).join('');
+    const top = (r.top || []).map(row).join('');
+    view.innerHTML = `
+      ${trending ? `
+        <h2 style="font-size:1rem;margin:0 0 .6rem;display:flex;align-items:center;gap:.4rem">${icon('zap',{size:16})} Im Aufwind</h2>
+        <div class="episode-list" style="margin-bottom:1.75rem">${trending}</div>` : ''}
+      <h2 style="font-size:1rem;margin:0 0 .6rem;display:flex;align-items:center;gap:.4rem">${icon('star',{size:16})} Top-Themen</h2>
+      <div class="episode-list">${top}</div>`;
+  } catch(e) {
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

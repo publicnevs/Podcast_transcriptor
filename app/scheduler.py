@@ -43,6 +43,10 @@ async def check_all_feeds():
 
     new_count = 0
     for podcast in podcasts:
+        # Newsletter pseudo-feeds have no RSS URL — they're polled via IMAP by
+        # the separate check_newsletter_inbox job, not parsed as feeds here.
+        if (podcast["feed_type"] or "") == "newsletter":
+            continue
         if not _feed_due(podcast):
             continue
         try:
@@ -83,6 +87,7 @@ async def check_all_feeds():
         await send_notification(
             "PodScribe — Neue Folgen",
             f"{new_count} neue Folge(n) wurden zur Transkription hinzugefügt.",
+            click_path="/",
         )
         await process_queued()
 
@@ -117,10 +122,35 @@ async def run_due_issues():
             if digest_id:
                 await send_notification(
                     f"📰 Neue Ausgabe: {s['name']}",
-                    f"Deine automatische Ausgabe ist fertig.\nÖffnen: /digests",
+                    f"Deine automatische Ausgabe ist fertig.",
+                    click_path=f"/digest/{digest_id}",
                 )
         except Exception as e:
             logger.error(f"Scheduled issue (recipe {s['recipe_id']}) failed: {e}")
+
+
+async def check_newsletter_inbox():
+    """Hourly tick; actually polls the IMAP inbox only when its own interval is
+    due (default daily). Gated like _feed_due but via settings."""
+    from .database import get_setting
+    from .newsletter import check_inbox
+
+    if (await get_setting("newsletter_enabled")) != "1":
+        return
+    interval = int((await get_setting("newsletter_check_interval_hours")) or "24")
+    last = await get_setting("newsletter_last_checked")
+    if interval > 1 and last:
+        from datetime import datetime, timedelta
+        try:
+            last_dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+            if datetime.now() - last_dt < timedelta(hours=interval):
+                return
+        except ValueError:
+            pass
+    try:
+        await check_inbox()
+    except Exception as e:
+        logger.error(f"Newsletter inbox job failed: {e}")
 
 
 def start_scheduler():
@@ -128,6 +158,13 @@ def start_scheduler():
         check_all_feeds,
         trigger=IntervalTrigger(hours=1),
         id="check_feeds",
+        replace_existing=True,
+        max_instances=1,
+    )
+    _scheduler.add_job(
+        check_newsletter_inbox,
+        trigger=IntervalTrigger(hours=1),
+        id="check_newsletter",
         replace_existing=True,
         max_instances=1,
     )

@@ -93,6 +93,39 @@ class SettingsUpdate(BaseModel):
     whisper_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
     digest_model: Optional[str] = None
+    public_base_url: Optional[str] = None
+    # Newsletter inbox (IMAP)
+    newsletter_enabled: Optional[bool] = None
+    newsletter_imap_host: Optional[str] = None
+    newsletter_imap_port: Optional[int] = None
+    newsletter_imap_user: Optional[str] = None
+    newsletter_imap_password: Optional[str] = None
+    newsletter_check_interval_hours: Optional[int] = None
+    # Digest email delivery (SMTP)
+    digest_email_enabled: Optional[bool] = None
+    digest_email_to: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+
+
+class NewsletterTest(BaseModel):
+    host: Optional[str] = None
+    port: Optional[int] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+
+
+class SmtpTest(BaseModel):
+    host: Optional[str] = None
+    port: Optional[int] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+
+
+class AskRequest(BaseModel):
+    question: str
 
 
 class DigestRequest(BaseModel):
@@ -237,6 +270,16 @@ async def page_tag_detail(tag_id: int):
 @app.get("/digest/{digest_id}", response_class=HTMLResponse)
 async def page_digest_reader(digest_id: int):
     return FileResponse(STATIC_DIR / "digest-reader.html")
+
+
+@app.get("/search", response_class=HTMLResponse)
+async def page_search():
+    return FileResponse(STATIC_DIR / "search.html")
+
+
+@app.get("/radar", response_class=HTMLResponse)
+async def page_radar():
+    return FileResponse(STATIC_DIR / "radar.html")
 
 
 # ── Podcasts ───────────────────────────────────────────────────────────────────
@@ -884,8 +927,10 @@ async def get_settings():
         async with db.execute("SELECT key, value FROM settings") as cur:
             rows = await cur.fetchall()
     out = {r[0]: r[1] for r in rows}
-    # Never leak the raw API key — only signal whether one is set
+    # Never leak secrets — only signal whether each one is set
     out["gemini_api_key_set"] = bool(out.pop("gemini_api_key", "") or os.getenv("GEMINI_API_KEY", ""))
+    out["newsletter_imap_password_set"] = bool(out.pop("newsletter_imap_password", ""))
+    out["smtp_password_set"] = bool(out.pop("smtp_password", ""))
     return out
 
 
@@ -905,6 +950,35 @@ async def update_settings(data: SettingsUpdate):
         await set_setting("gemini_api_key", data.gemini_api_key.strip())
     if data.digest_model is not None:
         await set_setting("digest_model", data.digest_model)
+    if data.public_base_url is not None:
+        await set_setting("public_base_url", data.public_base_url.strip())
+    # Newsletter inbox
+    if data.newsletter_enabled is not None:
+        await set_setting("newsletter_enabled", "1" if data.newsletter_enabled else "0")
+    if data.newsletter_imap_host is not None:
+        await set_setting("newsletter_imap_host", data.newsletter_imap_host.strip())
+    if data.newsletter_imap_port is not None:
+        await set_setting("newsletter_imap_port", str(data.newsletter_imap_port))
+    if data.newsletter_imap_user is not None:
+        await set_setting("newsletter_imap_user", data.newsletter_imap_user.strip())
+    if data.newsletter_imap_password:  # only overwrite when non-empty
+        await set_setting("newsletter_imap_password", data.newsletter_imap_password)
+    if data.newsletter_check_interval_hours is not None:
+        await set_setting("newsletter_check_interval_hours",
+                          str(data.newsletter_check_interval_hours))
+    # Digest email (SMTP)
+    if data.digest_email_enabled is not None:
+        await set_setting("digest_email_enabled", "1" if data.digest_email_enabled else "0")
+    if data.digest_email_to is not None:
+        await set_setting("digest_email_to", data.digest_email_to.strip())
+    if data.smtp_host is not None:
+        await set_setting("smtp_host", data.smtp_host.strip())
+    if data.smtp_port is not None:
+        await set_setting("smtp_port", str(data.smtp_port))
+    if data.smtp_user is not None:
+        await set_setting("smtp_user", data.smtp_user.strip())
+    if data.smtp_password:  # only overwrite when non-empty
+        await set_setting("smtp_password", data.smtp_password)
     await _apply_runtime_config()
     return {"ok": True}
 
@@ -918,6 +992,138 @@ async def trigger_check(background_tasks: BackgroundTasks):
     return {"ok": True, "message": "Feed-Check gestartet"}
 
 
+# ── Newsletter inbox (IMAP) ────────────────────────────────────────────────────
+
+@app.post("/api/newsletter/test")
+async def newsletter_test(data: NewsletterTest):
+    from . import newsletter
+    host = (data.host or await get_setting("newsletter_imap_host") or "imap.hosting.de").strip()
+    port = data.port or int((await get_setting("newsletter_imap_port")) or "993")
+    user = (data.user or await get_setting("newsletter_imap_user") or "").strip()
+    password = data.password or await get_setting("newsletter_imap_password")
+    if not user or not password:
+        raise HTTPException(400, "Benutzer und Passwort erforderlich.")
+    try:
+        return await newsletter.test_connection(host, port, user, password)
+    except Exception as e:
+        raise HTTPException(400, f"Verbindung fehlgeschlagen: {e}")
+
+
+@app.post("/api/newsletter/check")
+async def newsletter_check():
+    from . import newsletter
+    if (await get_setting("newsletter_enabled")) != "1":
+        raise HTTPException(400, "Newsletter-Postfach ist deaktiviert.")
+    try:
+        n = await newsletter.check_inbox()
+    except Exception as e:
+        raise HTTPException(400, f"Postfach-Abruf fehlgeschlagen: {e}")
+    return {"ok": True, "new": n}
+
+
+# ── Digest email (SMTP) ─────────────────────────────────────────────────────────
+
+@app.post("/api/email/test")
+async def email_test(data: SmtpTest):
+    from . import mailer
+    host = (data.host or await get_setting("smtp_host") or "smtp.hosting.de").strip()
+    port = data.port or int((await get_setting("smtp_port")) or "465")
+    user = (data.user or await get_setting("smtp_user") or "").strip()
+    password = data.password or await get_setting("smtp_password")
+    if not user or not password:
+        raise HTTPException(400, "Benutzer und Passwort erforderlich.")
+    try:
+        return await mailer.test_connection(host, port, user, password)
+    except Exception as e:
+        raise HTTPException(400, f"Verbindung fehlgeschlagen: {e}")
+
+
+@app.post("/api/digests/{digest_id}/email")
+async def email_digest(digest_id: int):
+    from . import mailer
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT title, content_html, tldr_md, status FROM digests WHERE id=?",
+            (digest_id,)) as cur:
+            row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Digest nicht gefunden")
+    if row["status"] != "done":
+        raise HTTPException(400, "Digest ist noch nicht fertig.")
+    to_addr = await get_setting("digest_email_to")
+    if not to_addr:
+        raise HTTPException(400, "Keine Empfänger-Adresse konfiguriert.")
+    try:
+        await mailer.send_email(to_addr, row["title"] or "PodScribe Zeitung",
+                                row["content_html"], row["tldr_md"] or "")
+    except Exception as e:
+        raise HTTPException(400, f"Versand fehlgeschlagen: {e}")
+    return {"ok": True}
+
+
+# ── Topic radar ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/radar")
+async def topic_radar(days: int = 7):
+    """Tag frequency in the current window vs. the previous one (cross-source:
+    podcasts, news, newsletters). Returns trending/top/quiet topics."""
+    days = max(1, min(days, 90))
+    now = datetime.now()
+    cur_from = (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    prev_from = (now - timedelta(days=2 * days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT t.id, t.label,
+                   SUM(CASE WHEN e.pub_date >= ? THEN 1 ELSE 0 END) AS count_now,
+                   SUM(CASE WHEN e.pub_date >= ? AND e.pub_date < ? THEN 1 ELSE 0 END) AS count_prev
+            FROM episode_tags et
+            JOIN episodes e ON e.id = et.episode_id
+            JOIN tags t ON t.id = et.tag_id
+            WHERE e.pub_date >= ?
+            GROUP BY t.id
+            HAVING count_now > 0 OR count_prev > 0
+            ORDER BY count_now DESC, t.label ASC
+        """, (cur_from, prev_from, cur_from, prev_from)) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+
+    for r in rows:
+        r["delta"] = (r["count_now"] or 0) - (r["count_prev"] or 0)
+    trending = sorted([r for r in rows if r["delta"] > 0],
+                      key=lambda r: (r["delta"], r["count_now"]), reverse=True)[:15]
+    top = [r for r in rows if r["count_now"] > 0][:15]
+    return {"days": days, "trending": trending, "top": top}
+
+
+# ── Semantic search (RAG) ───────────────────────────────────────────────────────
+
+@app.post("/api/ask")
+async def ask_library(data: AskRequest):
+    from . import rag
+    q = (data.question or "").strip()
+    if not q:
+        raise HTTPException(400, "Frage fehlt.")
+    try:
+        return await rag.answer(q)
+    except Exception as e:
+        raise HTTPException(400, f"Anfrage fehlgeschlagen: {e}")
+
+
+@app.get("/api/rag/stats")
+async def rag_stats():
+    from . import rag
+    return await rag.stats()
+
+
+@app.post("/api/rag/reindex", status_code=202)
+async def rag_reindex(background_tasks: BackgroundTasks):
+    from . import rag
+    background_tasks.add_task(rag.reindex_all)
+    return {"status": "started"}
+
+
 @app.post("/api/podcasts/{podcast_id}/check")
 async def check_podcast(podcast_id: int, background_tasks: BackgroundTasks):
     """Re-scan a single feed for new episodes — runs regardless of the podcast's
@@ -929,6 +1135,15 @@ async def check_podcast(podcast_id: int, background_tasks: BackgroundTasks):
             p = await cur.fetchone()
     if not p:
         raise HTTPException(404, "Podcast nicht gefunden")
+
+    # Newsletter pseudo-feeds have no RSS to parse — poll the shared inbox.
+    if p["feed_type"] == "newsletter":
+        from . import newsletter
+        try:
+            n = await newsletter.check_inbox()
+        except Exception as e:
+            raise HTTPException(400, f"Postfach-Abruf fehlgeschlagen: {e}")
+        return {"ok": True, "new": n}
 
     try:
         feed_data = await parse_rss_feed(p["rss_url"])
@@ -1145,6 +1360,11 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                  result.get("tldr_md", ""), result.get("subtitle", ""), digest_id),
             )
             await db.commit()
+
+        # Email delivery (no-op unless enabled in settings)
+        from .mailer import maybe_email_digest
+        await maybe_email_digest(digest_id, title, content_html,
+                                 result.get("tldr_md", ""))
     except Exception as e:
         logger.error(f"Issue {digest_id} failed: {e}", exc_info=True)
         async with aiosqlite.connect(DB_PATH) as db:

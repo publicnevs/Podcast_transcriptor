@@ -107,6 +107,7 @@ function render() {
         <button id="rv-short" class="${view==='short'?'active':''}" onclick="setView('short')">Kurzfassung</button>
       </div>
       <button class="btn btn-secondary btn-sm" onclick="copyContent()">📋 Kopieren</button>
+      <button class="btn btn-secondary btn-sm" onclick="emailDigest()">✉️ Mailen</button>
       <button class="btn btn-secondary btn-sm" onclick="shareDigestPage()">🔗 Teilen</button>
       <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️</button>
     </div>
@@ -154,6 +155,15 @@ async function copyContent() {
     ? (digest?.tldr_md || '')
     : (digest?.content_md || document.getElementById('reader-body').innerText);
   await copyText(txt, '📋 Kopiert' + (view==='short' ? ' (Kurzfassung)' : ' (Markdown)'));
+}
+
+async function emailDigest() {
+  try {
+    await API.post(`/api/digests/${digestId}/email`, {});
+    toast('✉️ Zeitung per E-Mail gesendet', 'success');
+  } catch(e) {
+    toast(e.message || 'Versand fehlgeschlagen — SMTP in den Einstellungen prüfen', 'error');
+  }
 }
 
 async function shareDigestPage() {
