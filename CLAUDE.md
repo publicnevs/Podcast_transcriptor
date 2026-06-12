@@ -8,7 +8,7 @@ PodScribe is a self-hosted podcast transcription and reader app. It downloads po
 
 ## Development Commands
 
-**Run locally:**
+**Run locally:** (requires Python 3.11 and a system `ffmpeg` binary on PATH — used by the downloader to re-encode audio)
 ```bash
 pip install -r requirements.txt
 export GEMINI_API_KEY="AIza..."
