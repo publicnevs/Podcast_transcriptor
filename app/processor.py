@@ -64,6 +64,16 @@ async def _fetch_article_text(url: str) -> str:
     return ""
 
 
+async def _index_chunks(episode_id: int, segments: list):
+    """Build + store embeddings for semantic search. Best-effort: a missing API
+    key or quota issue must never fail the transcription itself."""
+    try:
+        from .rag import index_episode
+        await index_episode(episode_id, segments)
+    except Exception as e:
+        logger.warning(f"Episode {episode_id}: embedding index skipped: {e}")
+
+
 async def process_episode(episode_id: int, audio_url: str, title: str, podcast_title: str):
     audio_path: Path | None = None
     try:
@@ -75,7 +85,7 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
         # Newsfeed path: no audio download. Strategy: feed content first
         # (often already full text via content:encoded), fetch the web page
         # only as a fallback when the feed text is too short.
-        if feed_type == "newsfeed":
+        if feed_type in ("newsfeed", "newsletter"):
             await _set_status(episode_id, "transcribing")
             async with aiosqlite.connect(DB_PATH) as db:
                 async with db.execute(
@@ -83,7 +93,10 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                 ) as cur:
                     row = await cur.fetchone()
             content = (row[0] or "") if row else ""
-            if full_text_extraction and episode_url and len(content) < 600:
+            # Only newsfeed articles carry a real web URL worth scraping; a
+            # newsletter's episode_url is a Message-ID, never fetch it.
+            if (feed_type == "newsfeed" and full_text_extraction
+                    and episode_url and len(content) < 600):
                 fetched = await _fetch_article_text(episode_url)
                 if len(fetched) > len(content):
                     content = fetched
@@ -92,6 +105,7 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                 segments = [{"time": "00:00:00", "speaker": "", "text": content}]
                 data["segments"] = segments
                 word_count = len(content.split())
+                model_used = "email" if feed_type == "newsletter" else "article"
                 async with aiosqlite.connect(DB_PATH) as db:
                     await db.execute(
                         """INSERT INTO transcripts (episode_id, content, segments_json, language, word_count, model_used)
@@ -101,7 +115,7 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                                language=excluded.language, word_count=excluded.word_count,
                                model_used=excluded.model_used""",
                         (episode_id, content, json.dumps(segments),
-                         data.get("language", ""), word_count, "article"),
+                         data.get("language", ""), word_count, model_used),
                     )
                     await db.execute(
                         "INSERT INTO transcripts_fts (episode_id, content) VALUES (?, ?)",
@@ -120,6 +134,17 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                     )
                     await db.execute("UPDATE episodes SET status='done' WHERE id=?", (episode_id,))
                     await db.commit()
+                # Tag + index for search/radar so news & newsletters are
+                # first-class alongside podcasts (best-effort, never fatal).
+                try:
+                    raw_tags = await extract_tags(
+                        data.get("summary", ""), data.get("takeaways", []),
+                        data.get("chapters", []))
+                    if raw_tags:
+                        await upsert_tags(episode_id, raw_tags)
+                except Exception as e:
+                    logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
+                await _index_chunks(episode_id, segments)
             else:
                 await _set_status(episode_id, "done")
             await enforce_retention(episode_id)
@@ -208,11 +233,14 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
         except Exception as e:
             logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
 
+        await _index_chunks(episode_id, segments)
+
         await enforce_retention(episode_id)
 
         await send_notification(
             f"Transkript fertig: {title[:50]}",
             f"Podcast: {podcast_title}\n{word_count} Wörter transkribiert.",
+            click_path=f"/episode/{episode_id}",
         )
         logger.info(f"Episode {episode_id} done ({word_count} words)")
 
@@ -267,6 +295,8 @@ async def _set_status(episode_id: int, status: str, error_msg: str = None):
 def _episode_status(feed_type: str, full_text_extraction: bool,
                     auto_transcribe: bool, has_episode_url: bool) -> str:
     """Initial status for a freshly imported episode."""
+    if feed_type == "newsletter":
+        return "queued"  # emails always get auto-summarised
     if feed_type == "newsfeed":
         return "queued" if (full_text_extraction and has_episode_url) else "done"
     return "queued" if auto_transcribe else "pending"

@@ -27,6 +27,8 @@ PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
 LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
 # Article/digest model default; overridable via DB setting or per-request
 DIGEST_MODEL = os.getenv("GEMINI_DIGEST_MODEL", PRO_MODEL)
+# Embedding model for semantic search (RAG)
+EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
 
 
 # ── Format registry ──────────────────────────────────────────────────────────
@@ -396,6 +398,52 @@ async def extract_tags(summary: str, takeaways: list, chapters: list) -> list:
         return []
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _extract_tags_sync, summary, takeaways, chapters)
+
+
+def _embed_sync(texts: list) -> list:
+    client = _client()
+    resp = client.models.embed_content(model=EMBED_MODEL, contents=texts)
+    return [list(e.values) for e in resp.embeddings]
+
+
+RAG_PROMPT = """Du bist der Recherche-Assistent einer persönlichen Podcast- und \
+Newsletter-Bibliothek. Beantworte die Frage AUSSCHLIESSLICH anhand der \
+nummerierten Auszüge. Erfinde nichts. Wenn die Auszüge die Frage nicht \
+beantworten, sage das offen. Antworte auf Deutsch, prägnant, und verweise mit \
+[1], [2] … auf die genutzten Quellen.
+
+Frage: {question}
+
+Auszüge:
+{context}
+
+Antwort:"""
+
+
+def _answer_sync(question: str, context: str) -> str:
+    client = _client()
+    response = client.models.generate_content(
+        model=FLASH_MODEL,
+        contents=[RAG_PROMPT.format(question=question, context=context)],
+        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=2048),
+    )
+    return (response.text or "").strip()
+
+
+async def answer_from_context(question: str, context: str) -> str:
+    if not _configure_gemini():
+        raise RuntimeError("Kein Gemini API Key konfiguriert")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _answer_sync, question, context)
+
+
+async def embed_texts(texts: list) -> list:
+    """Return one embedding vector (list of floats) per input text. Empty list
+    when no API key is configured (callers treat this as 'indexing disabled')."""
+    if not _configure_gemini() or not texts:
+        return []
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _embed_sync, texts)
 
 
 async def generate_issue(episode_data: list, *, fmt: str, length: int = 3, style: int = 3,

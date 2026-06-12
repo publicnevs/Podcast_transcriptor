@@ -115,6 +115,7 @@ async function loadPodcast() {
         <p>${escHtml((podcastData.description||'').slice(0,200))}</p>
         <div style="display:flex;gap:.75rem;margin-top:.5rem;flex-wrap:wrap;align-items:center">
           ${podcastData.feed_type==='newsfeed' ? `<span class="badge" style="font-size:.7rem;display:inline-flex;align-items:center;gap:.25rem">${icon('newspaper',{size:13})} Newsfeed</span>` : ''}
+          ${podcastData.feed_type==='newsletter' ? `<span class="badge" style="font-size:.7rem;display:inline-flex;align-items:center;gap:.25rem">${icon('mail',{size:13})} Newsletter</span>` : ''}
           ${podcastData.website_url ? `<a href="${escHtml(podcastData.website_url)}" target="_blank" style="font-size:.8rem;display:inline-flex;align-items:center;gap:.25rem">${icon('globe',{size:13})} Website</a>` : ''}
           ${podcastData.auto_transcribe ? `<span style="font-size:.8rem;color:var(--success);display:inline-flex;align-items:center;gap:.25rem">${icon('refresh-cw',{size:13})} Auto-Transkription an</span>` : ''}
           ${(podcastData.consecutive_fetch_errors||0) > 2

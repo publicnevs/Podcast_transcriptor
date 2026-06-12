@@ -58,6 +58,48 @@
     </div>
   </div>
 
+  <!-- Newsletter inbox (IMAP) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="mail" data-icon-size="18">Newsletter-Postfach (IMAP)</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+        <input type="checkbox" id="nl-enabled" style="width:auto">
+        <span>Newsletter-Postfach aktiv (täglicher Abruf + „Jetzt prüfen")</span>
+      </label>
+      <div class="form-group">
+        <label class="form-label">IMAP-Server</label>
+        <input type="text" id="nl-host" placeholder="imap.hosting.de" value="imap.hosting.de">
+      </div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:120px">
+          <label class="form-label">Port</label>
+          <input type="number" id="nl-port" value="993" style="width:100px">
+        </div>
+        <div class="form-group" style="flex:1;min-width:120px">
+          <label class="form-label">Intervall (Std.)</label>
+          <input type="number" id="nl-interval" value="24" min="1" max="168" style="width:100px">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Benutzer (E-Mail-Adresse)</label>
+        <input type="text" id="nl-user" placeholder="newsletter_trusted@kompe.de" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Passwort</label>
+        <input type="password" id="nl-pass" placeholder="leer lassen = unverändert" autocomplete="new-password">
+        <span id="nl-pass-status" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></span>
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" data-icon="save" data-icon-size="16" onclick="saveNewsletter()">Speichern</button>
+        <button class="btn btn-secondary" data-icon="check" data-icon-size="16" onclick="testNewsletter()">Verbindung testen</button>
+        <button class="btn btn-secondary" data-icon="refresh-cw" data-icon-size="16" onclick="checkNewsletterNow()">Jetzt prüfen</button>
+      </div>
+      <span style="font-size:.78rem;color:var(--text-muted)">
+        Jeder Absender erscheint automatisch als eigener Feed in der Bibliothek und wird zusammengefasst.
+      </span>
+    </div>
+  </div>
+
   <!-- Queue Status -->
   <div class="card" style="margin-bottom:1rem">
     <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="list" data-icon-size="18">Aktuelle Warteschlange</h2>
@@ -199,6 +241,62 @@
     </div>
   </div>
 
+  <!-- Digest email (SMTP) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="newspaper" data-icon-size="18">Zeitung per E-Mail</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
+        <input type="checkbox" id="mail-enabled" style="width:auto">
+        <span>Fertige Zeitungen automatisch per E-Mail senden</span>
+      </label>
+      <div class="form-group">
+        <label class="form-label">Empfänger-Adresse</label>
+        <input type="email" id="mail-to" placeholder="ich@kompe.de" autocomplete="email">
+      </div>
+      <div class="form-group">
+        <label class="form-label">SMTP-Server</label>
+        <input type="text" id="smtp-host" placeholder="smtp.hosting.de" value="smtp.hosting.de">
+      </div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:120px">
+          <label class="form-label">Port (SSL)</label>
+          <input type="number" id="smtp-port" value="465" style="width:100px">
+        </div>
+        <div class="form-group" style="flex:2;min-width:160px">
+          <label class="form-label">Benutzer</label>
+          <input type="text" id="smtp-user" placeholder="absender@kompe.de" autocomplete="username">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Passwort</label>
+        <input type="password" id="smtp-pass" placeholder="leer lassen = unverändert" autocomplete="new-password">
+        <span id="smtp-pass-status" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></span>
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" data-icon="save" data-icon-size="16" onclick="saveSmtp()">Speichern</button>
+        <button class="btn btn-secondary" data-icon="check" data-icon-size="16" onclick="testSmtp()">SMTP testen</button>
+      </div>
+      <span style="font-size:.78rem;color:var(--text-muted)">
+        Bei hosting.de oft dieselben Zugangsdaten wie das Newsletter-Postfach.
+      </span>
+    </div>
+  </div>
+
+  <!-- App base URL (notification deep links) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="globe" data-icon-size="18">App-Adresse (für Benachrichtigungs-Links)</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <div class="form-group">
+        <label class="form-label">Öffentliche Basis-URL</label>
+        <input type="url" id="base-url" placeholder="https://podscribe.example.de">
+        <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">
+          Wenn gesetzt, werden Push-Benachrichtigungen anklickbar und öffnen direkt die Folge/Zeitung. Leer lassen, wenn nicht von außen erreichbar.
+        </span>
+      </div>
+      <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveBaseUrl()">Speichern</button>
+    </div>
+  </div>
+
   <!-- PWA Install hint -->
   <div class="card" style="margin-top:1rem;background:var(--accent-dim);border-color:var(--accent)">
     <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="smartphone" data-icon-size="18">App auf Handy installieren</h2>
@@ -233,7 +331,106 @@ async function loadSettings() {
       : '<span style="color:var(--warning)">kein Key</span>';
     setBackend(currentBackend, false);
     _setDigestModelUI(s.digest_model || 'pro');
+
+    // Newsletter inbox
+    document.getElementById('nl-enabled').checked = s.newsletter_enabled === '1';
+    document.getElementById('nl-host').value = s.newsletter_imap_host || 'imap.hosting.de';
+    document.getElementById('nl-port').value = s.newsletter_imap_port || '993';
+    document.getElementById('nl-user').value = s.newsletter_imap_user || '';
+    document.getElementById('nl-interval').value = s.newsletter_check_interval_hours || '24';
+    document.getElementById('nl-pass-status').innerHTML = s.newsletter_imap_password_set
+      ? 'Passwort gespeichert' : 'kein Passwort gesetzt';
+
+    // Digest email (SMTP)
+    document.getElementById('mail-enabled').checked = s.digest_email_enabled === '1';
+    document.getElementById('mail-to').value = s.digest_email_to || '';
+    document.getElementById('smtp-host').value = s.smtp_host || 'smtp.hosting.de';
+    document.getElementById('smtp-port').value = s.smtp_port || '465';
+    document.getElementById('smtp-user').value = s.smtp_user || '';
+    document.getElementById('smtp-pass-status').innerHTML = s.smtp_password_set
+      ? 'Passwort gespeichert' : 'kein Passwort gesetzt';
+
+    // Base URL
+    document.getElementById('base-url').value = s.public_base_url || '';
   } catch {}
+}
+
+async function saveNewsletter() {
+  const payload = {
+    newsletter_enabled: document.getElementById('nl-enabled').checked,
+    newsletter_imap_host: document.getElementById('nl-host').value.trim(),
+    newsletter_imap_port: parseInt(document.getElementById('nl-port').value) || 993,
+    newsletter_imap_user: document.getElementById('nl-user').value.trim(),
+    newsletter_check_interval_hours: parseInt(document.getElementById('nl-interval').value) || 24,
+  };
+  const pass = document.getElementById('nl-pass').value;
+  if (pass) payload.newsletter_imap_password = pass;
+  try {
+    await API.put('/api/settings', payload);
+    toast('✅ Newsletter-Postfach gespeichert', 'success');
+    document.getElementById('nl-pass').value = '';
+    loadSettings();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function testNewsletter() {
+  const body = {
+    host: document.getElementById('nl-host').value.trim(),
+    port: parseInt(document.getElementById('nl-port').value) || 993,
+    user: document.getElementById('nl-user').value.trim(),
+  };
+  const pass = document.getElementById('nl-pass').value;
+  if (pass) body.password = pass;
+  try {
+    await API.post('/api/newsletter/test', body);
+    toast('✅ Verbindung erfolgreich', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function checkNewsletterNow() {
+  try {
+    const r = await API.post('/api/newsletter/check', {});
+    toast(`📬 ${r.new} neue Newsletter-Ausgabe(n)`, 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function saveSmtp() {
+  const payload = {
+    digest_email_enabled: document.getElementById('mail-enabled').checked,
+    digest_email_to: document.getElementById('mail-to').value.trim(),
+    smtp_host: document.getElementById('smtp-host').value.trim(),
+    smtp_port: parseInt(document.getElementById('smtp-port').value) || 465,
+    smtp_user: document.getElementById('smtp-user').value.trim(),
+  };
+  const pass = document.getElementById('smtp-pass').value;
+  if (pass) payload.smtp_password = pass;
+  try {
+    await API.put('/api/settings', payload);
+    toast('✅ E-Mail-Einstellungen gespeichert', 'success');
+    document.getElementById('smtp-pass').value = '';
+    loadSettings();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function testSmtp() {
+  const body = {
+    host: document.getElementById('smtp-host').value.trim(),
+    port: parseInt(document.getElementById('smtp-port').value) || 465,
+    user: document.getElementById('smtp-user').value.trim(),
+  };
+  const pass = document.getElementById('smtp-pass').value;
+  if (pass) body.password = pass;
+  try {
+    await API.post('/api/email/test', body);
+    toast('✅ SMTP-Verbindung erfolgreich', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function saveBaseUrl() {
+  try {
+    await API.put('/api/settings', { public_base_url: document.getElementById('base-url').value.trim() });
+    toast('✅ App-Adresse gespeichert', 'success');
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 function _setDigestModelUI(dm) {

@@ -187,6 +187,8 @@ function renderNav(activePath) {
         <a href="/" ${isLib?'class="active"':''}>${icon('library')} <span>Bibliothek</span></a>
         <a href="/?add=1">${icon('plus')} <span>Abonnieren</span></a>
         <a href="/discover" ${activePath==='/discover'?'class="active"':''}>${icon('compass')} <span>Entdecken</span></a>
+        <a href="/search" ${activePath==='/search'?'class="active"':''}>${icon('sparkles')} <span>Fragen</span></a>
+        <a href="/radar" ${activePath==='/radar'?'class="active"':''}>${icon('radar')} <span>Radar</span></a>
         <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>${icon('newspaper')} <span>Zeitung</span></a>
         <a href="/settings" ${activePath==='/settings'?'class="active"':''}>${icon('settings')} <span>Settings</span></a>

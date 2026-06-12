@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Fragen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content">
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
+    <h1 style="font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.45rem"><span id="title-icon"></span> Frag deine Bibliothek</h1>
+    <span id="rag-stats" style="color:var(--text-muted);font-size:.8rem;margin-left:auto"></span>
+  </div>
+  <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1rem">
+    Stelle eine Frage in natürlicher Sprache — die Antwort wird aus deinen
+    Podcasts, News-Artikeln und Newslettern zusammengestellt, mit Quellen.
+  </p>
+
+  <div style="display:flex;gap:.5rem;margin-bottom:1.5rem;flex-wrap:wrap">
+    <input type="text" id="question" placeholder="z.B. Was wurde zuletzt über Agenten-Frameworks gesagt?"
+           style="flex:1;min-width:240px" autocomplete="off">
+    <button class="btn btn-primary" id="ask-btn" onclick="ask()"><span data-icon="sparkles">Fragen</span></button>
+  </div>
+
+  <div id="answer-view"></div>
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/search');
+initGlobalSearch();
+initReadProgress();
+document.getElementById('title-icon').innerHTML = icon('sparkles', {size:20});
+
+async function loadStats() {
+  try {
+    const s = await API.get('/api/rag/stats');
+    const el = document.getElementById('rag-stats');
+    const pending = (s.done_episodes || 0) - (s.indexed_episodes || 0);
+    el.innerHTML = `${s.indexed_episodes}/${s.done_episodes} indexiert`
+      + (pending > 0 ? ` · <a href="#" onclick="reindex();return false">${pending} nachindexieren</a>` : '');
+  } catch(e) { /* ignore */ }
+}
+
+async function reindex() {
+  try {
+    await API.post('/api/rag/reindex', {});
+    toast('Indexierung gestartet (läuft im Hintergrund)', 'info');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function ask() {
+  const q = document.getElementById('question').value.trim();
+  if (!q) return;
+  const view = document.getElementById('answer-view');
+  const btn = document.getElementById('ask-btn');
+  btn.disabled = true;
+  view.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>Suche in deiner Bibliothek…</p></div>`;
+  try {
+    const r = await API.post('/api/ask', { question: q });
+    if (r.error) {
+      view.innerHTML = `<div class="empty-state"><p>${escHtml(r.error)}</p>
+        <button class="btn btn-primary btn-sm" onclick="reindex()">Index aufbauen</button></div>`;
+      return;
+    }
+    const sources = (r.sources || []).map(s => `
+      <a class="card" style="display:block;text-decoration:none;margin-bottom:.5rem"
+         href="/episode/${s.episode_id}">
+        <div style="display:flex;align-items:center;gap:.5rem;font-size:.85rem">
+          <span class="badge">[${s.ref}]</span>
+          <strong>${escHtml(s.episode_title || '')}</strong>
+          <span style="color:var(--text-muted)">${escHtml(s.podcast_title || '')}</span>
+          <span style="color:var(--text-muted);margin-left:auto">${escHtml(s.start_time || '')}</span>
+        </div>
+        <div style="color:var(--text-muted);font-size:.82rem;margin-top:.35rem">${escHtml(s.snippet || '')}</div>
+      </a>`).join('');
+    view.innerHTML = `
+      <div class="card" style="margin-bottom:1.25rem">
+        <div style="white-space:pre-wrap;line-height:1.6">${escHtml(r.answer || '(keine Antwort)')}</div>
+      </div>
+      <h2 style="font-size:1rem;margin:0 0 .6rem;display:flex;align-items:center;gap:.4rem">${icon('file-text',{size:16})} Quellen</h2>
+      ${sources || '<p style="color:var(--text-muted)">Keine Quellen gefunden.</p>'}`;
+  } catch(e) {
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('question').addEventListener('keydown', e => {
+  if (e.key === 'Enter') ask();
+});
+hydrateIcons();
+loadStats();
+</script>
+</body>
+</html>
