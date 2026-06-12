@@ -47,7 +47,6 @@ initReadProgress();
 
 const digestId = pageId();
 let digest = null;
-let view = 'long';
 
 async function load() {
   try {
@@ -86,8 +85,10 @@ function render() {
     return;
   }
 
-  const tldrHtml = renderTldr(digest.tldr_md || '');
-  const bodyHtml = digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
+  // One document, inverted pyramid: TL;DR box first, full article below.
+  const tldrHtml = (digest.tldr_md || '').trim()
+    ? `<div class="tldr-box"><h3>TL;DR — das Wichtigste</h3>${renderTldr(digest.tldr_md)}</div>`
+    : '';
 
   page.innerHTML = `
     <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
@@ -102,29 +103,14 @@ function render() {
     </div>
 
     <div class="reader-toolbar">
-      <div class="segmented view-toggle">
-        <button id="rv-long" class="${view==='long'?'active':''}" onclick="setView('long')">Langfassung</button>
-        <button id="rv-short" class="${view==='short'?'active':''}" onclick="setView('short')">Kurzfassung</button>
-      </div>
       <button class="btn btn-secondary btn-sm" onclick="copyContent()">📋 Kopieren</button>
-      <button class="btn btn-secondary btn-sm" onclick="emailDigest()">✉️ Mailen</button>
-      <button class="btn btn-secondary btn-sm" onclick="shareDigestPage()">🔗 Teilen</button>
+      <button class="btn btn-secondary btn-sm" data-owner-only onclick="emailDigest()">✉️ Mailen</button>
+      <button class="btn btn-secondary btn-sm" data-owner-only onclick="shareDigestPage()">🔗 Teilen</button>
       <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️</button>
     </div>
 
-    <div id="reader-body" class="digest-body fs-md"></div>`;
-
-  renderBody();
-}
-
-function renderBody() {
-  const el = document.getElementById('reader-body');
-  if (!el || !digest) return;
-  if (view === 'short') {
-    el.innerHTML = `<div class="tldr-box"><h3>Kurzfassung</h3>${renderTldr(digest.tldr_md || 'Keine Kurzfassung verfügbar.')}</div>`;
-  } else {
-    el.innerHTML = digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
-  }
+    ${tldrHtml}
+    <div id="reader-body" class="digest-body fs-md">${digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>'}</div>`;
 }
 
 function renderTldr(md) {
@@ -143,18 +129,12 @@ function renderTldr(md) {
   return html;
 }
 
-function setView(v) {
-  view = v;
-  document.getElementById('rv-long').classList.toggle('active', v==='long');
-  document.getElementById('rv-short').classList.toggle('active', v==='short');
-  renderBody();
-}
-
 async function copyContent() {
-  const txt = view === 'short'
-    ? (digest?.tldr_md || '')
-    : (digest?.content_md || document.getElementById('reader-body').innerText);
-  await copyText(txt, '📋 Kopiert' + (view==='short' ? ' (Kurzfassung)' : ' (Markdown)'));
+  // TL;DR + article as one markdown document.
+  const tldr = (digest?.tldr_md || '').trim();
+  const body = digest?.content_md || document.getElementById('reader-body').innerText;
+  const txt = tldr ? `**TL;DR**\n\n${tldr}\n\n---\n\n${body}` : body;
+  await copyText(txt, '📋 Kopiert (Markdown)');
 }
 
 async function emailDigest() {

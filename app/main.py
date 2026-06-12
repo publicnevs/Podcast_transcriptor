@@ -1476,7 +1476,8 @@ async def issues_select(data: IssueSelect):
 async def issue_options():
     from .transcriber import FORMATS
     return {
-        "length": [{"value": k, "label": v["label"]} for k, v in _LENGTH_MAP.items()],
+        "length": [{"value": k, "label": v["label"], "words": v["words"],
+                    "sections": v["sections"]} for k, v in _LENGTH_MAP.items()],
         "style": [{"value": k, "label": v[0]} for k, v in _STYLE_MAP.items()],
         "formats": [
             {"value": k, "label": v["label"], "uses_sliders": v["uses_sliders"]}

@@ -58,26 +58,6 @@
     <div id="recipe-list" class="episode-list"><div class="empty-state"><div class="spinner"></div></div></div>
   </div>
 
-  <!-- Reader Modal -->
-  <div id="reader-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeReader()">
-    <div class="modal" style="max-width:780px;width:100%">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem;gap:.5rem">
-        <h2 id="reader-title" class="modal-title" style="margin:0;flex:1"></h2>
-        <button class="btn btn-ghost btn-icon btn-sm" data-icon="x" onclick="closeReader()"></button>
-      </div>
-      <div style="display:flex;gap:.375rem;flex-wrap:wrap;margin-bottom:1rem">
-        <div class="segmented" style="margin-right:auto">
-          <button id="rv-long" class="active" onclick="setReaderView('long')">Langfassung</button>
-          <button id="rv-short" onclick="setReaderView('short')">Kurzfassung</button>
-        </div>
-        <button class="btn btn-secondary btn-sm" data-icon="copy" data-icon-size="16" onclick="copyDigest()">Kopieren</button>
-        <button class="btn btn-secondary btn-sm" data-icon="share-2" data-icon-size="16" onclick="shareDigest()">Teilen</button>
-        <button class="btn btn-secondary btn-icon btn-sm" title="Drucken" data-icon="printer" data-icon-size="16" onclick="printDigest()"></button>
-      </div>
-      <div id="reader-body" class="digest-body"></div>
-    </div>
-  </div>
-
   <!-- New Issue Modal -->
   <div id="new-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeNewDigest()">
     <div class="modal" style="max-width:720px;width:100%;max-height:90vh;overflow-y:auto">
@@ -85,8 +65,9 @@
       <div style="display:flex;flex-direction:column;gap:1.1rem">
 
         <div class="form-group">
-          <label class="form-label">Format</label>
-          <div id="fmt-seg" style="display:flex;flex-wrap:wrap;gap:.375rem"></div>
+          <label class="form-label">Ressort</label>
+          <div id="fmt-seg" style="display:flex;flex-wrap:wrap;gap:.5rem"></div>
+          <div id="ressort-hint" style="font-size:.78rem;color:var(--text-muted);margin-top:.4rem"></div>
         </div>
 
         <div class="form-group">
@@ -171,19 +152,24 @@
           </div>
         </div>
 
+        <!-- Focus / recommendation — the editorial lever, always visible -->
+        <div class="form-group" id="focus-group">
+          <label class="form-label">Redaktioneller Fokus <span style="color:var(--text-muted);font-weight:400">(optional — was soll hervorgehoben werden?)</span></label>
+          <textarea id="focus-input" placeholder="z.B. Die Folge über Prompt Engineering ist besonders spannend, das soll hervorgehoben werden." style="min-height:60px"></textarea>
+        </div>
+
         <!-- Custom style prompt -->
         <div class="form-group" id="custom-style-group" style="display:none">
           <label class="form-label">Eigener Stil-Prompt <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
           <textarea id="custom-style-input" placeholder="z.B. Schreibe prägnant und verwende viele Zwischenüberschriften. Verzichte auf Einleitung." style="min-height:60px"></textarea>
         </div>
 
-        <!-- Focus / recommendation -->
-        <div class="form-group" id="focus-group" style="display:none">
-          <label class="form-label">Was gefällt dir besonders? <span style="color:var(--text-muted);font-weight:400">(optional — Empfehlung / Fokus)</span></label>
-          <textarea id="focus-input" placeholder="z.B. Die Folge über Prompt Engineering ist besonders spannend, das soll hervorgehoben werden." style="min-height:60px"></textarea>
+        <!-- Live preview: what goes in & what comes out -->
+        <div id="preview-panel" style="background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.85rem 1rem">
+          <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line">…</div>
+          <div id="estimate-line" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></div>
+          <div id="preview-eps" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.25rem"></div>
         </div>
-
-        <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line">…</div>
       </div>
 
       <div class="modal-actions" style="flex-wrap:wrap;gap:.5rem">
@@ -195,7 +181,7 @@
   </div>
 </div>
 
-<button class="fab" title="Neue Ausgabe" data-icon="plus" data-icon-size="26" onclick="openNewDigest()"></button>
+<button class="fab" title="Neue Ausgabe" data-owner-only data-icon="plus" data-icon-size="26" onclick="openNewDigest()"></button>
 <footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
 <div id="toast-container"></div>
 <script src="/static/icons.js"></script>
@@ -208,13 +194,27 @@ initReadProgress();
 // ── State ─────────────────────────────────────────────────────────────────
 let LEN_LABELS = {1:'Kompakt',2:'Knapp',3:'Standard',4:'Ausführlich',5:'Magazin'};
 let STYLE_LABELS = {1:'Technisch',2:'Analytisch',3:'Journalistisch',4:'Erzählend',5:'Leicht verständlich'};
+let LEN_WORDS = {1:700,2:1200,3:1800,4:2800,5:4000};
 let allEpisodes = [], selectedIds = new Set();
 let allTags = [], selTags = new Set(), selPods = new Set();
 let timeframe = '7';
-let format = 'daily_briefing';
-let allFormats = [];
-let currentDigest = null, readerView = 'long';
 let countTimer = null;
+
+// Three editorial Ressorts mapped onto the existing backend formats —
+// the backend keeps all 5 formats, only the UI is simplified.
+const RESSORTS = {
+  ueberblick: { label:'Überblick', iconName:'calendar', format:'daily_briefing',
+    sliders:false, len:3, style:3,
+    hint:'Kompakter Nachrichtenüberblick: Folge für Folge die wichtigsten Erkenntnisse — in ~3 Minuten gelesen.' },
+  magazin: { label:'Magazin', iconName:'newspaper', format:'magazin',
+    sliders:true, len:3, style:3,
+    hint:'Gut geschriebene Artikel mit Analyse, Kontext und Zitaten — zum Lesen und Teilen.' },
+  dossier: { label:'Dossier', iconName:'radar', format:'magazin',
+    sliders:true, len:5, style:2,
+    hint:'Tiefgehender Themen-Deep-Dive über alle Quellen hinweg. Tipp: Thema über Tags wählen und den redaktionellen Fokus nutzen.' },
+};
+let ressort = 'ueberblick';
+const backendFormat = () => RESSORTS[ressort].format;
 
 const FORMAT_ICONS = {
   daily_briefing: icon('calendar',{size:16}), magazin: icon('newspaper',{size:16}),
@@ -266,7 +266,7 @@ async function loadDigests() {
           </div>
         </div>
         <div class="episode-actions" onclick="event.stopPropagation()">
-          <button class="btn btn-ghost btn-icon btn-sm" title="Mehr" onclick="openDigestMenu(this, ${d.id})">${icon('more-vertical')}</button>
+          <button class="btn btn-ghost btn-icon btn-sm" data-owner-only title="Mehr" onclick="openDigestMenu(this, ${d.id})">${icon('more-vertical')}</button>
         </div>
       </div>`).join('');
     if (digests.some(d => d.status === 'generating')) setTimeout(loadDigests, 6000);
@@ -275,64 +275,9 @@ async function loadDigests() {
   }
 }
 
-// ── Reader ──────────────────────────────────────────────────────────────────
+// Reading happens on the dedicated /digest/{id} page (digest-reader.html).
 function openDigest(id) {
   location.href = `/digest/${id}`;
-}
-
-function renderReader() {
-  const body = document.getElementById('reader-body');
-  if (!currentDigest) return;
-  if (readerView === 'short') {
-    body.innerHTML = `<div style="background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem 1.25rem">
-      ${miniMd(currentDigest.tldr_md || 'Keine Kurzfassung verfügbar.')}</div>`;
-  } else {
-    body.innerHTML = currentDigest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>';
-  }
-}
-
-function setReaderView(v) {
-  readerView = v;
-  document.getElementById('rv-long').classList.toggle('active', v==='long');
-  document.getElementById('rv-short').classList.toggle('active', v==='short');
-  renderReader();
-}
-
-// tiny markdown for bullet tldr
-function miniMd(md) {
-  const lines = (md||'').split('\n').map(l => l.trim()).filter(Boolean);
-  let html = '', inList = false;
-  for (let l of lines) {
-    if (l.startsWith('- ') || l.startsWith('* ')) {
-      if (!inList) { html += '<ul>'; inList = true; }
-      html += '<li>' + escHtml(l.slice(2)) + '</li>';
-    } else {
-      if (inList) { html += '</ul>'; inList = false; }
-      html += '<p>' + escHtml(l) + '</p>';
-    }
-  }
-  if (inList) html += '</ul>';
-  return html;
-}
-
-function closeReader() { document.getElementById('reader-modal').style.display = 'none'; currentDigest = null; }
-
-async function copyDigest() {
-  const txt = readerView === 'short'
-    ? (currentDigest?.tldr_md || '')
-    : (currentDigest?.content_md || document.getElementById('reader-body').innerText);
-  await copyText(txt, '📋 Kopiert' + (readerView==='short'?' (Kurzfassung)':' (Markdown)'));
-}
-
-function printDigest() { window.print(); }
-
-async function shareDigest() {
-  if (!currentDigest) return;
-  try {
-    const r = await API.post(`/api/digests/${currentDigest.id}/share`, {});
-    const url = location.origin + r.url;
-    await copyText(url, '🔗 Teil-Link kopiert');
-  } catch(e) { toast(e.message, 'error'); }
 }
 
 async function deleteDigest(id) {
@@ -344,18 +289,14 @@ async function deleteDigest(id) {
 // ── New issue builder ─────────────────────────────────────────────────────
 async function openNewDigest() {
   selectedIds.clear(); selTags.clear(); selPods.clear();
-  timeframe = '7'; format = allFormats[0]?.value || 'daily_briefing';
+  timeframe = '7';
   document.getElementById('digest-title').value = '';
   document.getElementById('match-all').checked = false;
-  document.getElementById('len-slider').value = 3;
-  document.getElementById('style-slider').value = 3;
   document.getElementById('model-sel').value = '';
   document.getElementById('custom-style-input').value = '';
   document.getElementById('focus-input').value = '';
   renderFormatButtons();
-  setFormat(format);
-  setTimeframe(format === 'daily_briefing' ? '1' : '7');
-  updateSliderLabels();
+  setRessort('ueberblick');
   document.getElementById('new-modal').style.display = '';
   await Promise.all([loadTags(), loadPods(), loadPickerEpisodes()]);
   updateCount();
@@ -364,22 +305,21 @@ function closeNewDigest() { document.getElementById('new-modal').style.display =
 
 function renderFormatButtons() {
   const seg = document.getElementById('fmt-seg');
-  seg.innerHTML = allFormats.map(f =>
-    `<button class="btn btn-secondary btn-sm${format===f.value?' active':''}" data-fmt="${f.value}" onclick="setFormat('${f.value}')">${f.label}</button>`
+  seg.innerHTML = Object.entries(RESSORTS).map(([key, r]) =>
+    `<button class="btn btn-secondary btn-sm${ressort===key?' active':''}" data-fmt="${key}" onclick="setRessort('${key}')">${icon(r.iconName,{size:16})} ${r.label}</button>`
   ).join('');
 }
 
-function setFormat(f) {
-  format = f;
-  document.querySelectorAll('#fmt-seg button').forEach(b => b.classList.toggle('active', b.dataset.fmt===f));
-  const fmtDef = allFormats.find(x => x.value === f);
-  const usesSliders = fmtDef?.uses_sliders ?? false;
-  document.getElementById('slider-group').style.display = usesSliders ? '' : 'none';
-  const hasExtra = ['magazin','newsletter','teams_post'].includes(f);
-  document.getElementById('custom-style-group').style.display = hasExtra ? '' : 'none';
-  document.getElementById('focus-group').style.display = hasExtra ? '' : 'none';
-  if (f === 'newsletter') { document.getElementById('len-slider').value=2; document.getElementById('style-slider').value=5; }
-  else if (f === 'magazin') { document.getElementById('len-slider').value=4; document.getElementById('style-slider').value=3; }
+function setRessort(key) {
+  ressort = key;
+  const r = RESSORTS[key];
+  document.querySelectorAll('#fmt-seg button').forEach(b => b.classList.toggle('active', b.dataset.fmt===key));
+  document.getElementById('ressort-hint').textContent = r.hint;
+  document.getElementById('slider-group').style.display = r.sliders ? '' : 'none';
+  document.getElementById('custom-style-group').style.display = r.sliders ? '' : 'none';
+  document.getElementById('len-slider').value = r.len;
+  document.getElementById('style-slider').value = r.style;
+  setTimeframe(key === 'ueberblick' ? '1' : '7');
   updateSliderLabels();
 }
 
@@ -396,8 +336,20 @@ function setTimeframe(tf) {
 }
 
 function updateSliderLabels() {
-  document.getElementById('len-val').textContent = LEN_LABELS[document.getElementById('len-slider').value];
+  const len = document.getElementById('len-slider').value;
+  const words = LEN_WORDS[len] || 1800;
+  document.getElementById('len-val').textContent =
+    `${LEN_LABELS[len]} (≈${words} Wörter · ~${Math.max(1, Math.round(words/200))} Min.)`;
   document.getElementById('style-val').textContent = STYLE_LABELS[document.getElementById('style-slider').value];
+  updateEstimate();
+}
+
+function updateEstimate() {
+  const el = document.getElementById('estimate-line');
+  if (!el) return;
+  const r = RESSORTS[ressort];
+  const words = r.sliders ? (LEN_WORDS[document.getElementById('len-slider').value] || 1800) : 700;
+  el.textContent = `${r.label} · geschätzte Lesezeit ~${Math.max(1, Math.round(words/200))} Min. (≈${words} Wörter)`;
 }
 
 async function loadTags() {
@@ -446,16 +398,37 @@ function currentRecipe() {
   return recipe;
 }
 
+function renderPreviewEps(eps) {
+  const box = document.getElementById('preview-eps');
+  if (!box) return;
+  if (!eps || !eps.length) { box.innerHTML = ''; return; }
+  const shown = eps.slice(0, 8);
+  box.innerHTML = shown.map(e =>
+    `<div style="font-size:.8rem;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+       ${icon('play',{size:11})} ${escHtml(e.title)}
+       <span style="color:var(--text-muted)">· ${escHtml(e.podcast_title||'')}</span>
+     </div>`).join('')
+    + (eps.length > shown.length
+        ? `<div style="font-size:.75rem;color:var(--text-muted)">… und ${eps.length - shown.length} weitere</div>` : '');
+}
+
 function updateCount() {
   const line = document.getElementById('count-line');
-  if (timeframe === 'manual') { line.textContent = `${selectedIds.size} Folge(n) ausgewählt`; return; }
+  updateEstimate();
+  if (timeframe === 'manual') {
+    line.textContent = `${selectedIds.size} Folge(n) ausgewählt`;
+    renderPreviewEps(allEpisodes.filter(e => selectedIds.has(e.id))
+      .map(e => ({ title:e.title, podcast_title:e._pt })));
+    return;
+  }
   line.textContent = 'Zähle passende Folgen…';
   clearTimeout(countTimer);
   countTimer = setTimeout(async () => {
     try {
       const r = await API.post('/api/issues/select', currentRecipe());
       line.textContent = `${r.count} Folge(n) treffen zu`;
-    } catch { line.textContent = ''; }
+      renderPreviewEps(r.episodes);
+    } catch { line.textContent = ''; renderPreviewEps([]); }
   }, 350);
 }
 
@@ -493,7 +466,7 @@ async function autoTitle() {
   const btn = document.getElementById('auto-title-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '…'; }
   try {
-    const payload = { title: '', format, episode_ids: timeframe==='manual' ? [...selectedIds] : [],
+    const payload = { title: '', format: backendFormat(), episode_ids: timeframe==='manual' ? [...selectedIds] : [],
                       recipe: timeframe!=='manual' ? currentRecipe() : undefined };
     const r = await API.post('/api/issues/title', payload);
     document.getElementById('digest-title').value = r.title || '';
@@ -508,7 +481,7 @@ async function createDigest() {
   const model = document.getElementById('model-sel').value;
   const custom_style = document.getElementById('custom-style-input').value.trim();
   const focus = document.getElementById('focus-input').value.trim();
-  const payload = { title, format, length, style, model, custom_style, focus };
+  const payload = { title, format: backendFormat(), length, style, model, custom_style, focus };
   if (timeframe === 'manual') {
     if (!selectedIds.size) return toast('Bitte mindestens eine Folge wählen', 'error');
     payload.episode_ids = [...selectedIds];
@@ -533,7 +506,7 @@ async function saveAsRecipe() {
   const rec = currentRecipe();
   try {
     await API.post('/api/recipes', {
-      name, format,
+      name, format: backendFormat(),
       date_window_days: rec.date_window_days, podcast_ids: rec.podcast_ids,
       tag_ids: rec.tag_ids, match: rec.match,
       length: parseInt(document.getElementById('len-slider').value),
@@ -576,7 +549,9 @@ async function loadWeek() {
 
 async function newsletterFromTag(label) {
   await openNewDigest();
-  if (allFormats.find(f=>f.value==='newsletter')) setFormat('newsletter');
+  setRessort('magazin');
+  document.getElementById('len-slider').value = 2;  // knapper Wochenrückblick
+  updateSliderLabels();
   setTimeframe('7');
   document.getElementById('digest-title').value = `${label} — diese Woche`;
   // select the matching tag chip
@@ -592,7 +567,7 @@ async function loadRecipes() {
   box.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   try {
     const recs = await API.get('/api/recipes');
-    let head = `<div style="margin-bottom:1rem"><button class="btn btn-secondary btn-sm" onclick="backfillTags()">${icon('tag',{size:16})} Tags für alle Folgen nachtragen</button></div>`;
+    let head = `<div style="margin-bottom:1rem"><button class="btn btn-secondary btn-sm" data-owner-only onclick="backfillTags()">${icon('tag',{size:16})} Tags für alle Folgen nachtragen</button></div>`;
     if (!recs.length) { box.innerHTML = head + `<div class="empty-state"><div class="icon">${icon('repeat',{size:44})}</div><p>Noch keine Templates. Erstelle eines über „Neue Ausgabe → Als Template speichern".</p></div>`; return; }
     box.innerHTML = head + recs.map(r => `
       <div class="episode-item">
@@ -609,7 +584,7 @@ async function loadRecipes() {
             <button class="btn btn-ghost btn-sm" onclick="saveSchedule(${r.id}, ${r.enabled && r.schedule_id ? 0 : 1})">${r.enabled && r.schedule_id ? icon('pause',{size:15})+' Automatik aus' : icon('clock',{size:15})+' Automatik an'}</button>
           </div>
         </div>
-        <div class="episode-actions" style="flex-direction:column;gap:.375rem">
+        <div class="episode-actions" style="flex-direction:column;gap:.375rem" data-owner-only>
           <button class="btn btn-primary btn-sm" onclick="runRecipe(${r.id})">${icon('play',{size:15})} Jetzt</button>
           <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="deleteRecipe(${r.id})">${icon('trash-2')}</button>
         </div>
@@ -642,9 +617,8 @@ async function backfillTags() {
     const opt = await API.get('/api/issue-options');
     LEN_LABELS = Object.fromEntries(opt.length.map(x => [x.value, x.label]));
     STYLE_LABELS = Object.fromEntries(opt.style.map(x => [x.value, x.label]));
-    if (opt.formats?.length) {
-      allFormats = opt.formats;
-      format = allFormats[0].value;
+    if (opt.length[0]?.words) {
+      LEN_WORDS = Object.fromEntries(opt.length.map(x => [x.value, x.words]));
     }
   } catch {}
   loadDigests();
@@ -660,10 +634,9 @@ async function backfillTags() {
       if (parseInt(el.dataset.pod) === podId) { el.classList.add('active'); selPods.add(podId); }
     });
     document.getElementById('digest-title').value = `Podcast-Porträt: ${podTitle}`;
+    setRessort('magazin');
     setTimeframe('all');
-    setFormat('magazin');
     document.getElementById('len-slider').value = 4;
-    document.getElementById('style-slider').value = 3;
     updateSliderLabels(); updateCount();
   }
 })();
