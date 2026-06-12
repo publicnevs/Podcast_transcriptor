@@ -206,6 +206,11 @@ _MIGRATIONS = [
     "ALTER TABLE issue_recipes ADD COLUMN model TEXT DEFAULT ''",
     "ALTER TABLE issue_recipes ADD COLUMN custom_style TEXT DEFAULT ''",
     "ALTER TABLE issue_recipes ADD COLUMN focus TEXT DEFAULT ''",
+    # Digest generation metadata & source citations
+    "ALTER TABLE digests ADD COLUMN reading_time_min INTEGER DEFAULT 0",
+    "ALTER TABLE digests ADD COLUMN started_at TIMESTAMP",
+    "ALTER TABLE digests ADD COLUMN updated_at TIMESTAMP",
+    "ALTER TABLE digests ADD COLUMN sources_json TEXT DEFAULT '[]'",
 ]
 
 
@@ -240,6 +245,13 @@ async def init_db():
             except Exception:
                 pass  # column already exists
         await _backfill_pub_dates(db)
+        # Orphan cleanup: background_tasks don't survive a restart, so any
+        # 'generating' row at startup is permanently stuck. Mark them as error
+        # so the frontend stops polling and the retry button becomes available.
+        await db.execute(
+            "UPDATE digests SET status='error', updated_at=CURRENT_TIMESTAMP WHERE status='generating'"
+        )
+        await db.commit()
         # Bootstrap a stable session secret so signed cookies survive restarts.
         async with db.execute("SELECT value FROM settings WHERE key='session_secret'") as cur:
             row = await cur.fetchone()

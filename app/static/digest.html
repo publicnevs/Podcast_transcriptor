@@ -26,6 +26,27 @@
   .tabs button { background:none; border:none; color:var(--text-muted); padding:.6rem 1rem;
     font-size:.9rem; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; }
   .tabs button.active { color:var(--accent); border-bottom-color:var(--accent); }
+  /* Wizard source-mode cards */
+  .source-cards { display:grid; grid-template-columns:1fr 1fr; gap:.6rem; }
+  @media (max-width:480px) { .source-cards { grid-template-columns:1fr 1fr; } }
+  .source-card { display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:.4rem; padding:1rem .5rem; border:2px solid var(--border); border-radius:var(--radius);
+    cursor:pointer; transition:var(--transition); text-align:center; background:var(--bg-card); }
+  .source-card:hover { border-color:var(--accent); }
+  .source-card.active { border-color:var(--accent); background:var(--accent-dim); }
+  .source-card .sc-icon { font-size:1.5rem; }
+  .source-card .sc-label { font-size:.85rem; font-weight:600; color:var(--text); }
+  .source-card .sc-desc { font-size:.73rem; color:var(--text-muted); line-height:1.4; }
+  /* Wizard step progress dots */
+  .wizard-steps { display:flex; gap:.375rem; align-items:center; margin-bottom:1.25rem; }
+  .wdot { width:8px; height:8px; border-radius:50%; background:var(--border); transition:var(--transition); }
+  .wdot.active { background:var(--accent); width:22px; border-radius:4px; }
+  .wdot.done { background:var(--accent); opacity:.4; }
+  /* Collapsible advanced */
+  details.advanced summary { font-size:.8rem; color:var(--text-muted); cursor:pointer; padding:.3rem 0; list-style:none; }
+  details.advanced summary::before { content:'▸ '; }
+  details.advanced[open] summary::before { content:'▾ '; }
+  details.advanced > *:not(summary) { margin-top:.75rem; }
 </style>
 </head>
 <body>
@@ -58,83 +79,67 @@
     <div id="recipe-list" class="episode-list"><div class="empty-state"><div class="spinner"></div></div></div>
   </div>
 
-  <!-- New Issue Modal -->
+  <!-- ── New Issue Wizard Modal ─────────────────────────────────────────────── -->
   <div id="new-modal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeNewDigest()">
-    <div class="modal" style="max-width:720px;width:100%;max-height:90vh;overflow-y:auto">
+    <div class="modal" style="max-width:680px;width:100%;max-height:92vh;overflow-y:auto">
       <h2 class="modal-title" data-icon="pencil">Neue Ausgabe</h2>
-      <div style="display:flex;flex-direction:column;gap:1.1rem">
 
-        <div class="form-group">
-          <label class="form-label">Ressort</label>
-          <div id="fmt-seg" style="display:flex;flex-wrap:wrap;gap:.5rem"></div>
-          <div id="ressort-hint" style="font-size:.78rem;color:var(--text-muted);margin-top:.4rem"></div>
-        </div>
+      <!-- Step progress dots -->
+      <div class="wizard-steps">
+        <div class="wdot" id="wdot-1"></div>
+        <div class="wdot" id="wdot-2"></div>
+        <div class="wdot" id="wdot-3"></div>
+      </div>
 
-        <div class="form-group">
-          <label class="form-label">Titel <span style="color:var(--text-muted);font-weight:400">(leer = automatisch)</span></label>
-          <div style="display:flex;gap:.375rem">
-            <input type="text" id="digest-title" placeholder="z.B. KI-Woche: Copilot & Prompting" style="flex:1">
-            <button class="btn btn-ghost btn-icon btn-sm" id="auto-title-btn" onclick="autoTitle()" title="Titel automatisch generieren" data-icon="sparkles" data-icon-size="16"></button>
+      <!-- ── STEP 1: What do you want to build? ─────────────────────────────── -->
+      <div id="wizard-step-1">
+        <div class="form-label" style="margin-bottom:.75rem">Was möchtest du erstellen?</div>
+        <div class="source-cards">
+          <div class="source-card" id="sc-week" onclick="setSourceMode('week')">
+            <div class="sc-icon">⚡</div>
+            <div class="sc-label">Diese Woche</div>
+            <div class="sc-desc">Schnell-Briefing der letzten 7 Tage</div>
+          </div>
+          <div class="source-card" id="sc-topic" onclick="setSourceMode('topic')">
+            <div class="sc-icon">🏷️</div>
+            <div class="sc-label">Nach Thema</div>
+            <div class="sc-desc">Alle Folgen zu einem oder mehreren Tags</div>
+          </div>
+          <div class="source-card" id="sc-podcast" onclick="setSourceMode('podcast')">
+            <div class="sc-icon">🎙️</div>
+            <div class="sc-label">Nach Podcast</div>
+            <div class="sc-desc">Einen oder mehrere Podcasts auswählen</div>
+          </div>
+          <div class="source-card" id="sc-manual" onclick="setSourceMode('manual')">
+            <div class="sc-icon">☑️</div>
+            <div class="sc-label">Folgen auswählen</div>
+            <div class="sc-desc">Einzelne Episoden hand-picked</div>
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Modell</label>
-          <select id="model-sel" style="width:auto">
-            <option value="">Standard (globale Einstellung)</option>
-            <option value="pro">Pro (beste Qualität)</option>
-            <option value="flash">Flash (schnell)</option>
-            <option value="lite">Lite (günstig)</option>
-          </select>
+        <!-- Dynamic content area for the chosen source mode -->
+        <div id="source-mode-body" style="margin-top:1rem"></div>
+
+        <!-- Live preview -->
+        <div id="preview-panel" style="margin-top:.75rem;background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.85rem 1rem">
+          <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line">Wähle eine Quelle oben</div>
+          <div id="estimate-line" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></div>
+          <div id="preview-eps" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.25rem"></div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Zeitraum</label>
-          <div class="segmented" id="tf-seg" style="flex-wrap:wrap">
-            <button data-tf="1" onclick="setTimeframe('1')">Heute</button>
-            <button data-tf="2" onclick="setTimeframe('2')">2 Tage</button>
-            <button data-tf="3" onclick="setTimeframe('3')">3 Tage</button>
-            <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
-            <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
-            <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
-            <button data-tf="all" onclick="setTimeframe('all')">Alles</button>
-            <button data-tf="daterange" onclick="setTimeframe('daterange')">Datum-Bereich</button>
-            <button data-tf="manual" onclick="setTimeframe('manual')">Einzelne Folgen</button>
-          </div>
-          <!-- Date range picker (shown when daterange selected) -->
-          <div id="daterange-picker" style="display:none;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;align-items:center">
-            <label style="font-size:.85rem;color:var(--text-muted)">Von:</label>
-            <input type="date" id="date-from" style="width:auto;min-width:0" oninput="updateCount()">
-            <label style="font-size:.85rem;color:var(--text-muted)">Bis:</label>
-            <input type="date" id="date-to" style="width:auto;min-width:0" oninput="updateCount()">
-          </div>
+        <div class="modal-actions" style="margin-top:1rem">
+          <button class="btn btn-secondary" onclick="closeNewDigest()">Abbrechen</button>
+          <button class="btn btn-primary" id="step1-next-btn" onclick="wizardNext()" disabled>Weiter →</button>
         </div>
+      </div>
 
-        <!-- Tag chips -->
-        <div class="form-group" id="tag-group">
-          <label class="form-label">Themen / Tags <span style="color:var(--text-muted);font-weight:400">(optional — leer = alle)</span></label>
-          <div id="tag-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;max-height:120px;overflow-y:auto">
-            <span style="color:var(--text-muted);font-size:.8rem">Lade Tags…</span>
-          </div>
-          <label style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem;font-size:.8rem;color:var(--text-muted);cursor:pointer">
-            <input type="checkbox" id="match-all" style="width:auto" onchange="updateCount()"> alle gewählten Tags müssen zutreffen (sonst: mindestens einer)
-          </label>
-        </div>
+      <!-- ── STEP 2: Format ─────────────────────────────────────────────────── -->
+      <div id="wizard-step-2" style="display:none">
+        <div class="form-label" style="margin-bottom:.75rem">Format &amp; Stil</div>
+        <div id="fmt-seg" style="display:flex;flex-wrap:wrap;gap:.5rem"></div>
+        <div id="ressort-hint" style="font-size:.78rem;color:var(--text-muted);margin-top:.4rem;margin-bottom:.75rem"></div>
 
-        <!-- Podcast filter -->
-        <div class="form-group" id="pod-group">
-          <label class="form-label">Podcasts <span style="color:var(--text-muted);font-weight:400">(optional — leer = alle)</span></label>
-          <div id="pod-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;max-height:110px;overflow-y:auto"></div>
-        </div>
-
-        <!-- Manual episode picker -->
-        <div id="episode-picker" style="display:none">
-          <label class="form-label" style="margin-bottom:.5rem">Folgen auswählen</label>
-          <input type="text" id="picker-search" placeholder="Folge suchen…" style="width:100%;margin-bottom:.5rem" oninput="filterPicker()">
-          <div id="picker-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)"></div>
-        </div>
-
-        <!-- Sliders (magazin/newsletter only) -->
+        <!-- Sliders — shown only for Magazin/Dossier -->
         <div id="slider-group" style="display:none">
           <div class="form-group">
             <label class="form-label">Länge</label>
@@ -152,31 +157,87 @@
           </div>
         </div>
 
-        <!-- Focus / recommendation — the editorial lever, always visible -->
-        <div class="form-group" id="focus-group">
-          <label class="form-label">Redaktioneller Fokus <span style="color:var(--text-muted);font-weight:400">(optional — was soll hervorgehoben werden?)</span></label>
-          <textarea id="focus-input" placeholder="z.B. Die Folge über Prompt Engineering ist besonders spannend, das soll hervorgehoben werden." style="min-height:60px"></textarea>
+        <!-- Live preview (carries over from step 1) -->
+        <div id="preview-panel-2" style="margin-top:.75rem;background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem 1rem">
+          <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line-2"></div>
+          <div id="estimate-line-2" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></div>
         </div>
 
-        <!-- Custom style prompt -->
-        <div class="form-group" id="custom-style-group" style="display:none">
-          <label class="form-label">Eigener Stil-Prompt <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
-          <textarea id="custom-style-input" placeholder="z.B. Schreibe prägnant und verwende viele Zwischenüberschriften. Verzichte auf Einleitung." style="min-height:60px"></textarea>
-        </div>
-
-        <!-- Live preview: what goes in & what comes out -->
-        <div id="preview-panel" style="background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.85rem 1rem">
-          <div style="font-size:.85rem;color:var(--accent);font-weight:600" id="count-line">…</div>
-          <div id="estimate-line" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></div>
-          <div id="preview-eps" style="margin-top:.5rem;display:flex;flex-direction:column;gap:.25rem"></div>
+        <div class="modal-actions" style="margin-top:1rem">
+          <button class="btn btn-secondary" onclick="wizardBack()">← Zurück</button>
+          <button class="btn btn-primary" onclick="wizardNext()">Weiter →</button>
         </div>
       </div>
 
-      <div class="modal-actions" style="flex-wrap:wrap;gap:.5rem">
-        <button class="btn btn-secondary" onclick="closeNewDigest()">Abbrechen</button>
-        <button class="btn btn-ghost" onclick="saveAsRecipe()" data-icon="save" data-icon-size="16">Als Template speichern</button>
-        <button class="btn btn-primary" id="create-btn" onclick="createDigest()" data-icon="sparkles" data-icon-size="16">Generieren</button>
+      <!-- ── STEP 3: Finalize ───────────────────────────────────────────────── -->
+      <div id="wizard-step-3" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Titel <span style="color:var(--text-muted);font-weight:400">(leer = automatisch)</span></label>
+          <div style="display:flex;gap:.375rem">
+            <input type="text" id="digest-title" placeholder="z.B. KI-Woche: Copilot &amp; Prompting" style="flex:1">
+            <button class="btn btn-ghost btn-icon btn-sm" id="auto-title-btn" onclick="autoTitle()" title="Titel automatisch generieren" data-icon="sparkles" data-icon-size="16"></button>
+          </div>
+        </div>
+
+        <!-- Advanced options collapsed -->
+        <details class="advanced" style="margin-top:.5rem">
+          <summary>Erweiterte Optionen</summary>
+
+          <div class="form-group">
+            <label class="form-label">Modell</label>
+            <select id="model-sel" style="width:auto">
+              <option value="">Standard (globale Einstellung)</option>
+              <option value="pro">Pro (beste Qualität)</option>
+              <option value="flash">Flash (schnell)</option>
+              <option value="lite">Lite (günstig)</option>
+            </select>
+          </div>
+
+          <!-- Timeframe shown only for topic/podcast modes -->
+          <div class="form-group" id="tf-group" style="display:none">
+            <label class="form-label">Zeitraum</label>
+            <div class="segmented" id="tf-seg" style="flex-wrap:wrap">
+              <button data-tf="1" onclick="setTimeframe('1')">Heute</button>
+              <button data-tf="2" onclick="setTimeframe('2')">2 Tage</button>
+              <button data-tf="3" onclick="setTimeframe('3')">3 Tage</button>
+              <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
+              <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
+              <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
+              <button data-tf="all" onclick="setTimeframe('all')">Alles</button>
+              <button data-tf="daterange" onclick="setTimeframe('daterange')">Datum-Bereich</button>
+            </div>
+            <div id="daterange-picker" style="display:none;gap:.5rem;flex-wrap:wrap;margin-top:.5rem;align-items:center">
+              <label style="font-size:.85rem;color:var(--text-muted)">Von:</label>
+              <input type="date" id="date-from" style="width:auto;min-width:0" oninput="updateCount()">
+              <label style="font-size:.85rem;color:var(--text-muted)">Bis:</label>
+              <input type="date" id="date-to" style="width:auto;min-width:0" oninput="updateCount()">
+            </div>
+            <label style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem;font-size:.8rem;color:var(--text-muted);cursor:pointer">
+              <input type="checkbox" id="match-all" style="width:auto" onchange="updateCount()"> alle gewählten Tags müssen zutreffen (sonst: mindestens einer)
+            </label>
+          </div>
+
+          <div class="form-group" id="custom-style-group" style="display:none">
+            <label class="form-label">Eigener Stil-Prompt <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+            <textarea id="custom-style-input" placeholder="z.B. Schreibe prägnant und verwende viele Zwischenüberschriften." style="min-height:60px"></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Redaktioneller Fokus <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+            <textarea id="focus-input" placeholder="z.B. Die Folge über Prompt Engineering ist besonders spannend." style="min-height:60px"></textarea>
+          </div>
+        </details>
+
+        <!-- Summary -->
+        <div style="margin-top:.75rem;background:var(--bg-card2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.75rem 1rem;font-size:.85rem;color:var(--text-muted)" id="step3-summary"></div>
+
+        <div class="modal-actions" style="margin-top:1rem;flex-wrap:wrap;gap:.5rem">
+          <button class="btn btn-secondary" onclick="wizardBack()">← Zurück</button>
+          <button class="btn btn-ghost" onclick="saveAsRecipe()" data-icon="save" data-icon-size="16">Als Template speichern</button>
+          <button class="btn btn-primary" id="create-btn" onclick="createDigest()" data-icon="sparkles" data-icon-size="16">Generieren</button>
+        </div>
       </div>
+
     </div>
   </div>
 </div>
@@ -199,9 +260,11 @@ let allEpisodes = [], selectedIds = new Set();
 let allTags = [], selTags = new Set(), selPods = new Set();
 let timeframe = '7';
 let countTimer = null;
+let sourceMode = null; // 'week' | 'topic' | 'podcast' | 'manual'
+let wizardStep = 1;
+let listPollCount = 0;
+const MAX_LIST_POLLS = 40;
 
-// Three editorial Ressorts mapped onto the existing backend formats —
-// the backend keeps all 5 formats, only the UI is simplified.
 const RESSORTS = {
   ueberblick: { label:'Überblick', iconName:'calendar', format:'daily_briefing',
     sliders:false, len:3, style:3,
@@ -223,14 +286,13 @@ const FORMAT_ICONS = {
 };
 const fmtIcon = (f) => FORMAT_ICONS[f] || icon('newspaper',{size:16});
 
-// ── Header + tabs (built in JS so icons are consistent) ─────────────────────
+// ── Header + tabs ───────────────────────────────────────────────────────────
 document.getElementById('zeitung-title').innerHTML = `${icon('newspaper',{size:22})} Redaktion`;
 document.getElementById('zeitung-tabs').innerHTML = `
   <button id="tab-issues" class="active" onclick="switchTab('issues')">${icon('newspaper',{size:16})} Ausgaben</button>
   <button id="tab-week" onclick="switchTab('week')">${icon('calendar',{size:16})} Diese Woche</button>
   <button id="tab-recipes" onclick="switchTab('recipes')">${icon('repeat',{size:16})} Templates</button>`;
 
-// ── Tabs ──────────────────────────────────────────────────────────────────
 function switchTab(t) {
   for (const x of ['issues','week','recipes']) {
     document.getElementById('view-'+x).style.display = x===t ? '' : 'none';
@@ -240,10 +302,14 @@ function switchTab(t) {
   if (t==='recipes') loadRecipes();
 }
 
-function openDigestMenu(anchor, id) {
-  openMenu(anchor, [
+function openDigestMenu(anchor, id, status) {
+  const items = [
     { icon:'trash-2', label:'Löschen', danger:true, onClick: () => deleteDigest(id) },
-  ]);
+  ];
+  if (status === 'error') {
+    items.unshift({ icon:'refresh-cw', label:'Neu generieren', onClick: () => retryDigest(id) });
+  }
+  openMenu(anchor, items);
 }
 
 // ── Issues list ─────────────────────────────────────────────────────────────
@@ -262,23 +328,24 @@ async function loadDigests() {
           <div class="episode-meta">
             ${d.subtitle ? `<span>${escHtml(d.subtitle)}</span>` : ''}
             <span>${fmtDate(d.created_at)}</span>
+            ${d.reading_time_min ? `<span>${d.reading_time_min} Min</span>` : ''}
             ${d.status==='generating' ? statusBadge('transcribing') : d.status==='error' ? statusBadge('error') : statusBadge('done')}
           </div>
+          ${d.status==='error' ? `<div style="margin-top:.35rem"><button class="btn btn-ghost btn-sm" data-owner-only onclick="event.stopPropagation();retryDigest(${d.id})">${icon('refresh-cw',{size:13})} Neu generieren</button></div>` : ''}
         </div>
         <div class="episode-actions" onclick="event.stopPropagation()">
-          <button class="btn btn-ghost btn-icon btn-sm" data-owner-only title="Mehr" onclick="openDigestMenu(this, ${d.id})">${icon('more-vertical')}</button>
+          <button class="btn btn-ghost btn-icon btn-sm" data-owner-only title="Mehr" onclick="openDigestMenu(this, ${d.id}, '${d.status}')">${icon('more-vertical')}</button>
         </div>
       </div>`).join('');
-    if (digests.some(d => d.status === 'generating')) setTimeout(loadDigests, 6000);
+    if (digests.some(d => d.status === 'generating') && ++listPollCount < MAX_LIST_POLLS) {
+      setTimeout(loadDigests, 6000);
+    }
   } catch(e) {
     list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
   }
 }
 
-// Reading happens on the dedicated /digest/{id} page (digest-reader.html).
-function openDigest(id) {
-  location.href = `/digest/${id}`;
-}
+function openDigest(id) { location.href = `/digest/${id}`; }
 
 async function deleteDigest(id) {
   if (!confirm('Ausgabe löschen?')) return;
@@ -286,23 +353,150 @@ async function deleteDigest(id) {
   catch(e) { toast(e.message,'error'); }
 }
 
-// ── New issue builder ─────────────────────────────────────────────────────
-async function openNewDigest() {
+async function retryDigest(id) {
+  try {
+    await API.post(`/api/digests/${id}/retry`, {});
+    toast('↺ Ausgabe wird neu generiert…','info');
+    listPollCount = 0;
+    loadDigests();
+    setTimeout(() => openDigest(id), 2000);
+  } catch(e) { toast(e.message,'error'); }
+}
+
+// ── Wizard ────────────────────────────────────────────────────────────────
+function openNewDigest() {
+  // Reset all state
   selectedIds.clear(); selTags.clear(); selPods.clear();
-  timeframe = '7';
+  timeframe = '7'; sourceMode = null; wizardStep = 1;
   document.getElementById('digest-title').value = '';
   document.getElementById('match-all').checked = false;
   document.getElementById('model-sel').value = '';
   document.getElementById('custom-style-input').value = '';
   document.getElementById('focus-input').value = '';
+  document.querySelectorAll('.source-card').forEach(c => c.classList.remove('active'));
+  document.getElementById('source-mode-body').innerHTML = '';
+  document.getElementById('count-line').textContent = 'Wähle eine Quelle oben';
+  document.getElementById('estimate-line').textContent = '';
+  document.getElementById('preview-eps').innerHTML = '';
+  document.getElementById('step1-next-btn').disabled = true;
   renderFormatButtons();
   setRessort('ueberblick');
+  showWizardStep(1);
   document.getElementById('new-modal').style.display = '';
-  await Promise.all([loadTags(), loadPods(), loadPickerEpisodes()]);
-  updateCount();
 }
 function closeNewDigest() { document.getElementById('new-modal').style.display = 'none'; }
 
+function showWizardStep(n) {
+  wizardStep = n;
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`wizard-step-${i}`).style.display = i === n ? '' : 'none';
+    const dot = document.getElementById(`wdot-${i}`);
+    dot.className = 'wdot' + (i < n ? ' done' : i === n ? ' active' : '');
+  }
+  if (n === 2) updateEstimate2();
+  if (n === 3) updateStep3Summary();
+}
+
+function wizardNext() {
+  if (wizardStep === 1) {
+    if (!sourceMode) return;
+    showWizardStep(2);
+  } else if (wizardStep === 2) {
+    showWizardStep(3);
+  }
+}
+function wizardBack() {
+  if (wizardStep === 2) showWizardStep(1);
+  else if (wizardStep === 3) showWizardStep(2);
+}
+
+// ── Source mode chooser ──────────────────────────────────────────────────
+async function setSourceMode(mode) {
+  sourceMode = mode;
+  document.querySelectorAll('.source-card').forEach(c => c.classList.remove('active'));
+  document.getElementById(`sc-${mode}`).classList.add('active');
+  document.getElementById('step1-next-btn').disabled = false;
+
+  const body = document.getElementById('source-mode-body');
+
+  if (mode === 'week') {
+    body.innerHTML = '';
+    timeframe = '7'; selTags.clear(); selPods.clear(); selectedIds.clear();
+    setRessort('ueberblick');
+    updateCount();
+  } else if (mode === 'topic') {
+    body.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Themen / Tags <span style="color:var(--text-muted);font-weight:400">(optional — leer = alle)</span></label>
+        <div id="tag-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;max-height:120px;overflow-y:auto">
+          <span style="color:var(--text-muted);font-size:.8rem">Lade Tags…</span>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:.5rem" id="tf-inline-group">
+        <label class="form-label">Zeitraum</label>
+        <div class="segmented" id="tf-inline" style="flex-wrap:wrap">
+          <button data-tf="1" onclick="setTimeframe('1')">Heute</button>
+          <button data-tf="2" onclick="setTimeframe('2')">2 Tage</button>
+          <button data-tf="3" onclick="setTimeframe('3')">3 Tage</button>
+          <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
+          <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
+          <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
+          <button data-tf="all" onclick="setTimeframe('all')">Alles</button>
+        </div>
+      </div>`;
+    timeframe = '7';
+    await loadTags();
+    updateCount();
+  } else if (mode === 'podcast') {
+    body.innerHTML = `
+      <div class="form-group">
+        <label class="form-label">Podcasts <span style="color:var(--text-muted);font-weight:400">(optional — leer = alle)</span></label>
+        <div id="pod-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;max-height:110px;overflow-y:auto">
+          <span style="color:var(--text-muted);font-size:.8rem">Lade…</span>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:.5rem">
+        <label class="form-label">Zeitraum</label>
+        <div class="segmented" id="tf-inline" style="flex-wrap:wrap">
+          <button data-tf="1" onclick="setTimeframe('1')">Heute</button>
+          <button data-tf="2" onclick="setTimeframe('2')">2 Tage</button>
+          <button data-tf="3" onclick="setTimeframe('3')">3 Tage</button>
+          <button data-tf="7" class="active" onclick="setTimeframe('7')">7 Tage</button>
+          <button data-tf="14" onclick="setTimeframe('14')">14 Tage</button>
+          <button data-tf="30" onclick="setTimeframe('30')">30 Tage</button>
+          <button data-tf="all" onclick="setTimeframe('all')">Alles</button>
+        </div>
+      </div>`;
+    timeframe = '7';
+    await loadPods();
+    updateCount();
+  } else if (mode === 'manual') {
+    body.innerHTML = `
+      <div>
+        <label class="form-label" style="margin-bottom:.5rem">Folgen auswählen</label>
+        <input type="text" id="picker-search" placeholder="Folge suchen…" style="width:100%;margin-bottom:.5rem" oninput="filterPicker()">
+        <div id="picker-list" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <div style="padding:1rem;color:var(--text-muted);font-size:.85rem">Lade Folgen…</div>
+        </div>
+      </div>`;
+    timeframe = 'manual';
+    await loadPickerEpisodes();
+    updateCount();
+  }
+}
+
+// Helper to sync the inline timeframe buttons (topic/podcast modes render them inline)
+function setTimeframe(tf) {
+  timeframe = tf;
+  // Sync all segmented tf buttons (both inline and advanced)
+  document.querySelectorAll('[data-tf]').forEach(b => b.classList.toggle('active', b.dataset.tf === tf));
+  const daterange = tf === 'daterange';
+  const picker = document.getElementById('daterange-picker');
+  if (picker) picker.style.display = daterange ? 'flex' : 'none';
+  updateCount();
+}
+
+// ── Format buttons ──────────────────────────────────────────────────────
 function renderFormatButtons() {
   const seg = document.getElementById('fmt-seg');
   seg.innerHTML = Object.entries(RESSORTS).map(([key, r]) =>
@@ -316,23 +510,11 @@ function setRessort(key) {
   document.querySelectorAll('#fmt-seg button').forEach(b => b.classList.toggle('active', b.dataset.fmt===key));
   document.getElementById('ressort-hint').textContent = r.hint;
   document.getElementById('slider-group').style.display = r.sliders ? '' : 'none';
-  document.getElementById('custom-style-group').style.display = r.sliders ? '' : 'none';
+  const csg = document.getElementById('custom-style-group');
+  if (csg) csg.style.display = r.sliders ? '' : 'none';
   document.getElementById('len-slider').value = r.len;
   document.getElementById('style-slider').value = r.style;
-  setTimeframe(key === 'ueberblick' ? '1' : '7');
   updateSliderLabels();
-}
-
-function setTimeframe(tf) {
-  timeframe = tf;
-  document.querySelectorAll('#tf-seg button').forEach(b => b.classList.toggle('active', b.dataset.tf===tf));
-  const manual = tf==='manual';
-  const daterange = tf==='daterange';
-  document.getElementById('episode-picker').style.display = manual ? '' : 'none';
-  document.getElementById('daterange-picker').style.display = daterange ? 'flex' : 'none';
-  document.getElementById('tag-group').style.display = manual ? 'none' : '';
-  document.getElementById('pod-group').style.display = manual ? 'none' : '';
-  updateCount();
 }
 
 function updateSliderLabels() {
@@ -341,24 +523,51 @@ function updateSliderLabels() {
   document.getElementById('len-val').textContent =
     `${LEN_LABELS[len]} (≈${words} Wörter · ~${Math.max(1, Math.round(words/200))} Min.)`;
   document.getElementById('style-val').textContent = STYLE_LABELS[document.getElementById('style-slider').value];
-  updateEstimate();
+  if (wizardStep === 2) updateEstimate2();
 }
 
-function updateEstimate() {
-  const el = document.getElementById('estimate-line');
-  if (!el) return;
+function updateEstimate2() {
+  const el2 = document.getElementById('count-line-2');
+  const el2b = document.getElementById('estimate-line-2');
+  if (!el2) return;
+  // carry count from step 1
+  const cl = document.getElementById('count-line');
+  el2.textContent = cl ? cl.textContent : '';
+  updateEstimate(el2b);
+}
+
+function updateEstimate(el) {
+  const target = el || document.getElementById('estimate-line');
+  if (!target) return;
   const r = RESSORTS[ressort];
   const words = r.sliders ? (LEN_WORDS[document.getElementById('len-slider').value] || 1800) : 700;
-  el.textContent = `${r.label} · geschätzte Lesezeit ~${Math.max(1, Math.round(words/200))} Min. (≈${words} Wörter)`;
+  target.textContent = `${r.label} · ~${Math.max(1, Math.round(words/200))} Min. (≈${words} Wörter)`;
 }
 
+function updateStep3Summary() {
+  const el = document.getElementById('step3-summary');
+  if (!el) return;
+  const modeLabel = { week:'Diese Woche (7 Tage)', topic:'Nach Thema', podcast:'Nach Podcast', manual:'Hand-picked Folgen' }[sourceMode] || sourceMode;
+  const cl = document.getElementById('count-line');
+  const r = RESSORTS[ressort];
+  const words = r.sliders ? (LEN_WORDS[document.getElementById('len-slider').value] || 1800) : 700;
+  el.innerHTML = `<strong>${r.label}</strong> · ${modeLabel} · ${cl ? cl.textContent : ''} · ~${Math.max(1,Math.round(words/200))} Min Lesezeit`;
+  // Show/hide the timeframe section in advanced (only relevant for topic/podcast)
+  const tfg = document.getElementById('tf-group');
+  if (tfg) tfg.style.display = (sourceMode === 'topic' || sourceMode === 'podcast') ? '' : 'none';
+}
+
+// ── Tag and podcast loaders ────────────────────────────────────────────────
 async function loadTags() {
   try {
     allTags = await API.get('/api/tags');
     const box = document.getElementById('tag-chips');
+    if (!box) return;
     if (!allTags.length) { box.innerHTML = '<span style="color:var(--text-muted);font-size:.8rem">Noch keine Tags. Transkribiere Folgen oder nutze „Tags nachtragen" in den Rezepten.</span>'; return; }
     box.innerHTML = allTags.map(t =>
       `<span class="chip" data-tag="${t.id}" onclick="toggleTag(${t.id}, this)">${escHtml(t.label)}<span class="cnt">${t.episode_count}</span></span>`).join('');
+    // restore active state
+    selTags.forEach(id => { const el = box.querySelector(`[data-tag="${id}"]`); if (el) el.classList.add('active'); });
   } catch {}
 }
 function toggleTag(id, el) {
@@ -370,8 +579,11 @@ function toggleTag(id, el) {
 async function loadPods() {
   try {
     const pods = await API.get('/api/podcasts');
-    document.getElementById('pod-chips').innerHTML = pods.map(p =>
+    const box = document.getElementById('pod-chips');
+    if (!box) return;
+    box.innerHTML = pods.map(p =>
       `<span class="chip" data-pod="${p.id}" onclick="togglePod(${p.id}, this)">${escHtml(p.title)}</span>`).join('');
+    selPods.forEach(id => { const el = box.querySelector(`[data-pod="${id}"]`); if (el) el.classList.add('active'); });
   } catch {}
 }
 function togglePod(id, el) {
@@ -384,11 +596,11 @@ function currentRecipe() {
   const recipe = {
     podcast_ids: [...selPods],
     tag_ids: [...selTags],
-    match: document.getElementById('match-all').checked ? 'all' : 'any',
+    match: (() => { const el = document.getElementById('match-all'); return el && el.checked ? 'all' : 'any'; })(),
   };
   if (timeframe === 'daterange') {
-    recipe.date_from = document.getElementById('date-from').value || null;
-    recipe.date_to = document.getElementById('date-to').value || null;
+    recipe.date_from = (document.getElementById('date-from') || {}).value || null;
+    recipe.date_to = (document.getElementById('date-to') || {}).value || null;
     recipe.date_window_days = null;
   } else if (timeframe === 'all' || timeframe === 'manual') {
     recipe.date_window_days = null;
@@ -416,23 +628,22 @@ function updateCount() {
   const line = document.getElementById('count-line');
   updateEstimate();
   if (timeframe === 'manual') {
-    line.textContent = `${selectedIds.size} Folge(n) ausgewählt`;
-    renderPreviewEps(allEpisodes.filter(e => selectedIds.has(e.id))
-      .map(e => ({ title:e.title, podcast_title:e._pt })));
+    if (line) line.textContent = `${selectedIds.size} Folge(n) ausgewählt`;
+    renderPreviewEps(allEpisodes.filter(e => selectedIds.has(e.id)).map(e => ({ title:e.title, podcast_title:e._pt })));
     return;
   }
-  line.textContent = 'Zähle passende Folgen…';
+  if (line) line.textContent = 'Zähle passende Folgen…';
   clearTimeout(countTimer);
   countTimer = setTimeout(async () => {
     try {
       const r = await API.post('/api/issues/select', currentRecipe());
-      line.textContent = `${r.count} Folge(n) treffen zu`;
+      if (line) line.textContent = `${r.count} Folge(n) treffen zu`;
       renderPreviewEps(r.episodes);
-    } catch { line.textContent = ''; renderPreviewEps([]); }
+    } catch { if (line) line.textContent = ''; renderPreviewEps([]); }
   }, 350);
 }
 
-// manual picker
+// ── Manual episode picker ──────────────────────────────────────────────────
 async function loadPickerEpisodes() {
   try {
     const pods = await API.get('/api/podcasts');
@@ -448,6 +659,7 @@ async function loadPickerEpisodes() {
 }
 function renderPickerList(eps) {
   const list = document.getElementById('picker-list');
+  if (!list) return;
   if (!eps.length) { list.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:.85rem">Keine fertigen Transkripte</div>'; return; }
   list.innerHTML = eps.map(e => `
     <label style="display:flex;align-items:center;gap:.6rem;padding:.5rem .75rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem">
@@ -493,7 +705,9 @@ async function createDigest() {
   try {
     const r = await API.post('/api/digests', payload);
     toast('Ausgabe wird generiert…', 'info');
-    closeNewDigest(); switchTab('issues'); await loadDigests();
+    closeNewDigest(); switchTab('issues');
+    listPollCount = 0;
+    await loadDigests();
     setTimeout(() => openDigest(r.id), 2000);
   } catch(e) { toast(e.message, 'error'); }
   finally { btn.disabled = false; btn.innerHTML = icon('sparkles',{size:16}) + ' Generieren'; }
@@ -548,15 +762,20 @@ async function loadWeek() {
 }
 
 async function newsletterFromTag(label) {
-  await openNewDigest();
+  openNewDigest();
+  await setSourceMode('topic');
   setRessort('magazin');
-  document.getElementById('len-slider').value = 2;  // knapper Wochenrückblick
+  document.getElementById('len-slider').value = 2;
   updateSliderLabels();
   setTimeframe('7');
   document.getElementById('digest-title').value = `${label} — diese Woche`;
-  // select the matching tag chip
+  // select the matching tag chip (tags already loaded by setSourceMode('topic'))
   const t = allTags.find(x => x.label === label);
-  if (t) { selTags.add(t.id); const el = document.querySelector(`#tag-chips .chip[data-tag="${t.id}"]`); if (el) el.classList.add('active'); }
+  if (t) {
+    selTags.add(t.id);
+    const el = document.querySelector(`#tag-chips .chip[data-tag="${t.id}"]`);
+    if (el) el.classList.add('active');
+  }
   updateCount();
 }
 
@@ -592,7 +811,12 @@ async function loadRecipes() {
   } catch(e) { box.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`; }
 }
 async function runRecipe(id) {
-  try { const r = await API.post(`/api/recipes/${id}/run`, {}); toast('▶ Ausgabe wird erzeugt…','info'); switchTab('issues'); await loadDigests(); setTimeout(()=>openDigest(r.id),2000); }
+  try {
+    const r = await API.post(`/api/recipes/${id}/run`, {});
+    toast('▶ Ausgabe wird erzeugt…','info');
+    listPollCount = 0;
+    switchTab('issues'); await loadDigests(); setTimeout(()=>openDigest(r.id),2000);
+  }
   catch(e){ toast(e.message,'error'); }
 }
 async function saveSchedule(id, enabled) {
@@ -623,16 +847,16 @@ async function backfillTags() {
   } catch {}
   loadDigests();
 
-  // CR 5: Auto-open modal when coming from podcast.html (?generate=podcast&id=X&title=Y)
+  // Auto-open from podcast.html (?generate=podcast&id=X&title=Y)
   const params = new URLSearchParams(location.search);
   if (params.get('generate') === 'podcast' && params.get('id')) {
-    await openNewDigest();
+    openNewDigest();
+    await setSourceMode('podcast');
     const podId = parseInt(params.get('id'));
     const podTitle = params.get('title') || '';
-    // Pre-select the podcast chip
-    document.querySelectorAll('#pod-chips .chip').forEach(el => {
-      if (parseInt(el.dataset.pod) === podId) { el.classList.add('active'); selPods.add(podId); }
-    });
+    selPods.add(podId);
+    const el = document.querySelector(`#pod-chips .chip[data-pod="${podId}"]`);
+    if (el) el.classList.add('active');
     document.getElementById('digest-title').value = `Podcast-Porträt: ${podTitle}`;
     setRessort('magazin');
     setTimeframe('all');

@@ -25,6 +25,12 @@
   .digest-section h2 { font-size: 1.2rem; font-weight: 700; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: .4rem; margin-bottom: .875rem; }
   .digest-section p { margin-bottom: .875rem; line-height: 1.8; }
   .digest-section blockquote { border-left: 3px solid var(--accent); margin: 1rem 0; padding: .5rem 1rem; background: var(--accent-dim); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-style: italic; }
+  .sources-box { margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.25rem; }
+  .sources-box h3 { font-size: .8rem; text-transform: uppercase; letter-spacing: .1em; color: var(--text-muted); margin-bottom: .75rem; }
+  .sources-box ol { padding-left: 1.5rem; }
+  .sources-box li { font-size: .85rem; color: var(--text-muted); line-height: 1.7; }
+  .sources-box li a { color: var(--accent); text-decoration: none; }
+  .sources-box li a:hover { text-decoration: underline; }
   @media print { .topbar, .reader-toolbar, .bottom-nav { display: none !important; } body { background: #fff; color: #000; } }
 </style>
 </head>
@@ -39,6 +45,7 @@
 </div>
 <footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
 <div id="toast-container"></div>
+<script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
 <script>
 document.getElementById('nav-mount').innerHTML = renderNav('/digests');
@@ -47,6 +54,11 @@ initReadProgress();
 
 const digestId = pageId();
 let digest = null;
+let pollCount = 0;
+const MAX_POLLS = 40; // ~3.5 min at 5s intervals
+
+// Sources visibility: persisted in localStorage
+let sourcesVisible = localStorage.getItem('ps_sources_visible') !== 'false';
 
 async function load() {
   try {
@@ -72,7 +84,11 @@ function render() {
         <h2 style="font-size:1.1rem;margin-bottom:.5rem">${escHtml(digest.title)}</h2>
         <p style="color:var(--text-muted)">Artikel wird generiert… (ca. 1–2 Minuten)</p>
       </div>`;
-    setTimeout(load, 5000);
+    if (++pollCount < MAX_POLLS) {
+      setTimeout(load, 5000);
+    } else {
+      renderTimeout();
+    }
     return;
   }
 
@@ -81,13 +97,32 @@ function render() {
       <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
         <a href="/digests" class="btn btn-ghost btn-icon">←</a>
       </div>
-      <div class="card" style="border-color:var(--error)"><p style="color:var(--error)">Fehler beim Generieren.</p></div>`;
+      <div class="card" style="border-color:var(--error);text-align:center;padding:2rem">
+        <p style="color:var(--error);margin-bottom:1rem">Fehler beim Generieren.</p>
+        <div style="display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="retryDigest()">↺ Neu generieren</button>
+          <a href="/digests" class="btn btn-secondary btn-sm">← Zurück</a>
+        </div>
+      </div>`;
     return;
   }
 
   // One document, inverted pyramid: TL;DR box first, full article below.
   const tldrHtml = (digest.tldr_md || '').trim()
     ? `<div class="tldr-box"><h3>TL;DR — das Wichtigste</h3>${renderTldr(digest.tldr_md)}</div>`
+    : '';
+
+  const sources = _parseSources();
+  const sourcesHtml = sources.length
+    ? `<div class="sources-box" id="sources-box" style="display:${sourcesVisible?'':'none'}">
+         <h3>Quellen</h3>
+         <ol>${sources.map(s => `<li>
+           ${s.is_link
+             ? `<a href="${escHtml(s.url)}" target="_blank" rel="noopener">${escHtml(s.title)}</a>`
+             : escHtml(s.title)}
+           <span style="color:var(--text-muted)"> — ${escHtml(s.podcast_title)}${s.pub_date ? ', '+escHtml(s.pub_date.slice(0,10)) : ''}</span>
+         </li>`).join('')}</ol>
+       </div>`
     : '';
 
   page.innerHTML = `
@@ -107,10 +142,40 @@ function render() {
       <button class="btn btn-secondary btn-sm" data-owner-only onclick="emailDigest()">✉️ Mailen</button>
       <button class="btn btn-secondary btn-sm" data-owner-only onclick="shareDigestPage()">🔗 Teilen</button>
       <button class="btn btn-secondary btn-sm" onclick="window.print()">🖨️</button>
+      ${sources.length ? `<button class="btn btn-ghost btn-sm" id="sources-toggle-btn" onclick="toggleSources()">${sourcesVisible ? '🔗 Quellen ausblenden' : '🔗 Quellen anzeigen'}</button>` : ''}
     </div>
 
     ${tldrHtml}
-    <div id="reader-body" class="digest-body fs-md">${digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>'}</div>`;
+    <div id="reader-body" class="digest-body fs-md">${digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>'}</div>
+    ${sourcesHtml}`;
+}
+
+function renderTimeout() {
+  const page = document.getElementById('page');
+  page.innerHTML = `
+    <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+      <a href="/digests" class="btn btn-ghost btn-icon">←</a>
+    </div>
+    <div class="card" style="text-align:center;padding:2rem">
+      <p style="color:var(--text-muted);margin-bottom:1rem">Das hat zu lange gedauert — der Server wurde möglicherweise neu gestartet.</p>
+      <div style="display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" onclick="pollCount=0;load()">↺ Erneut versuchen</button>
+        <a href="/digests" class="btn btn-secondary btn-sm">← Zurück</a>
+      </div>
+    </div>`;
+}
+
+function _parseSources() {
+  try { return JSON.parse(digest.sources_json || '[]'); } catch { return []; }
+}
+
+function toggleSources() {
+  sourcesVisible = !sourcesVisible;
+  localStorage.setItem('ps_sources_visible', sourcesVisible);
+  const box = document.getElementById('sources-box');
+  const btn = document.getElementById('sources-toggle-btn');
+  if (box) box.style.display = sourcesVisible ? '' : 'none';
+  if (btn) btn.textContent = sourcesVisible ? '🔗 Quellen ausblenden' : '🔗 Quellen anzeigen';
 }
 
 function renderTldr(md) {
@@ -130,10 +195,16 @@ function renderTldr(md) {
 }
 
 async function copyContent() {
-  // TL;DR + article as one markdown document.
   const tldr = (digest?.tldr_md || '').trim();
   const body = digest?.content_md || document.getElementById('reader-body').innerText;
-  const txt = tldr ? `**TL;DR**\n\n${tldr}\n\n---\n\n${body}` : body;
+  const sources = _parseSources();
+  let srcMd = '';
+  if (sources.length) {
+    srcMd = '\n\n---\n\n**Quellen**\n\n' + sources.map(s =>
+      `${s.ref}. ${s.is_link ? '['+s.title+']('+s.url+')' : s.title} — ${s.podcast_title}${s.pub_date ? ', '+s.pub_date.slice(0,10) : ''}`
+    ).join('\n');
+  }
+  const txt = tldr ? `**TL;DR**\n\n${tldr}\n\n---\n\n${body}${srcMd}` : `${body}${srcMd}`;
   await copyText(txt, '📋 Kopiert (Markdown)');
 }
 
@@ -154,6 +225,25 @@ async function shareDigestPage() {
     await shareContent(digest.title, digest.subtitle || '', r.url);
   } catch {
     await shareContent(digest?.title || 'PodScribe Artikel', '', `/digest/${digestId}`);
+  }
+}
+
+async function retryDigest() {
+  try {
+    await API.post(`/api/digests/${digestId}/retry`, {});
+    digest = null;
+    pollCount = 0;
+    document.getElementById('page').innerHTML = `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
+        <a href="/digests" class="btn btn-ghost btn-icon">←</a>
+      </div>
+      <div class="card" style="text-align:center;padding:2.5rem">
+        <div class="spinner" style="width:42px;height:42px;margin:0 auto 1rem"></div>
+        <p style="color:var(--text-muted)">Generierung gestartet…</p>
+      </div>`;
+    setTimeout(load, 3000);
+  } catch(e) {
+    toast(e.message || 'Fehler beim Neu-Generieren', 'error');
   }
 }
 

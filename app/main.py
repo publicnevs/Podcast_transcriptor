@@ -1504,8 +1504,9 @@ async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
 
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, recipe_json, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'generating')""",
+            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, recipe_json,
+                                    status, started_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'generating', CURRENT_TIMESTAMP)""",
             (data.title, data.mode, data.format, data.length, data.style,
              json.dumps(episode_ids), json.dumps(recipe or {})),
         )
@@ -1542,7 +1543,8 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
             db.row_factory = aiosqlite.Row
             for ep_id in episode_ids:
                 async with db.execute("""
-                    SELECT e.id, e.podcast_id, e.title, e.pub_date, p.title AS podcast_title,
+                    SELECT e.id, e.podcast_id, e.title, e.pub_date, e.episode_url,
+                           p.title AS podcast_title, p.feed_type,
                            t.content AS transcript, s.summary, s.takeaways_json
                     FROM episodes e
                     LEFT JOIN podcasts p ON p.id=e.podcast_id
@@ -1569,12 +1571,27 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
         content_html = markdown2.markdown(
             content_md, extras=["fenced-code-blocks", "tables", "header-ids"])
 
+        # Build structured sources list from episode data (deterministic, no LLM)
+        sources = []
+        for i, ep in enumerate(episode_data, 1):
+            url = ep.get("episode_url") or ""
+            sources.append({
+                "ref": i,
+                "title": ep.get("title", ""),
+                "podcast_title": ep.get("podcast_title", ""),
+                "pub_date": ep.get("pub_date", ""),
+                "url": url,
+                "is_link": url.startswith("http"),
+            })
+
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 """UPDATE digests SET content_html=?, content_md=?, sections_json=?,
-                   tldr_md=?, subtitle=?, status='done' WHERE id=?""",
+                   tldr_md=?, subtitle=?, reading_time_min=?, sources_json=?,
+                   updated_at=CURRENT_TIMESTAMP, status='done' WHERE id=?""",
                 (content_html, content_md, json.dumps(result.get("sections", [])),
-                 result.get("tldr_md", ""), result.get("subtitle", ""), digest_id),
+                 result.get("tldr_md", ""), result.get("subtitle", ""),
+                 result.get("reading_time_min", 0), json.dumps(sources), digest_id),
             )
             await db.commit()
 
@@ -1585,7 +1602,10 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
     except Exception as e:
         logger.error(f"Issue {digest_id} failed: {e}", exc_info=True)
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("UPDATE digests SET status='error' WHERE id=?", (digest_id,))
+            await db.execute(
+                "UPDATE digests SET status='error', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (digest_id,)
+            )
             await db.commit()
 
 
@@ -1597,7 +1617,53 @@ async def get_digest(digest_id: int):
             row = await cur.fetchone()
     if not row:
         raise HTTPException(404)
-    return dict(row)
+    d = dict(row)
+    # Lazy age guard: a 'generating' row that started >10 min ago is stuck
+    if d.get("status") == "generating" and d.get("started_at"):
+        from datetime import datetime, timezone
+        try:
+            started = datetime.fromisoformat(d["started_at"].replace("Z", "+00:00"))
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - started).total_seconds()
+            if age > 600:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await db.execute(
+                        "UPDATE digests SET status='error', updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                        (digest_id,)
+                    )
+                    await db.commit()
+                d["status"] = "error"
+        except Exception:
+            pass
+    return d
+
+
+@app.post("/api/digests/{digest_id}/retry")
+async def retry_digest(digest_id: int, background_tasks: BackgroundTasks):
+    """Re-run generation for a failed/stuck digest using its original parameters."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM digests WHERE id=?", (digest_id,)) as cur:
+            row = await cur.fetchone()
+    if not row:
+        raise HTTPException(404)
+    d = dict(row)
+    episode_ids = json.loads(d.get("episode_ids_json") or "[]")
+    if not episode_ids:
+        raise HTTPException(400, "Keine Folgen in diesem Digest gespeichert")
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE digests SET status='generating', started_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP WHERE id=?",
+            (digest_id,)
+        )
+        await db.commit()
+    background_tasks.add_task(
+        _build_issue, digest_id, episode_ids,
+        d.get("format", "daily_briefing"), d.get("length", 3), d.get("style", 3),
+        d.get("title", ""), "", "", ""
+    )
+    return {"id": digest_id, "status": "generating"}
 
 
 @app.delete("/api/digests/{digest_id}")

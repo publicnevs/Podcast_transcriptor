@@ -63,15 +63,24 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 📰 PodScribe Redaktion (Digest)
 
+- **Geführter Wizard** — 3-Schritt-Assistent: zuerst Quellen wählen, dann Format, dann Feinschliff. Kein überladenes Formular.
+- **Vier Quell-Modi:**
+  - **Diese Woche** — ein Tap genügt für ein sofortiges Briefing der letzten 7 Tage.
+  - **Nach Thema** — alle Folgen zu einem oder mehreren Tags.
+  - **Nach Podcast** — einen oder mehrere Podcasts auswählen.
+  - **Folgen auswählen** — einzelne Episoden hand-picked.
 - **Drei Ressorts:**
   - **Überblick** — kompaktes Briefing der letzten Folgen.
   - **Magazin** — ausführlicher Artikel mit einstellbarer Länge.
   - **Dossier** — tiefe Themen-Recherche zu einem gesetzten Schwerpunkt.
+- **Quellenangaben** — jeder Artikel listet seine Quellen (Folge, Podcast, Datum, Link). Im Reader ein-/ausblendbar, in Exporten immer enthalten.
+- **Multi-Source-Synthese** — wenn mehrere Folgen einfließen, verknüpft die KI die Quellen mit `[1]`, `[2]`-Belegen im Text.
 - **Live-Vorschau** — vor dem Erzeugen sehen, welche Folgen einfließen und wie lange das Lesen dauert.
-- **Journalistische Artikel** — echte Redaktionstexte (1200–2000 Wörter), KI-geschrieben aus deinen Transkripten.
+- **Journalistische Artikel** — echte Redaktionstexte (700–4000 Wörter je Ressort), KI-geschrieben aus deinen Transkripten.
 - **TL;DR oben** — jeder Artikel startet mit dem Wichtigsten in Kürze.
 - **Rezepte & Zeitplan** — wiederkehrende Ausgaben speichern und automatisch zu festen Zeiten erzeugen lassen.
 - **Automatische Trending-Ausgabe** — wöchentlich automatisch eine Ausgabe aus den aktuell meistdiskutierten Themen (an-/abschaltbar, Wochentag & Uhrzeit wählbar).
+- **Fehler-Recovery** — hängengebliebene Ausgaben (z.B. nach Server-Neustart) als Fehler markiert; mit einem Klick neu generieren.
 - **Per E-Mail zustellen** — Ausgaben automatisch oder manuell per Mail verschicken.
 - **Teilen** — Ausgabe über einen Link teilen.
 

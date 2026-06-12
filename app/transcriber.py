@@ -227,6 +227,7 @@ GESAMTUMFANG: ca. {total_words} Wörter, verteilt auf {n_sections} thematische A
 {focus_block}
 Erzeuge zusätzlich eine prägnante teilbare Kurzfassung (tldr_md): 5–8 Bullet-Punkte mit den Kernthemen, als eigenständiger weiterleitbarer Text.
 Erzeuge außerdem GENAU EINEN Abschnitt mit kind "quote": das prägnanteste wörtliche Zitat der Ausgabe mit Sprecher und Folge.
+Quellenangaben: Die Quellen sind mit [1], [2] … nummeriert. Verwende diese Nummern als Belege im Text, wenn du Aussagen einer bestimmten Quelle zuordnest.
 
 Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
 {{
@@ -252,6 +253,7 @@ AUFBAU:
 1. Kurzes Intro (2-3 Sätze): Was sind heute die zentralen Themen?
 2. Pro Folge ein Abschnitt: Podcast-Name, Folgen-Titel, 3-5 Kernaussagen als Bullet-Liste
 3. Abschluss-Empfehlung (1-2 Sätze): Welche Folge ist heute besonders relevant?
+Die Quellen sind mit [1], [2] … nummeriert. Verwende diese Nummern als Belege, wenn du Aussagen einer bestimmten Quelle zuordnest.
 {focus_block}
 Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
 {{
@@ -639,8 +641,8 @@ def _extract_tags_sync(summary: str, takeaways: list, chapters: list) -> list:
 
 def _build_episodes_text(episode_data: list, max_per_ep: int = 10000) -> str:
     text = ""
-    for ep in episode_data:
-        text += f"\n\n### {ep.get('title','Folge')} ({ep.get('podcast_title','')}, {ep.get('pub_date','')})\n"
+    for i, ep in enumerate(episode_data, 1):
+        text += f"\n\n[{i}] {ep.get('title','Folge')} — {ep.get('podcast_title','')}, {ep.get('pub_date','')}\n"
         body = ep.get("transcript") or ep.get("summary") or ""
         text += body[:max_per_ep]
     return text
@@ -682,7 +684,7 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
     if fmt == "summary_takeaways":
         # Prefer existing summaries over full transcript (cheaper)
         episodes_text = ""
-        for ep in episode_data:
+        for i, ep in enumerate(episode_data, 1):
             tk = ep.get("takeaways") or []
             if isinstance(tk, str):
                 try: tk = json.loads(tk)
@@ -692,7 +694,7 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
                 body = f"Zusammenfassung: {summary_txt}\nTakeaways: {'; '.join(tk)}"
             else:
                 body = (ep.get("transcript") or "")[:4000]
-            episodes_text += f"\n\n### {ep.get('title','Folge')} ({ep.get('podcast_title','')}, {ep.get('pub_date','')})\n{body}"
+            episodes_text += f"\n\n[{i}] {ep.get('title','Folge')} — {ep.get('podcast_title','')}, {ep.get('pub_date','')}\n{body}"
 
         prompt = SUMMARY_TAKEAWAYS_PROMPT.format(
             title=title or "Summary + Takeaways",
