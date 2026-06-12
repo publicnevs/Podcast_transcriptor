@@ -32,6 +32,41 @@ curl http://localhost:7878/health
 
 There is no test suite — manual testing via the browser UI is the primary verification method.
 
+## Synology Deployment
+
+The Synology NAS does **not** use `git pull`. Deployment is done by downloading a
+tarball of the branch with `wget`, extracting it with `tar`, and all commands run
+with `sudo` (the deploy user is not in the docker group / lacks write perms on the
+app dir). The current development branch is `claude/admiring-faraday-77whnp`.
+
+```bash
+# 1. Go to the app directory
+cd /volume1/docker/Podcast_transcriptor
+
+# 2. Download the branch tarball from GitHub
+sudo wget -O podscribe.tar.gz \
+  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/admiring-faraday-77whnp.tar.gz
+
+# 3. Extract, stripping the top-level folder so files land in the current dir
+sudo tar -xzf podscribe.tar.gz --strip-components=1
+
+# 4. Clean up the tarball
+sudo rm podscribe.tar.gz
+
+# 5. Rebuild and restart the container
+sudo docker-compose down
+sudo docker-compose build
+sudo docker-compose up -d
+
+# 6. Verify (wait ~5s for startup)
+curl http://localhost:7878/health
+```
+
+Notes:
+- DB schema changes apply automatically via `init_db()` on startup — no manual migration.
+- The service-worker cache bumps with each shell change (currently `v5`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
+- Keep `.env` (with `GEMINI_API_KEY`) in the app dir — `--strip-components=1` only overwrites files present in the tarball, so `.env` is preserved.
+
 ## Architecture
 
 ### Backend (`app/`)
