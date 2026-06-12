@@ -37,7 +37,7 @@ There is no test suite — manual testing via the browser UI is the primary veri
 The Synology NAS does **not** use `git pull`. Deployment is done by downloading a
 tarball of the branch with `wget`, extracting it with `tar`, and all commands run
 with `sudo` (the deploy user is not in the docker group / lacks write perms on the
-app dir). The current development branch is `claude/admiring-faraday-77whnp`.
+app dir). The current development branch is `claude/vigilant-keller-5gb9fp`.
 
 ```bash
 # 1. Go to the app directory
@@ -45,7 +45,7 @@ cd /volume1/docker/Podcast_transcriptor
 
 # 2. Download the branch tarball from GitHub
 sudo wget -O podscribe.tar.gz \
-  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/admiring-faraday-77whnp.tar.gz
+  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/vigilant-keller-5gb9fp.tar.gz
 
 # 3. Extract, stripping the top-level folder so files land in the current dir
 sudo tar -xzf podscribe.tar.gz --strip-components=1
@@ -100,6 +100,7 @@ same work block.
 - **`newsletter.py`** — IMAP newsletter inbox (stdlib `imaplib`+`email`, blocking work in an executor). `check_inbox()` fetches new mails, groups them **per sender** into pseudo-podcasts (`feed_type='newsletter'`, `rss_url='newsletter:<addr>'`), and feeds each mail through `processor.insert_new_episodes` like a newsfeed article. Dedup via Message-ID in `episodes.episode_url`; IMAP `SINCE` only bounds the scan. Polled daily by a dedicated scheduler job and on demand (`POST /api/newsletter/check`).
 - **`mailer.py`** — Outbound SMTP (stdlib `smtplib`+`email`) for digest delivery. `maybe_email_digest()` is called at the end of `_build_issue` (no-op unless `digest_email_enabled`); manual send via `POST /api/digests/{id}/email`.
 - **`rag.py`** — Semantic search over the whole library. Each processed episode is chunked along `segments_json` and embedded (`transcriber.embed_texts`, Gemini embeddings) into `episode_chunks` (vectors as packed float32 BLOBs, no numpy). `answer()` embeds the question, ranks chunks by cosine similarity in pure Python, and has Gemini Flash compose a cited answer. `reindex_all()` backfills existing episodes. Indexing is best-effort — a missing API key never breaks transcription.
+- **`auth.py`** — Owner/guest access control (stdlib only, no extra deps). App is fully open by default; setting `owner_password_hash` in the `settings` table activates enforcement. Passwords are PBKDF2-HMAC-SHA256 hashed; sessions are signed 30-day cookies (`ps_session`). An ASGI middleware in `main.py` enforces a read-only path allowlist for guests; owner role gets full access. Guest RAG (`/api/ask`, `/api/chat`) has a separate toggle and a per-IP token bucket (10 questions/hour). Call `auth.invalidate()` after any auth-related settings change.
 
 ### Frontend (`app/static/`)
 
@@ -108,7 +109,7 @@ Vanilla JS SPA — no build step, no framework. Pages share `app.js` utilities. 
 - **`icons.js`** — Unified inline-SVG icon set (Lucide outline, ISC license) bundled locally so it works offline (no CDN, no build). `icon(name, {size,cls})` returns an `<svg>` string used inside JS templates; `hydrateIcons()` (runs on `DOMContentLoaded`) fills any `data-icon="name"` element in static HTML. Add a new glyph to the `ICONS` map to extend.
 - **`app.js`** — Shared utilities: `API` (fetch wrappers), `toast()`, `confirmModal()`, `renderNav()`, `statusBadge()`, plus reusable UI helpers `openSheet(title, items)` (bottom-sheet on mobile / dialog on desktop), `openMenu(anchorEl, items)` (⋮ context popover), and `downloadFile(url, filename)` (blob download that works in the installed PWA).
 - **`episode.html`** — The most complex page. Audio player syncs with transcript: clicking a paragraph seeks audio; during playback, current paragraph highlights and auto-scrolls (uses `segments_json` for timestamp mapping). Action bar uses the export bottom-sheet + ⋮ menu; the summary card always shows Zusammenfassung + Themenübersicht + Key Takeaways and offers a regenerate button (`POST /api/episodes/{id}/regenerate-summary`).
-- Other pages: `index.html` (library), `podcast.html` (single feed), `digest.html` (digest/"Redaktion" builder + recipes/scheduling — UI label is "Redaktion", routes/tables stay `digest`/`digests`), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds), `tags.html` (browse by topic tag), `settings.html` (API key, backend, intervals), `about.html`.
+- Other pages: `index.html` (library), `podcast.html` (single feed), `digest.html` (digest/"Redaktion" builder + recipes/scheduling — UI label is "Redaktion", routes/tables stay `digest`/`digests`), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds), `tags.html` (browse by topic tag), `topic.html` (episodes for a single tag), `search.html` (dual-mode: AI chat via RAG + classic FTS, labelled "Frag deine Bibliothek"), `radar.html` (Themen-Radar — trending topics across all sources over 7 or 30 days), `settings.html` (API key, backend, intervals, auth), `login.html` (owner/guest login when access control is enabled), `about.html`.
 - **`sw.js`** — Service Worker (cache `podscribe-v2`); caches the app shell incl. `icons.js` for offline reading, and **skips** `/audio` and `/export` so streaming and downloads always hit the network. Bump the cache name when shipping shell changes to force-refresh clients.
 - **`style.css`** — CSS variables design system, dark mode, mobile-first (bottom nav) + desktop (top nav) responsive layout. Reusable components: `.sheet`, `.menu-popover`, `.fab`, `.icon`. `.action-bar` and `.meta-line` are single-line, horizontally scrollable (hidden scrollbar) on mobile.
 
