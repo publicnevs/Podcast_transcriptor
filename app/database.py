@@ -240,6 +240,15 @@ async def init_db():
             except Exception:
                 pass  # column already exists
         await _backfill_pub_dates(db)
+        # Bootstrap a stable session secret so signed cookies survive restarts.
+        async with db.execute("SELECT value FROM settings WHERE key='session_secret'") as cur:
+            row = await cur.fetchone()
+        if not row or not row[0]:
+            import secrets as _secrets
+            await db.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('session_secret', ?)",
+                (_secrets.token_hex(32),),
+            )
         await db.commit()
 
 async def get_setting(key: str) -> str:

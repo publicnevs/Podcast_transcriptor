@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -12,11 +13,12 @@ import httpx
 import markdown2
 from fastapi import (BackgroundTasks, FastAPI, File, HTTPException, Query,
                      Request, UploadFile)
-from fastapi.responses import (FileResponse, HTMLResponse, Response,
-                                StreamingResponse)
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                                RedirectResponse, Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import auth
 from .database import DB_PATH, init_db, get_setting, set_setting
 from .exporter import (bulk_export_markdown, export_ai_copy,
                         export_markdown, export_txt)
@@ -57,6 +59,52 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PodScribe", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# ── Role guard (owner vs read-only guest) ───────────────────────────────────────
+# Open-by-default: when no owner password is configured, current_role() returns
+# "owner" for everyone. Once configured, guests may only GET the allowlisted
+# read paths below; everything else (writes + cost actions) is owner-only.
+_GUEST_PAGE_RE = re.compile(
+    r"^/(?:$|podcast/\d+$|episode/\d+$|digests$|digest/\d+$|tags$|tags/\d+$"
+    r"|topic/\d+$|about$|discover$|radar$|search$|login$)"
+)
+_GUEST_STATIC_RE = re.compile(r"^/(?:static/|sw\.js$|manifest\.json$|health$|s/|favicon)")
+_GUEST_API_RE = re.compile(
+    r"^/api/(?:me$|podcasts$|podcasts/\d+$|podcasts/\d+/episodes$|podcasts/\d+/export$"
+    r"|episodes/\d+$|episodes/\d+/audio$|episodes/\d+/tags$|episodes/\d+/related$"
+    r"|episodes/\d+/export$|search$|tags$|tags/\d+/episodes$|digests$|digests/\d+$"
+    r"|radar$|overview/week$|recommended$|recipes$|issue-options$"
+    r"|recent-takeaways$|topics/\d+$)$"
+)
+
+
+def _guest_get_ok(path: str) -> bool:
+    return bool(_GUEST_PAGE_RE.match(path)
+                or _GUEST_STATIC_RE.match(path)
+                or _GUEST_API_RE.match(path))
+
+
+@app.middleware("http")
+async def role_guard(request: Request, call_next):
+    role = await auth.current_role(request)
+    request.state.role = role
+    if role == "owner":
+        return await call_next(request)
+    path, method = request.url.path, request.method
+    if method in ("GET", "HEAD") and _guest_get_ok(path):
+        return await call_next(request)
+    if method == "POST" and path in ("/api/login", "/api/logout"):
+        return await call_next(request)
+    # Guest RAG/chat: opt-in via setting + per-IP rate limit (LLM cost).
+    if method == "POST" and path in ("/api/ask", "/api/chat") and await auth.guest_rag_enabled():
+        ip = request.client.host if request.client else "?"
+        if auth.allow_rag(ip):
+            return await call_next(request)
+        return JSONResponse({"detail": "Limit erreicht. Bitte später erneut."}, status_code=429)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "Nur für Eigentümer"}, status_code=403)
+    return RedirectResponse("/login")
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
@@ -108,6 +156,14 @@ class SettingsUpdate(BaseModel):
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
+    # Access control (owner/guest)
+    owner_password: Optional[str] = None
+    guest_password: Optional[str] = None
+    guest_rag_enabled: Optional[bool] = None
+
+
+class LoginRequest(BaseModel):
+    password: str
 
 
 class NewsletterTest(BaseModel):
@@ -280,6 +336,16 @@ async def page_search():
 @app.get("/radar", response_class=HTMLResponse)
 async def page_radar():
     return FileResponse(STATIC_DIR / "radar.html")
+
+
+@app.get("/topic/{tag_id}", response_class=HTMLResponse)
+async def page_topic(tag_id: int):
+    return FileResponse(STATIC_DIR / "topic.html")
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def page_login():
+    return FileResponse(STATIC_DIR / "login.html")
 
 
 # ── Podcasts ───────────────────────────────────────────────────────────────────
@@ -931,6 +997,11 @@ async def get_settings():
     out["gemini_api_key_set"] = bool(out.pop("gemini_api_key", "") or os.getenv("GEMINI_API_KEY", ""))
     out["newsletter_imap_password_set"] = bool(out.pop("newsletter_imap_password", ""))
     out["smtp_password_set"] = bool(out.pop("smtp_password", ""))
+    # Access control: expose status flags, never the hashes/secret
+    out["owner_configured"] = bool(out.pop("owner_password_hash", ""))
+    out["guest_password_set"] = bool(out.pop("guest_password_hash", ""))
+    out.pop("session_secret", None)
+    out["guest_rag_enabled"] = out.get("guest_rag_enabled", "0") == "1"
     return out
 
 
@@ -979,8 +1050,69 @@ async def update_settings(data: SettingsUpdate):
         await set_setting("smtp_user", data.smtp_user.strip())
     if data.smtp_password:  # only overwrite when non-empty
         await set_setting("smtp_password", data.smtp_password)
+    # Access control (owner/guest)
+    owner_just_set = False
+    if data.owner_password is not None:
+        # Empty string disables auth → back to fully-open single-user mode.
+        await set_setting(
+            "owner_password_hash",
+            auth.hash_password(data.owner_password) if data.owner_password else "",
+        )
+        owner_just_set = bool(data.owner_password)
+        auth.invalidate()
+    if data.guest_password is not None:
+        await set_setting(
+            "guest_password_hash",
+            auth.hash_password(data.guest_password) if data.guest_password else "",
+        )
+        auth.invalidate()
+    if data.guest_rag_enabled is not None:
+        await set_setting("guest_rag_enabled", "1" if data.guest_rag_enabled else "0")
+        auth.invalidate()
     await _apply_runtime_config()
+    # When enabling protection from open mode, keep THIS browser signed in as owner
+    # so the user doesn't lock themselves out (they had no cookie before).
+    if owner_just_set:
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(
+            auth.COOKIE_NAME,
+            auth.make_cookie("owner", await auth.session_secret()),
+            max_age=auth.COOKIE_TTL, httponly=True, samesite="lax",
+        )
+        return resp
     return {"ok": True}
+
+
+# ── Auth (owner / guest) ────────────────────────────────────────────────────────
+
+@app.post("/api/login")
+async def api_login(data: LoginRequest):
+    role = await auth.login_role(data.password)
+    if not role:
+        raise HTTPException(401, "Falsches Passwort")
+    resp = JSONResponse({"role": role})
+    resp.set_cookie(
+        auth.COOKIE_NAME,
+        auth.make_cookie(role, await auth.session_secret()),
+        max_age=auth.COOKIE_TTL, httponly=True, samesite="lax",
+    )
+    return resp
+
+
+@app.post("/api/logout")
+async def api_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE_NAME)
+    return resp
+
+
+@app.get("/api/me")
+async def api_me(request: Request):
+    return {
+        "role": getattr(request.state, "role", "owner"),
+        "owner_configured": await auth.owner_configured(),
+        "guest_rag_enabled": await auth.guest_rag_enabled(),
+    }
 
 
 # ── Scheduler ──────────────────────────────────────────────────────────────────

@@ -297,6 +297,41 @@
     </div>
   </div>
 
+  <!-- Access control (owner / guest) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="lock" data-icon-size="18">Zugriff &amp; Anmeldung</h2>
+    <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
+      Solange kein Eigentümer-Passwort gesetzt ist, hat jeder vollen Zugriff (Einzelnutzer-Modus).
+      Mit gesetztem Passwort können Gäste nur <strong>lesen</strong> — kein Transkribieren,
+      keine Einstellungen, keine Änderungen.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <div class="form-group">
+        <label class="form-label">Eigentümer-Passwort</label>
+        <input type="password" id="owner-pass" placeholder="leer lassen = unverändert" autocomplete="new-password">
+        <span id="owner-status" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></span>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Gast-Passwort (optional)</label>
+        <input type="password" id="guest-pass" placeholder="leer = Gäste ohne Passwort lesen" autocomplete="new-password">
+        <span id="guest-status" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></span>
+      </div>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.9rem">
+        <input type="checkbox" id="guest-rag" style="width:auto">
+        Gästen die KI-Suche/Chat erlauben (verursacht Kosten, mit Limit)
+      </label>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveAccess()">Speichern</button>
+        <button class="btn btn-ghost" style="align-self:flex-start" onclick="logout()">Abmelden</button>
+        <button class="btn btn-ghost" style="align-self:flex-start" onclick="disableAuth()">Schutz aufheben</button>
+      </div>
+      <span style="font-size:.78rem;color:var(--text-muted)">
+        Leere Passwortfelder bleiben unverändert. „Schutz aufheben" entfernt das
+        Eigentümer-Passwort → zurück in den offenen Einzelnutzer-Modus.
+      </span>
+    </div>
+  </div>
+
   <!-- PWA Install hint -->
   <div class="card" style="margin-top:1rem;background:var(--accent-dim);border-color:var(--accent)">
     <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="smartphone" data-icon-size="18">App auf Handy installieren</h2>
@@ -352,7 +387,41 @@ async function loadSettings() {
 
     // Base URL
     document.getElementById('base-url').value = s.public_base_url || '';
+
+    // Access control
+    document.getElementById('owner-status').innerHTML = s.owner_configured
+      ? 'Eigentümer-Passwort gesetzt (Gäste lesen nur).'
+      : 'Kein Passwort — offener Einzelnutzer-Modus.';
+    document.getElementById('guest-status').innerHTML = s.guest_password_set
+      ? 'Gast-Passwort gesetzt.' : 'Kein Gast-Passwort (Gäste lesen ohne Passwort).';
+    document.getElementById('guest-rag').checked = s.guest_rag_enabled === true;
   } catch {}
+}
+
+async function saveAccess() {
+  const payload = { guest_rag_enabled: document.getElementById('guest-rag').checked };
+  const op = document.getElementById('owner-pass').value;
+  const gp = document.getElementById('guest-pass').value;
+  // Only send password fields when the user typed something (empty owner field
+  // must NOT wipe the password). Use a sentinel button instead for clearing.
+  if (op) payload.owner_password = op;
+  if (gp) payload.guest_password = gp;
+  try {
+    await API.put('/api/settings', payload);
+    toast('✅ Zugriff gespeichert', 'success');
+    document.getElementById('owner-pass').value = '';
+    document.getElementById('guest-pass').value = '';
+    loadSettings();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function disableAuth() {
+  if (!confirm('Eigentümer-Schutz aufheben? Danach hat wieder jeder vollen Zugriff.')) return;
+  try {
+    await API.put('/api/settings', { owner_password: '', guest_password: '' });
+    toast('Schutz aufgehoben — offener Modus', 'success');
+    loadSettings();
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 async function saveNewsletter() {

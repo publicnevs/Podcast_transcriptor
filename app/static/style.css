@@ -1187,3 +1187,8 @@ details[open] summary::before { transform: rotate(90deg); }
 @media (max-width: 768px) {
   .fab { bottom: calc(72px + env(safe-area-inset-bottom)); }
 }
+
+/* ── Role-based visibility (owner vs read-only guest) ─────────────────────── */
+[data-guest-only] { display: none; }
+body.role-guest [data-owner-only] { display: none !important; }
+body.role-guest [data-guest-only] { display: flex; }

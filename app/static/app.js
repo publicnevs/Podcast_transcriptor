@@ -1,5 +1,10 @@
 /* ── PodScribe shared utilities ─────────────────────────────────────────── */
 
+// On a 403 from a mutating call the user is a read-only guest — surface it once.
+function _guard403(r) {
+  if (r.status === 403) { try { toast('Nur für Eigentümer — bitte anmelden.', 'error'); } catch(_){} }
+}
+
 const API = {
   async get(path) {
     const r = await fetch(path);
@@ -8,25 +13,42 @@ const API = {
   },
   async post(path, body) {
     const r = await fetch(path, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    if (!r.ok) { const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
+    if (!r.ok) { _guard403(r); const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
     return r.json();
   },
   async patch(path, body={}) {
     const r = await fetch(path, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    if (!r.ok) { const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
+    if (!r.ok) { _guard403(r); const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
     return r.json();
   },
   async put(path, body) {
     const r = await fetch(path, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
-    if (!r.ok) { const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
+    if (!r.ok) { _guard403(r); const e = await r.json().catch(()=>({detail:r.statusText})); throw new Error(e.detail||r.statusText); }
     return r.json();
   },
   async del(path) {
     const r = await fetch(path, { method:'DELETE' });
-    if (!r.ok) throw new Error(r.statusText);
+    if (!r.ok) { _guard403(r); throw new Error(r.statusText); }
     return r.json();
   }
 };
+
+// ── Role gate (owner vs read-only guest) ───────────────────────────────────
+// window.ME is populated once from /api/me; body.role-guest drives CSS hiding
+// of [data-owner-only] controls. Open-by-default → role is "owner" for everyone.
+window.ME = { role: 'owner', owner_configured: false, guest_rag_enabled: false };
+async function initRole() {
+  try {
+    window.ME = await API.get('/api/me');
+  } catch (_) { /* keep optimistic default */ }
+  document.body.classList.toggle('role-guest', window.ME.role !== 'owner');
+}
+function isOwner() { return window.ME && window.ME.role === 'owner'; }
+async function logout() {
+  try { await fetch('/api/logout', { method:'POST' }); } catch(_){}
+  location.href = '/';
+}
+document.addEventListener('DOMContentLoaded', initRole);
 
 function toast(msg, type='info') {
   const c = document.getElementById('toast-container') || (() => {
@@ -191,16 +213,18 @@ function renderNav(activePath) {
         <a href="/radar" ${activePath==='/radar'?'class="active"':''}>${icon('radar')} <span>Radar</span></a>
         <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>${icon('newspaper')} <span>Zeitung</span></a>
-        <a href="/settings" ${activePath==='/settings'?'class="active"':''}>${icon('settings')} <span>Settings</span></a>
+        <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}>${icon('settings')} <span>Settings</span></a>
+        <a href="/login" data-guest-only>${icon('lock')} <span>Anmelden</span></a>
         <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">${icon('sun')}</button>
       </nav>
     </nav>
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">${icon('library', {size:22})}</span>Bibliothek</a>
-      <a href="/?add=1"><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
+      <a href="/?add=1" data-owner-only><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
       <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">${icon('compass', {size:22})}</span>Entdecken</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Zeitung</a>
-      <a href="/settings" ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
+      <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
+      <a href="/login" data-guest-only><span class="bn-icon">${icon('lock', {size:22})}</span>Anmelden</a>
     </nav>`;
 }
 
