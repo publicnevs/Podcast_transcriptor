@@ -1115,6 +1115,48 @@ async def api_me(request: Request):
     }
 
 
+# ── Recent takeaways (start-screen ticker) ─────────────────────────────────────
+
+@app.get("/api/recent-takeaways")
+async def recent_takeaways(limit: int = 12):
+    """Newest processed episodes with their first key takeaway (for the ticker)."""
+    limit = max(1, min(limit, 30))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.id AS episode_id, e.title, p.id AS podcast_id,
+                   p.title AS podcast_title, p.artwork_url, p.feed_type,
+                   s.takeaways_json
+            FROM episodes e
+            JOIN podcasts p ON p.id = e.podcast_id
+            JOIN summaries s ON s.episode_id = e.id
+            WHERE e.status='done'
+              AND s.takeaways_json IS NOT NULL
+              AND s.takeaways_json NOT IN ('', '[]')
+            ORDER BY datetime(e.pub_date) DESC, e.id DESC
+            LIMIT ?
+        """, (limit,)) as cur:
+            rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        try:
+            takes = json.loads(r["takeaways_json"] or "[]")
+        except Exception:
+            takes = []
+        if not takes:
+            continue
+        out.append({
+            "episode_id": r["episode_id"],
+            "title": r["title"],
+            "podcast_id": r["podcast_id"],
+            "podcast_title": r["podcast_title"],
+            "artwork_url": r["artwork_url"],
+            "feed_type": r["feed_type"],
+            "takeaway": takes[0],
+        })
+    return out
+
+
 # ── Scheduler ──────────────────────────────────────────────────────────────────
 
 @app.post("/api/scheduler/trigger")

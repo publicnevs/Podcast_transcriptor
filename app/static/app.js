@@ -50,6 +50,31 @@ async function logout() {
 }
 document.addEventListener('DOMContentLoaded', initRole);
 
+// Deterministic placeholder avatar (offline, no external calls). Newsletters get
+// a mail badge so they're recognizable; other feeds without artwork get initials.
+function avatarFor(name, opts = {}) {
+  const s = String(name || '?').trim();
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) hash = (hash * 31 + s.charCodeAt(i)) >>> 0;
+  const hue = hash % 360;
+  const initials = (s.split(/\s+/).slice(0, 2).map(w => w[0] || '').join('') || '?').toUpperCase();
+  const badge = opts.newsletter ? `<span class="gen-avatar-badge">${icon('mail', { size: 13 })}</span>` : '';
+  return `<div class="gen-avatar" style="--av-bg:hsl(${hue} 42% 42%)">`
+       + `<span class="gen-avatar-initials">${escHtml(initials)}</span>${badge}</div>`;
+}
+
+// Visual for a podcast/feed tile: newsletter → mail avatar; artwork → img; else initials.
+function tileVisual(p) {
+  if (p.feed_type === 'newsletter') return avatarFor(p.title, { newsletter: true });
+  if (p.artwork_url) return `<img src="${escHtml(p.artwork_url)}" alt="${escHtml(p.title)}" loading="lazy" onerror="podcastImgFallback(this, ${JSON.stringify(escHtml(p.title))})">`;
+  return avatarFor(p.title);
+}
+
+// Image load failure → swap to a deterministic initials avatar.
+function podcastImgFallback(img, title) {
+  if (img && img.parentNode) img.parentNode.innerHTML = avatarFor(title || img.alt || '?');
+}
+
 function toast(msg, type='info') {
   const c = document.getElementById('toast-container') || (() => {
     const el = document.createElement('div');
@@ -486,6 +511,7 @@ async function shareContent(title, text, url) {
 }
 
 async function pollQueue() {
+  if (!isOwner()) return;  // /api/queue is owner-only; guests skip silently
   try {
     const q = await API.get('/api/queue');
     const active = q.filter(e => ['queued','downloading','transcribing'].includes(e.status));

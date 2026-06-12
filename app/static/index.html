@@ -75,6 +75,12 @@
     <div id="watchlist-list" class="episode-list"></div>
   </div>
 
+  <!-- Recent takeaways ticker -->
+  <div id="takeaways-section" style="display:none;margin-bottom:1.5rem">
+    <div class="section-title" data-icon="sparkles" data-icon-size="16">Aktuelle Erkenntnisse</div>
+    <div id="takeaways-ticker" class="ticker"></div>
+  </div>
+
   <!-- Podcasts Grid -->
   <div class="section-title" data-icon="library" data-icon-size="16">Podcasts &amp; Feeds</div>
   <div id="podcast-grid" class="card-grid"></div>
@@ -109,9 +115,7 @@ async function loadPodcasts() {
     grid.classList.add('fade-in');
     grid.innerHTML = podcasts.map(p => `
       <div class="podcast-card" onclick="location.href='/podcast/${p.id}'">
-        ${p.artwork_url
-          ? `<img src="${escHtml(p.artwork_url)}" alt="" loading="lazy" onerror="podcastImgFallback(this)">`
-          : `<div class="podcast-card-placeholder">${icon('headphones',{size:40})}</div>`}
+        ${tileVisual(p)}
         <div class="podcast-card-body">
           <div class="podcast-card-title">${escHtml(p.title)}</div>
           <div class="podcast-card-meta">
@@ -216,8 +220,25 @@ async function toggleWatch(id, btn) {
   await loadWatchlist();
 }
 
-function podcastImgFallback(img) {
-  img.parentNode.innerHTML = `<div class="podcast-card-placeholder">${icon('headphones',{size:40})}</div>`;
+// Recent-takeaways ticker (swipeable cards above the podcast grid)
+async function loadTakeaways() {
+  const sec = document.getElementById('takeaways-section');
+  const row = document.getElementById('takeaways-ticker');
+  if (!sec || !row) return;
+  try {
+    const items = await API.get('/api/recent-takeaways?limit=12');
+    if (!items.length) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    row.innerHTML = items.map(it => `
+      <div class="ticker-card" onclick="location.href='/episode/${it.episode_id}'">
+        <div class="ticker-source">
+          ${it.feed_type==='newsletter' ? icon('mail',{size:13}) : (it.feed_type==='newsfeed' ? icon('newspaper',{size:13}) : icon('headphones',{size:13}))}
+          <span>${escHtml(it.podcast_title)}</span>
+        </div>
+        <div class="ticker-takeaway">${escHtml(it.takeaway)}</div>
+        <div class="ticker-episode">${escHtml(it.title)}</div>
+      </div>`).join('');
+  } catch(e) { sec.style.display = 'none'; }
 }
 
 // Open add panel when arriving via ➕ Abonnieren (/?add=1)
@@ -229,7 +250,9 @@ if (new URLSearchParams(location.search).get('add') === '1') {
 // Init
 loadPodcasts();
 loadWatchlist();
+loadTakeaways();
 setInterval(() => { loadPodcasts(); }, 10000);
+setInterval(loadTakeaways, 60000);
 </script>
 </body>
 </html>

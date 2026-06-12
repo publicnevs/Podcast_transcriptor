@@ -107,9 +107,13 @@ async function loadPodcast() {
     podcastData = await API.get(`/api/podcasts/${podcastId}`);
     const h = document.getElementById('podcast-header');
     h.innerHTML = `
-      ${podcastData.artwork_url
-        ? `<img class="page-header-art" src="${escHtml(podcastData.artwork_url)}" alt="" onerror="this.style.display='none'">`
-        : `<div class="page-header-art" style="background:var(--accent-dim);display:flex;align-items:center;justify-content:center">${icon('headphones',{size:40})}</div>`}
+      <div class="page-header-art" style="padding:0;overflow:hidden">
+        ${podcastData.feed_type==='newsletter'
+          ? avatarFor(podcastData.title, {newsletter:true})
+          : podcastData.artwork_url
+            ? `<img src="${escHtml(podcastData.artwork_url)}" alt="${escHtml(podcastData.title)}" style="width:100%;height:100%;object-fit:cover" onerror="podcastImgFallback(this, ${JSON.stringify(escHtml(podcastData.title))})">`
+            : avatarFor(podcastData.title)}
+      </div>
       <div class="page-header-info">
         <h1>${escHtml(podcastData.title)}</h1>
         <p>${escHtml((podcastData.description||'').slice(0,200))}</p>
