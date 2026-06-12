@@ -67,6 +67,17 @@ Notes:
 - The service-worker cache bumps with each shell change (currently `v5`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
 - Keep `.env` (with `GEMINI_API_KEY`) in the app dir — `--strip-components=1` only overwrites files present in the tarball, so `.env` is preserved.
 
+**ALWAYS provide these Synology deploy commands at the end of every work block** (each
+completed mode/phase/task), filled in with the current branch name, so the user can deploy
+immediately without asking.
+
+## Feature Documentation
+
+`FEATURES.md` (repo root) is the canonical **end-user** feature list — what the app can do,
+in plain language, grouped by area. Keep it in sync: whenever a user-facing feature is added,
+changed, or removed, update `FEATURES.md` (and the in-app `app/static/about.html` page) in the
+same work block.
+
 ## Architecture
 
 ### Backend (`app/`)
