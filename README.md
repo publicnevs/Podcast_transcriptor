@@ -62,7 +62,7 @@ Beide Backends erzeugen:
 - **Bulk-Export** — alle Folgen eines Podcasts als eine Markdown-Datei (ideal für AI-Research: "Analysiere alle 50 Folgen und erstelle eine Wissensdatenbank")
 - Drucken/PDF direkt aus dem Browser
 
-### 📰 PodScribe Zeitung (Digest)
+### 📰 PodScribe Redaktion (Digest)
 - Gemini 2.5 Pro generiert **journalistische Artikel** aus Transkripten (kein Stichpunkt-Summary, echter Redaktionstext, 1200-2000 Wörter)
 - **Wochenzeitung** — alle Folgen der letzten 7 Tage
 - **Themen-Report** — manuell ausgewählte Folgen kombinieren

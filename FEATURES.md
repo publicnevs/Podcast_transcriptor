@@ -5,7 +5,7 @@
 > transkribiert sie automatisch per KI, fasst sie zusammen, macht alles durchsuchbar
 > und liefert dir einen synchronen Audio-/Lese-Player — als App auf dem Handy oder im
 > Browser. Dazu kommen KI-Tools wie eine „Frag-deine-Bibliothek"-Suche und eine
-> automatisch generierte Zeitung.
+> automatisch generierte Redaktion (Zeitung).
 
 Dieses Dokument beschreibt **alles, was die App kann**, in Alltagssprache. Es ist die
 verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird sie aktualisiert.
@@ -61,7 +61,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Filter & Sortierung** — nach Podcast, Zeitraum, Lese- und Transkriptions-Status.
 - **Notizen** — persönliche Notizen pro Folge.
 
-## 📰 PodScribe Zeitung (Digest)
+## 📰 PodScribe Redaktion (Digest)
 
 - **Drei Ressorts:**
   - **Überblick** — kompaktes Briefing der letzten Folgen.
@@ -71,7 +71,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Journalistische Artikel** — echte Redaktionstexte (1200–2000 Wörter), KI-geschrieben aus deinen Transkripten.
 - **TL;DR oben** — jeder Artikel startet mit dem Wichtigsten in Kürze.
 - **Rezepte & Zeitplan** — wiederkehrende Ausgaben speichern und automatisch zu festen Zeiten erzeugen lassen.
-- **Automatische Trending-Ausgabe** — wöchentlich automatisch eine Zeitung aus den aktuell meistdiskutierten Themen (an-/abschaltbar, Wochentag & Uhrzeit wählbar).
+- **Automatische Trending-Ausgabe** — wöchentlich automatisch eine Ausgabe aus den aktuell meistdiskutierten Themen (an-/abschaltbar, Wochentag & Uhrzeit wählbar).
 - **Per E-Mail zustellen** — Ausgaben automatisch oder manuell per Mail verschicken.
 - **Teilen** — Ausgabe über einen Link teilen.
 
@@ -84,7 +84,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 ## 🔐 Zugriff & Rollen
 
 - **Standardmäßig offen** — solange kein Eigentümer-Passwort gesetzt ist, funktioniert alles wie gewohnt (Einzelnutzer).
-- **Eigentümer-Login** — mit gesetztem Passwort hat nur der Eigentümer Vollzugriff (transkribieren, Einstellungen, Zeitung erstellen usw.).
+- **Eigentümer-Login** — mit gesetztem Passwort hat nur der Eigentümer Vollzugriff (transkribieren, Einstellungen, Redaktion/Ausgaben erstellen usw.).
 - **Gast-/Lesezugriff** — Gäste können die Bibliothek, Folgen und die Suche lesen, aber nichts ändern oder kostenpflichtige KI-Aktionen auslösen.
 - **Gast-KI optional** — KI-Chat für Gäste freischaltbar, mit Limit pro Stunde zum Kostenschutz.
 

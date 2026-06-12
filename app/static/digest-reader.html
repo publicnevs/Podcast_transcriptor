@@ -33,7 +33,7 @@
 <div class="main-content reader-page" id="page">
   <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
     <a href="/digests" class="btn btn-ghost btn-icon">←</a>
-    <span style="color:var(--text-muted);font-size:.875rem"><a href="/digests">Zeitung</a> › Artikel</span>
+    <span style="color:var(--text-muted);font-size:.875rem"><a href="/digests">Redaktion</a> › Artikel</span>
   </div>
   <div class="empty-state"><div class="spinner"></div><p style="margin-top:.75rem">Lade Artikel…</p></div>
 </div>
@@ -93,7 +93,7 @@ function render() {
   page.innerHTML = `
     <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
       <a href="/digests" class="btn btn-ghost btn-icon">←</a>
-      <span style="color:var(--text-muted);font-size:.875rem"><a href="/digests">Zeitung</a> › Artikel</span>
+      <span style="color:var(--text-muted);font-size:.875rem"><a href="/digests">Redaktion</a> › Artikel</span>
     </div>
 
     <div class="reader-header">
@@ -140,7 +140,7 @@ async function copyContent() {
 async function emailDigest() {
   try {
     await API.post(`/api/digests/${digestId}/email`, {});
-    toast('✉️ Zeitung per E-Mail gesendet', 'success');
+    toast('✉️ Ausgabe per E-Mail gesendet', 'success');
   } catch(e) {
     toast(e.message || 'Versand fehlgeschlagen — SMTP in den Einstellungen prüfen', 'error');
   }

@@ -155,7 +155,7 @@
       <div id="whisper-status" style="display:none;margin-bottom:.75rem;padding:.75rem;border-radius:var(--radius-sm);font-size:.8rem"></div>
 
       <div style="padding:.75rem;background:var(--bg-card2);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
-        <strong style="color:var(--text)">Kosten Gemini 2.5 Flash:</strong> ~$0.075/h Audio. Tagging &amp; Anreicherung laufen auf <strong style="color:var(--text)">Flash-Lite</strong> (~$0.02/1M Token). Zeitung/Artikel-Modell in „Kosten-Optimierung" wählbar.
+        <strong style="color:var(--text)">Kosten Gemini 2.5 Flash:</strong> ~$0.075/h Audio. Tagging &amp; Anreicherung laufen auf <strong style="color:var(--text)">Flash-Lite</strong> (~$0.02/1M Token). Redaktion/Artikel-Modell in „Kosten-Optimierung" wählbar.
       </div>
     </div>
   </div>
@@ -173,7 +173,7 @@
         <br><span style="font-size:.75rem">Ohne diese Variable nutzt „Lite" automatisch Flash — du sparst dann nichts.</span>
       </div>
     </div>
-    <label style="display:block;font-size:.875rem;margin-bottom:.5rem">Artikel-Qualität (Zeitung & Podcast-Artikel)</label>
+    <label style="display:block;font-size:.875rem;margin-bottom:.5rem">Artikel-Qualität (Redaktion & Podcast-Artikel)</label>
     <div class="segmented" id="digest-model-seg" style="max-width:480px">
       <button data-dm="pro" data-icon="star" data-icon-size="15" onclick="setDigestModel('pro')">Beste (Pro)</button>
       <button data-dm="flash" data-icon="coins" data-icon-size="15" onclick="setDigestModel('flash')">Günstig (Flash)</button>
@@ -243,11 +243,11 @@
 
   <!-- Digest email (SMTP) -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="newspaper" data-icon-size="18">Zeitung per E-Mail</h2>
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="newspaper" data-icon-size="18">Ausgabe per E-Mail</h2>
     <div style="display:flex;flex-direction:column;gap:.875rem">
       <label style="display:flex;align-items:center;gap:.6rem;cursor:pointer">
         <input type="checkbox" id="mail-enabled" style="width:auto">
-        <span>Fertige Zeitungen automatisch per E-Mail senden</span>
+        <span>Fertige Ausgaben automatisch per E-Mail senden</span>
       </label>
       <div class="form-group">
         <label class="form-label">Empfänger-Adresse</label>
@@ -286,7 +286,7 @@
   <div class="card" style="margin-bottom:1rem">
     <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="zap" data-icon-size="18">Automatische Trending-Ausgabe</h2>
     <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
-      Erstellt wöchentlich automatisch eine Zeitung aus den heißesten Themen
+      Erstellt wöchentlich automatisch eine Ausgabe aus den heißesten Themen
       deiner Bibliothek (Radar-Trends der letzten 7 Tage).
     </p>
     <div style="display:flex;flex-direction:column;gap:.875rem">
@@ -321,7 +321,7 @@
         <label class="form-label">Öffentliche Basis-URL</label>
         <input type="url" id="base-url" placeholder="https://podscribe.example.de">
         <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">
-          Wenn gesetzt, werden Push-Benachrichtigungen anklickbar und öffnen direkt die Folge/Zeitung. Leer lassen, wenn nicht von außen erreichbar.
+          Wenn gesetzt, werden Push-Benachrichtigungen anklickbar und öffnen direkt die Folge/Ausgabe. Leer lassen, wenn nicht von außen erreichbar.
         </span>
       </div>
       <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveBaseUrl()">Speichern</button>

@@ -1249,7 +1249,7 @@ async def email_digest(digest_id: int):
     if not to_addr:
         raise HTTPException(400, "Keine Empfänger-Adresse konfiguriert.")
     try:
-        await mailer.send_email(to_addr, row["title"] or "PodScribe Zeitung",
+        await mailer.send_email(to_addr, row["title"] or "PodScribe Redaktion",
                                 row["content_html"], row["tldr_md"] or "")
     except Exception as e:
         raise HTTPException(400, f"Versand fehlgeschlagen: {e}")

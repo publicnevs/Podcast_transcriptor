@@ -64,7 +64,7 @@ curl http://localhost:7878/health
 
 Notes:
 - DB schema changes apply automatically via `init_db()` on startup — no manual migration.
-- The service-worker cache bumps with each shell change (currently `v5`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
+- The service-worker cache bumps with each shell change (currently `v6`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
 - Keep `.env` (with `GEMINI_API_KEY`) in the app dir — `--strip-components=1` only overwrites files present in the tarball, so `.env` is preserved.
 
 **ALWAYS provide these Synology deploy commands at the end of every work block** (each
@@ -108,7 +108,7 @@ Vanilla JS SPA — no build step, no framework. Pages share `app.js` utilities. 
 - **`icons.js`** — Unified inline-SVG icon set (Lucide outline, ISC license) bundled locally so it works offline (no CDN, no build). `icon(name, {size,cls})` returns an `<svg>` string used inside JS templates; `hydrateIcons()` (runs on `DOMContentLoaded`) fills any `data-icon="name"` element in static HTML. Add a new glyph to the `ICONS` map to extend.
 - **`app.js`** — Shared utilities: `API` (fetch wrappers), `toast()`, `confirmModal()`, `renderNav()`, `statusBadge()`, plus reusable UI helpers `openSheet(title, items)` (bottom-sheet on mobile / dialog on desktop), `openMenu(anchorEl, items)` (⋮ context popover), and `downloadFile(url, filename)` (blob download that works in the installed PWA).
 - **`episode.html`** — The most complex page. Audio player syncs with transcript: clicking a paragraph seeks audio; during playback, current paragraph highlights and auto-scrolls (uses `segments_json` for timestamp mapping). Action bar uses the export bottom-sheet + ⋮ menu; the summary card always shows Zusammenfassung + Themenübersicht + Key Takeaways and offers a regenerate button (`POST /api/episodes/{id}/regenerate-summary`).
-- Other pages: `index.html` (library), `podcast.html` (single feed), `digest.html` (digest/"Zeitung" builder + recipes/scheduling), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds), `tags.html` (browse by topic tag), `settings.html` (API key, backend, intervals), `about.html`.
+- Other pages: `index.html` (library), `podcast.html` (single feed), `digest.html` (digest/"Redaktion" builder + recipes/scheduling — UI label is "Redaktion", routes/tables stay `digest`/`digests`), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds), `tags.html` (browse by topic tag), `settings.html` (API key, backend, intervals), `about.html`.
 - **`sw.js`** — Service Worker (cache `podscribe-v2`); caches the app shell incl. `icons.js` for offline reading, and **skips** `/audio` and `/export` so streaming and downloads always hit the network. Bump the cache name when shipping shell changes to force-refresh clients.
 - **`style.css`** — CSS variables design system, dark mode, mobile-first (bottom nav) + desktop (top nav) responsive layout. Reusable components: `.sheet`, `.menu-popover`, `.fab`, `.icon`. `.action-bar` and `.meta-line` are single-line, horizontally scrollable (hidden scrollbar) on mobile.
 

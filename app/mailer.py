@@ -67,7 +67,7 @@ async def maybe_email_digest(digest_id: int, title: str, html: str, tldr: str = 
     if not cfg["enabled"] or not cfg["to"]:
         return
     try:
-        await send_email(cfg["to"], title or "PodScribe Zeitung", html, tldr)
+        await send_email(cfg["to"], title or "PodScribe Redaktion", html, tldr)
         logger.info(f"Digest {digest_id} emailed to {cfg['to']}")
     except Exception as e:
         logger.error(f"Digest {digest_id} email failed: {e}")

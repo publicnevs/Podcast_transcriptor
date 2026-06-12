@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PodScribe — Zeitung</title>
+<title>PodScribe — Redaktion</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -224,7 +224,7 @@ const FORMAT_ICONS = {
 const fmtIcon = (f) => FORMAT_ICONS[f] || icon('newspaper',{size:16});
 
 // ── Header + tabs (built in JS so icons are consistent) ─────────────────────
-document.getElementById('zeitung-title').innerHTML = `${icon('newspaper',{size:22})} Zeitung`;
+document.getElementById('zeitung-title').innerHTML = `${icon('newspaper',{size:22})} Redaktion`;
 document.getElementById('zeitung-tabs').innerHTML = `
   <button id="tab-issues" class="active" onclick="switchTab('issues')">${icon('newspaper',{size:16})} Ausgaben</button>
   <button id="tab-week" onclick="switchTab('week')">${icon('calendar',{size:16})} Diese Woche</button>

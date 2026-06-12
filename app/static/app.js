@@ -237,7 +237,7 @@ function renderNav(activePath) {
         <a href="/search" ${activePath==='/search'?'class="active"':''}>${icon('sparkles')} <span>Fragen</span></a>
         <a href="/radar" ${activePath==='/radar'?'class="active"':''}>${icon('radar')} <span>Radar</span></a>
         <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
-        <a href="/digests" ${activePath==='/digests'?'class="active"':''}>${icon('newspaper')} <span>Zeitung</span></a>
+        <a href="/digests" ${activePath==='/digests'?'class="active"':''}>${icon('newspaper')} <span>Redaktion</span></a>
         <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}>${icon('settings')} <span>Settings</span></a>
         <a href="/login" data-guest-only>${icon('lock')} <span>Anmelden</span></a>
         <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">${icon('sun')}</button>
@@ -247,7 +247,7 @@ function renderNav(activePath) {
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">${icon('library', {size:22})}</span>Bibliothek</a>
       <a href="/?add=1" data-owner-only><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
       <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">${icon('compass', {size:22})}</span>Entdecken</a>
-      <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Zeitung</a>
+      <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Redaktion</a>
       <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
       <a href="/login" data-guest-only><span class="bn-icon">${icon('lock', {size:22})}</span>Anmelden</a>
     </nav>`;

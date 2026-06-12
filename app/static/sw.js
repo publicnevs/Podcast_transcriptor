@@ -1,5 +1,5 @@
 /* PodScribe Service Worker — app shell cache + offline transcript reading */
-const CACHE = 'podscribe-v5';
+const CACHE = 'podscribe-v6';
 const SHELL = [
   '/static/style.css',
   '/static/icons.js',
