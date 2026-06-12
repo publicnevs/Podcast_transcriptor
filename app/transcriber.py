@@ -437,6 +437,39 @@ async def answer_from_context(question: str, context: str) -> str:
     return await loop.run_in_executor(None, _answer_sync, question, context)
 
 
+CHAT_PROMPT = """Du bist der Recherche-Assistent einer persönlichen Podcast- und \
+Newsletter-Bibliothek. Beantworte die LETZTE Nutzerfrage AUSSCHLIESSLICH anhand \
+der nummerierten Auszüge. Beziehe den bisherigen Gesprächsverlauf als Kontext \
+ein, erfinde aber nichts. Wenn die Auszüge die Frage nicht beantworten, sage das \
+offen. Antworte auf Deutsch, prägnant, und verweise mit [1], [2] … auf die \
+genutzten Quellen.
+
+Gesprächsverlauf:
+{history}
+
+Auszüge:
+{context}
+
+Antwort:"""
+
+
+def _chat_sync(history: str, context: str) -> str:
+    client = _client()
+    response = client.models.generate_content(
+        model=FLASH_MODEL,
+        contents=[CHAT_PROMPT.format(history=history, context=context)],
+        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=2048),
+    )
+    return (response.text or "").strip()
+
+
+async def answer_chat_from_context(history: str, context: str) -> str:
+    if not _configure_gemini():
+        raise RuntimeError("Kein Gemini API Key konfiguriert")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _chat_sync, history, context)
+
+
 async def embed_texts(texts: list) -> list:
     """Return one embedding vector (list of floats) per input text. Empty list
     when no API key is configured (callers treat this as 'indexing disabled')."""

@@ -41,22 +41,29 @@ async function load() {
   try {
     epData = await API.get(`/api/episodes/${episodeId}`);
     render(epData);
-    // Mark as read after 3s
-    if (!epData.read_at && epData.status === 'done') {
+    const deepLinked = new URLSearchParams(location.search).has('t');
+    if (epData.status === 'done') {
+      loadRelated();
+      if (deepLinked) initDeepLink();
+    }
+    // Mark as read after 3s (owner only — guests are read-only)
+    if (isOwner() && !epData.read_at && epData.status === 'done') {
       setTimeout(() => API.patch(`/api/episodes/${episodeId}/read`).catch(()=>{}), 3000);
     }
-    // Restore scroll
-    if (epData.scroll_pos > 0) {
+    // Restore scroll (skip when deep-linking to a specific moment)
+    if (!deepLinked && epData.scroll_pos > 0) {
       setTimeout(() => window.scrollTo(0, epData.scroll_pos), 300);
     }
-    // Save scroll periodically
-    let scrollTimer;
-    window.addEventListener('scroll', () => {
-      clearTimeout(scrollTimer);
-      scrollTimer = setTimeout(() => {
-        fetch(`/api/episodes/${episodeId}/scroll?pos=${Math.round(window.scrollY)}`, {method:'PATCH'}).catch(()=>{});
-      }, 1500);
-    });
+    // Save scroll periodically (owner only — guests are read-only)
+    if (isOwner()) {
+      let scrollTimer;
+      window.addEventListener('scroll', () => {
+        clearTimeout(scrollTimer);
+        scrollTimer = setTimeout(() => {
+          fetch(`/api/episodes/${episodeId}/scroll?pos=${Math.round(window.scrollY)}`, {method:'PATCH'}).catch(()=>{});
+        }, 1500);
+      });
+    }
   } catch(e) {
     document.getElementById('page').innerHTML = `<div class="empty-state" style="color:var(--error)">Fehler: ${escHtml(e.message)}</div>`;
   }
@@ -207,7 +214,58 @@ function renderDoneContent(ep, segments, takeaways, chapters) {
       <div class="transcript-body" id="transcript-content">
         ${segments.length ? renderSegments(segments, chapters) : `<pre style="white-space:pre-wrap;font-size:.9rem;line-height:1.7">${escHtml(ep.transcript||'')}</pre>`}
       </div>
+    </div>
+
+    <!-- Related episodes -->
+    <div id="related-section" style="margin-top:1.75rem;display:none">
+      <div class="section-title" data-icon="sparkles" data-icon-size="16">Ähnliche Folgen</div>
+      <div id="related-grid" class="card-grid"></div>
     </div>`;
+}
+
+// ── Related episodes ───────────────────────────────────────────────────────
+async function loadRelated() {
+  const sec = document.getElementById('related-section');
+  const grid = document.getElementById('related-grid');
+  if (!sec || !grid) return;
+  try {
+    const items = await API.get(`/api/episodes/${episodeId}/related?limit=6`);
+    if (!items.length) return;
+    sec.style.display = '';
+    grid.innerHTML = items.map(it => `
+      <div class="podcast-card" onclick="location.href='/episode/${it.episode_id}'">
+        ${tileVisual({feed_type:it.feed_type, artwork_url:it.artwork_url, title:it.podcast_title})}
+        <div class="podcast-card-body">
+          <div class="podcast-card-title">${escHtml(it.title)}</div>
+          <div class="podcast-card-meta">
+            <span>${escHtml(it.podcast_title)}</span>
+            ${it.shared_tags ? `<span title="gemeinsame Themen" style="display:inline-flex;align-items:center;gap:.2rem">${icon('tag',{size:12})} ${it.shared_tags}</span>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+  } catch(_) { /* index may be empty — keep hidden */ }
+}
+
+// ── Deep-link: /episode/{id}?t=HH:MM:SS scrolls + seeks to a moment ─────────
+function initDeepLink() {
+  const t = new URLSearchParams(location.search).get('t');
+  if (!t) return;
+  const target = timeToSec(t);
+  const segs = [...document.querySelectorAll('.segment')];
+  let best = null, bestDiff = Infinity;
+  segs.forEach(s => {
+    const st = timeToSec(s.querySelector('.seg-time')?.getAttribute('title') || '0');
+    const d = Math.abs(st - target);
+    if (st <= target + 1 && d < bestDiff) { bestDiff = d; best = s; }
+  });
+  if (!best && segs.length) best = segs[0];
+  if (best) {
+    best.scrollIntoView({ behavior:'smooth', block:'center' });
+    best.classList.add('seg-highlight');
+    setTimeout(() => best.classList.remove('seg-highlight'), 2600);
+  }
+  if (!playerActive) toggleListen();
+  setTimeout(() => { try { if (AudioPlayer.audio) AudioPlayer.audio.currentTime = target; } catch(_){} }, 350);
 }
 
 function renderSegments(segments, chapters) {

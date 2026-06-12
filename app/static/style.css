@@ -1236,3 +1236,19 @@ body.role-guest [data-guest-only] { display: flex; }
   font-size: .76rem; color: var(--text-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+
+/* Deep-link highlight when arriving at a specific transcript moment */
+.seg-highlight { background: var(--accent-dim); border-radius: var(--radius-sm); transition: background .3s; }
+
+/* ── Library chat (Frag deine Bibliothek) ─────────────────────────────────── */
+.chat-msg { max-width: 92%; padding: .8rem 1rem; border-radius: var(--radius); font-size: .92rem; }
+.chat-user {
+  align-self: flex-end; background: var(--accent); color: #fff;
+  border-bottom-right-radius: 4px;
+}
+.chat-assistant {
+  align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border);
+  border-bottom-left-radius: 4px; width: 100%; max-width: 100%;
+}
+.chat-source:hover { border-color: var(--accent); }
+mark { background: var(--accent-dim); color: var(--accent); border-radius: 3px; padding: 0 2px; }

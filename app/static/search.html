@@ -16,23 +16,48 @@
 <body>
 <div id="nav-mount"></div>
 
-<div class="main-content">
+<div class="main-content" style="max-width:820px">
   <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
     <h1 style="font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.45rem"><span id="title-icon"></span> Frag deine Bibliothek</h1>
     <span id="rag-stats" style="color:var(--text-muted);font-size:.8rem;margin-left:auto"></span>
   </div>
-  <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1rem">
-    Stelle eine Frage in natürlicher Sprache — die Antwort wird aus deinen
-    Podcasts, News-Artikeln und Newslettern zusammengestellt, mit Quellen.
-  </p>
 
-  <div style="display:flex;gap:.5rem;margin-bottom:1.5rem;flex-wrap:wrap">
-    <input type="text" id="question" placeholder="z.B. Was wurde zuletzt über Agenten-Frameworks gesagt?"
-           style="flex:1;min-width:240px" autocomplete="off">
-    <button class="btn btn-primary" id="ask-btn" onclick="ask()"><span data-icon="sparkles">Fragen</span></button>
+  <div class="segmented" style="margin-bottom:1rem;max-width:340px">
+    <button id="mode-chat" class="active" onclick="setMode('chat')">Chat (KI)</button>
+    <button id="mode-fts" onclick="setMode('fts')">Klassische Suche</button>
   </div>
 
-  <div id="answer-view"></div>
+  <!-- Chat mode -->
+  <div id="chat-view">
+    <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1rem">
+      Stelle Fragen in natürlicher Sprache — auch Folgefragen. Antworten werden aus
+      deinen Podcasts, News-Artikeln und Newslettern zusammengestellt, mit Quellen
+      zum Anspringen der Stelle.
+    </p>
+    <div id="rag-gate" style="display:none" class="card">
+      <p style="font-size:.9rem">Die KI-Suche ist für Gäste nicht freigeschaltet.
+      Die <a href="#" onclick="setMode('fts');return false">klassische Suche</a> steht dir offen.</p>
+    </div>
+    <div id="chat-thread" style="display:flex;flex-direction:column;gap:.75rem;margin-bottom:1rem"></div>
+    <div id="chat-input-row" style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <input type="text" id="question" placeholder="z.B. Was wurde zuletzt über Agenten-Frameworks gesagt?"
+             style="flex:1;min-width:240px" autocomplete="off">
+      <button class="btn btn-primary" id="ask-btn" onclick="send()"><span data-icon="sparkles">Fragen</span></button>
+      <button class="btn btn-ghost" id="reset-btn" onclick="resetChat()" style="display:none" title="Neues Gespräch">Neu</button>
+    </div>
+  </div>
+
+  <!-- Classic FTS mode -->
+  <div id="fts-view" style="display:none">
+    <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:1rem">
+      Volltextsuche über alle Transkripte (ohne KI, ohne Kosten).
+    </p>
+    <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
+      <input type="text" id="fts-query" placeholder="Suchbegriff…" style="flex:1;min-width:240px" autocomplete="off">
+      <button class="btn btn-primary" onclick="ftsSearch()"><span data-icon="search">Suchen</span></button>
+    </div>
+    <div id="fts-results"></div>
+  </div>
 </div>
 
 <footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
@@ -45,14 +70,35 @@ initGlobalSearch();
 initReadProgress();
 document.getElementById('title-icon').innerHTML = icon('sparkles', {size:20});
 
+// Client-side conversation history (stateless backend; see /api/chat)
+let messages = [];
+
+function setMode(m) {
+  document.getElementById('mode-chat').classList.toggle('active', m==='chat');
+  document.getElementById('mode-fts').classList.toggle('active', m==='fts');
+  document.getElementById('chat-view').style.display = m==='chat' ? '' : 'none';
+  document.getElementById('fts-view').style.display = m==='fts' ? '' : 'none';
+  (m==='chat' ? document.getElementById('question') : document.getElementById('fts-query')).focus();
+}
+
+function ragAllowed() {
+  return isOwner() || (window.ME && window.ME.guest_rag_enabled);
+}
+
+function applyGate() {
+  const blocked = !ragAllowed();
+  document.getElementById('rag-gate').style.display = blocked ? '' : 'none';
+  document.getElementById('chat-input-row').style.display = blocked ? 'none' : 'flex';
+}
+
 async function loadStats() {
   try {
     const s = await API.get('/api/rag/stats');
     const el = document.getElementById('rag-stats');
     const pending = (s.done_episodes || 0) - (s.indexed_episodes || 0);
     el.innerHTML = `${s.indexed_episodes}/${s.done_episodes} indexiert`
-      + (pending > 0 ? ` · <a href="#" onclick="reindex();return false">${pending} nachindexieren</a>` : '');
-  } catch(e) { /* ignore */ }
+      + (pending > 0 && isOwner() ? ` · <a href="#" onclick="reindex();return false">${pending} nachindexieren</a>` : '');
+  } catch(e) { /* guests get 403 here — fine */ }
 }
 
 async function reindex() {
@@ -62,49 +108,94 @@ async function reindex() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
-async function ask() {
-  const q = document.getElementById('question').value.trim();
-  if (!q) return;
-  const view = document.getElementById('answer-view');
-  const btn = document.getElementById('ask-btn');
-  btn.disabled = true;
-  view.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>Suche in deiner Bibliothek…</p></div>`;
-  try {
-    const r = await API.post('/api/ask', { question: q });
-    if (r.error) {
-      view.innerHTML = `<div class="empty-state"><p>${escHtml(r.error)}</p>
-        <button class="btn btn-primary btn-sm" onclick="reindex()">Index aufbauen</button></div>`;
-      return;
-    }
-    const sources = (r.sources || []).map(s => `
-      <a class="card" style="display:block;text-decoration:none;margin-bottom:.5rem"
-         href="/episode/${s.episode_id}">
-        <div style="display:flex;align-items:center;gap:.5rem;font-size:.85rem">
-          <span class="badge">[${s.ref}]</span>
-          <strong>${escHtml(s.episode_title || '')}</strong>
-          <span style="color:var(--text-muted)">${escHtml(s.podcast_title || '')}</span>
-          <span style="color:var(--text-muted);margin-left:auto">${escHtml(s.start_time || '')}</span>
-        </div>
-        <div style="color:var(--text-muted);font-size:.82rem;margin-top:.35rem">${escHtml(s.snippet || '')}</div>
-      </a>`).join('');
-    view.innerHTML = `
-      <div class="card" style="margin-bottom:1.25rem">
-        <div style="white-space:pre-wrap;line-height:1.6">${escHtml(r.answer || '(keine Antwort)')}</div>
+function sourceCards(sources) {
+  return (sources || []).map(s => `
+    <a class="card chat-source" style="display:block;text-decoration:none"
+       href="/episode/${s.episode_id}?t=${encodeURIComponent(s.start_time || '00:00:00')}">
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.85rem;flex-wrap:wrap">
+        <span class="badge">[${s.ref}]</span>
+        <strong>${escHtml(s.episode_title || '')}</strong>
+        <span style="color:var(--text-muted)">${escHtml(s.podcast_title || '')}</span>
+        <span style="color:var(--text-muted);margin-left:auto;display:inline-flex;align-items:center;gap:.25rem">${icon('play',{size:12})} ${escHtml(s.start_time || '')}</span>
       </div>
-      <h2 style="font-size:1rem;margin:0 0 .6rem;display:flex;align-items:center;gap:.4rem">${icon('file-text',{size:16})} Quellen</h2>
-      ${sources || '<p style="color:var(--text-muted)">Keine Quellen gefunden.</p>'}`;
+      <div style="color:var(--text-muted);font-size:.82rem;margin-top:.35rem">${escHtml(s.snippet || '')}</div>
+    </a>`).join('');
+}
+
+function renderThread(pending) {
+  const t = document.getElementById('chat-thread');
+  t.innerHTML = messages.map(m => m.role === 'user'
+    ? `<div class="chat-msg chat-user">${escHtml(m.content)}</div>`
+    : `<div class="chat-msg chat-assistant">
+         <div style="white-space:pre-wrap;line-height:1.6">${escHtml(m.content)}</div>
+         ${m.sources && m.sources.length ? `<div style="display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem">${sourceCards(m.sources)}</div>` : ''}
+       </div>`
+  ).join('') + (pending ? `<div class="chat-msg chat-assistant"><div class="spinner" style="width:22px;height:22px"></div></div>` : '');
+  document.getElementById('reset-btn').style.display = messages.length ? '' : 'none';
+  t.lastElementChild?.scrollIntoView({ behavior:'smooth', block:'end' });
+}
+
+async function send() {
+  const inp = document.getElementById('question');
+  const q = inp.value.trim();
+  if (!q) return;
+  const btn = document.getElementById('ask-btn');
+  messages.push({ role:'user', content:q });
+  inp.value = '';
+  btn.disabled = true;
+  renderThread(true);
+  try {
+    const payload = messages.map(m => ({ role:m.role, content:m.content }));
+    const r = await API.post('/api/chat', { messages: payload });
+    if (r.error) {
+      messages.push({ role:'assistant', content:r.error, sources:[] });
+    } else {
+      messages.push({ role:'assistant', content:r.answer || '(keine Antwort)', sources:r.sources || [] });
+    }
   } catch(e) {
-    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+    messages.push({ role:'assistant', content:`Fehler: ${e.message}`, sources:[] });
   } finally {
     btn.disabled = false;
+    renderThread(false);
+    inp.focus();
   }
 }
 
-document.getElementById('question').addEventListener('keydown', e => {
-  if (e.key === 'Enter') ask();
-});
+function resetChat() { messages = []; renderThread(false); }
+
+// Classic FTS search (guest-open, no LLM cost)
+async function ftsSearch() {
+  const q = document.getElementById('fts-query').value.trim();
+  if (!q) return;
+  const view = document.getElementById('fts-results');
+  view.innerHTML = `<div class="empty-state"><div class="spinner"></div></div>`;
+  try {
+    const results = await API.get(`/api/search?q=${encodeURIComponent(q)}&limit=25`);
+    if (!results.length) {
+      view.innerHTML = `<div class="empty-state"><p>Keine Treffer für „${escHtml(q)}".</p></div>`;
+      return;
+    }
+    view.innerHTML = results.map(r => {
+      // Escape transcript text, then re-allow only the FTS <mark> highlights.
+      const snip = escHtml(r.snippet || '')
+        .replace(/&lt;mark&gt;/g, '<mark>').replace(/&lt;\/mark&gt;/g, '</mark>');
+      return `
+      <a class="card" style="display:block;text-decoration:none;margin-bottom:.5rem" href="/episode/${r.id}">
+        <strong style="font-size:.92rem">${escHtml(r.title || '')}</strong>
+        <span style="color:var(--text-muted);font-size:.82rem;margin-left:.5rem">${escHtml(r.podcast_title || '')}</span>
+        <div style="color:var(--text-muted);font-size:.84rem;margin-top:.35rem">${snip}</div>
+      </a>`;
+    }).join('');
+  } catch(e) {
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+document.getElementById('question').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+document.getElementById('fts-query').addEventListener('keydown', e => { if (e.key === 'Enter') ftsSearch(); });
 hydrateIcons();
-loadStats();
+// Role info arrives async — apply the gate once it's there.
+initRole().then(() => { applyGate(); loadStats(); });
 </script>
 </body>
 </html>

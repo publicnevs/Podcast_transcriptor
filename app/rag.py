@@ -17,7 +17,7 @@ from array import array
 import aiosqlite
 
 from .database import DB_PATH
-from .transcriber import embed_texts, answer_from_context
+from .transcriber import embed_texts, answer_from_context, answer_chat_from_context
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +81,11 @@ def _cosine(a, b) -> float:
     return dot / (na * nb)
 
 
-async def answer(question: str, k: int = 8) -> dict:
-    """Embed the question, rank all chunks, and let Gemini answer with sources."""
-    q_vecs = await embed_texts([question])
+async def _retrieve(query: str, k: int):
+    """Embed the query and rank all chunks. Returns (context, sources, error)."""
+    q_vecs = await embed_texts([query])
     if not q_vecs:
-        return {"answer": "", "sources": [],
-                "error": "Kein Gemini API Key konfiguriert."}
+        return None, None, "Kein Gemini API Key konfiguriert."
     qv = q_vecs[0]
 
     async with aiosqlite.connect(DB_PATH) as db:
@@ -101,20 +100,15 @@ async def answer(question: str, k: int = 8) -> dict:
             rows = await cur.fetchall()
 
     if not rows:
-        return {"answer": "", "sources": [],
-                "error": "Noch keine durchsuchbaren Inhalte. Bitte zuerst Index aufbauen."}
+        return None, None, "Noch keine durchsuchbaren Inhalte. Bitte zuerst Index aufbauen."
 
-    scored = []
-    for r in rows:
-        score = _cosine(qv, _unpack(r["vector"]))
-        scored.append((score, r))
+    scored = [(_cosine(qv, _unpack(r["vector"])), r) for r in rows]
     scored.sort(key=lambda x: x[0], reverse=True)
     top = scored[:k]
 
     context_parts, sources = [], []
     for i, (score, r) in enumerate(top, start=1):
-        context_parts.append(f"[{i}] ({r['podcast_title']} — {r['episode_title']}) "
-                             f"{r['text']}")
+        context_parts.append(f"[{i}] ({r['podcast_title']} — {r['episode_title']}) {r['text']}")
         sources.append({
             "ref": i,
             "episode_id": r["episode_id"],
@@ -124,9 +118,125 @@ async def answer(question: str, k: int = 8) -> dict:
             "snippet": (r["text"][:240] + "…") if len(r["text"]) > 240 else r["text"],
             "score": round(float(score), 3),
         })
-    context = "\n\n".join(context_parts)
+    return "\n\n".join(context_parts), sources, None
+
+
+async def answer(question: str, k: int = 8) -> dict:
+    """Embed the question, rank all chunks, and let Gemini answer with sources."""
+    context, sources, error = await _retrieve(question, k)
+    if error:
+        return {"answer": "", "sources": [], "error": error}
     text = await answer_from_context(question, context)
     return {"answer": text, "sources": sources}
+
+
+async def chat(messages: list, k: int = 8) -> dict:
+    """Multi-turn variant of answer(). `messages` is a list of
+    {role:'user'|'assistant', content:str}; retrieval uses the latest question
+    (with the previous user turn for context), the answer is history-aware."""
+    user_turns = [m for m in messages if m.get("role") == "user" and m.get("content")]
+    if not user_turns:
+        return {"answer": "", "sources": []}
+    query = user_turns[-1]["content"]
+    if len(user_turns) >= 2:  # carry a little prior context into retrieval
+        query = user_turns[-2]["content"] + " " + query
+
+    context, sources, error = await _retrieve(query, k)
+    if error:
+        return {"answer": "", "sources": [], "error": error}
+
+    history = "\n".join(
+        f"{'Nutzer' if m.get('role') == 'user' else 'Assistent'}: {m.get('content', '')}"
+        for m in messages[-8:]
+    )
+    text = await answer_chat_from_context(history, context)
+    return {"answer": text, "sources": sources}
+
+
+async def related(episode_id: int, limit: int = 6) -> list:
+    """Episodes related to `episode_id` by shared tags + embedding similarity.
+    Falls back gracefully to tags-only when the embedding index is empty."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT tag_id FROM episode_tags WHERE episode_id=?", (episode_id,)) as cur:
+            my_tags = [r["tag_id"] for r in await cur.fetchall()]
+
+        tag_overlap: dict = {}
+        if my_tags:
+            qmarks = ",".join("?" * len(my_tags))
+            async with db.execute(f"""
+                SELECT et.episode_id AS eid, COUNT(*) AS shared
+                FROM episode_tags et
+                JOIN episodes e ON e.id = et.episode_id
+                WHERE et.tag_id IN ({qmarks}) AND et.episode_id != ? AND e.status='done'
+                GROUP BY et.episode_id
+            """, (*my_tags, episode_id)) as cur:
+                for r in await cur.fetchall():
+                    tag_overlap[r["eid"]] = r["shared"]
+
+        async with db.execute("SELECT episode_id, vector FROM episode_chunks") as cur:
+            chunk_rows = await cur.fetchall()
+
+    # Mean chunk vector per episode (componentwise average).
+    sums: dict = {}
+    counts: dict = {}
+    for r in chunk_rows:
+        eid, v = r["episode_id"], _unpack(r["vector"])
+        if eid not in sums:
+            sums[eid] = array("f", v)
+        else:
+            s = sums[eid]
+            for i in range(len(s)):
+                s[i] += v[i]
+        counts[eid] = counts.get(eid, 0) + 1
+    means = {eid: array("f", [x / counts[eid] for x in s]) for eid, s in sums.items()}
+
+    sim: dict = {}
+    if episode_id in means:
+        mv = means[episode_id]
+        for eid, vec in means.items():
+            if eid != episode_id:
+                sim[eid] = _cosine(mv, vec)
+
+    cand = set(tag_overlap) | set(sim)
+    if not cand:
+        return []
+    scored = sorted(
+        ((tag_overlap.get(eid, 0) + 2.0 * sim.get(eid, 0.0), eid) for eid in cand),
+        reverse=True,
+    )[:limit]
+    ids = [eid for _, eid in scored]
+    if not ids:
+        return []
+
+    qmarks = ",".join("?" * len(ids))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f"""
+            SELECT e.id, e.title, p.id AS podcast_id, p.title AS podcast_title,
+                   p.artwork_url, p.feed_type
+            FROM episodes e LEFT JOIN podcasts p ON p.id = e.podcast_id
+            WHERE e.id IN ({qmarks})
+        """, ids) as cur:
+            meta = {r["id"]: r for r in await cur.fetchall()}
+
+    out = []
+    for score, eid in scored:
+        r = meta.get(eid)
+        if not r:
+            continue
+        out.append({
+            "episode_id": eid,
+            "title": r["title"],
+            "podcast_id": r["podcast_id"],
+            "podcast_title": r["podcast_title"],
+            "artwork_url": r["artwork_url"],
+            "feed_type": r["feed_type"],
+            "shared_tags": tag_overlap.get(eid, 0),
+            "score": round(float(score), 3),
+        })
+    return out
 
 
 async def reindex_all() -> dict:

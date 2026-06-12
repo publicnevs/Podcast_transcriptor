@@ -184,6 +184,15 @@ class AskRequest(BaseModel):
     question: str
 
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage] = []
+
+
 class DigestRequest(BaseModel):
     episode_ids: List[int] = []
     title: str
@@ -1285,6 +1294,28 @@ async def ask_library(data: AskRequest):
         raise HTTPException(400, f"Anfrage fehlgeschlagen: {e}")
 
 
+@app.post("/api/chat")
+async def chat_library(data: ChatRequest):
+    from . import rag
+    messages = [{"role": m.role, "content": m.content} for m in data.messages if m.content.strip()]
+    if not messages:
+        raise HTTPException(400, "Keine Nachricht.")
+    try:
+        return await rag.chat(messages)
+    except Exception as e:
+        raise HTTPException(400, f"Anfrage fehlgeschlagen: {e}")
+
+
+@app.get("/api/episodes/{episode_id}/related")
+async def episode_related(episode_id: int, limit: int = 6):
+    from . import rag
+    try:
+        return await rag.related(episode_id, max(1, min(limit, 12)))
+    except Exception as e:
+        logger.warning(f"related({episode_id}) failed: {e}")
+        return []
+
+
 @app.get("/api/rag/stats")
 async def rag_stats():
     from . import rag
@@ -1628,6 +1659,69 @@ async def get_tag_episodes(tag_id: int, page: int = 1, limit: int = 30):
         """, (tag_id, limit, offset)) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+# ── Topic explorer ──────────────────────────────────────────────────────────────
+
+@app.get("/api/topics/{tag_id}")
+async def topic_detail(tag_id: int):
+    """A tag's episodes (chronological) + the latest cross-episode summary, if any."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM tags WHERE id=?", (tag_id,)) as cur:
+            tag = await cur.fetchone()
+        if not tag:
+            raise HTTPException(404, "Tag nicht gefunden")
+        async with db.execute("""
+            SELECT e.id, e.title, e.pub_date, e.read_at,
+                   p.id AS podcast_id, p.title AS podcast_title, p.artwork_url, p.feed_type,
+                   s.summary
+            FROM episode_tags et
+            JOIN episodes e ON e.id = et.episode_id
+            LEFT JOIN podcasts p ON p.id = e.podcast_id
+            LEFT JOIN summaries s ON s.episode_id = e.id
+            WHERE et.tag_id = ? AND e.status='done'
+            ORDER BY e.pub_date ASC NULLS LAST
+        """, (tag_id,)) as cur:
+            episodes = [dict(r) for r in await cur.fetchall()]
+        async with db.execute("""
+            SELECT id FROM digests
+            WHERE mode='topic' AND recipe_json LIKE ? AND status='done'
+            ORDER BY created_at DESC LIMIT 1
+        """, (f'%"tag_id": {tag_id}%',)) as cur:
+            last = await cur.fetchone()
+    return {
+        "tag": dict(tag),
+        "episodes": episodes,
+        "last_summary_digest_id": last["id"] if last else None,
+    }
+
+
+@app.post("/api/topics/{tag_id}/summary", status_code=201)
+async def topic_summary(tag_id: int, background_tasks: BackgroundTasks):
+    """Build a cross-episode 'Dossier' for a tag, persisted as a digest (owner-only)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM tags WHERE id=?", (tag_id,)) as cur:
+            tag = await cur.fetchone()
+        if not tag:
+            raise HTTPException(404, "Tag nicht gefunden")
+        rows = await _select_episode_ids(db, tag_ids=[tag_id])
+        episode_ids = [r["id"] for r in rows]
+        if not episode_ids:
+            raise HTTPException(400, "Keine Folgen für dieses Thema.")
+        title = f"Dossier: {tag['label']}"
+        await db.execute(
+            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, recipe_json, status)
+               VALUES (?, 'topic', 'daily_briefing', 3, 3, ?, ?, 'generating')""",
+            (title, json.dumps(episode_ids), json.dumps({"tag_id": tag_id})),
+        )
+        await db.commit()
+        async with db.execute("SELECT last_insert_rowid()") as cur:
+            digest_id = (await cur.fetchone())[0]
+    background_tasks.add_task(_build_issue, digest_id, episode_ids,
+                              "daily_briefing", 3, 3, title, "", "", "")
+    return {"id": digest_id, "status": "generating"}
 
 
 @app.post("/api/tags/backfill", status_code=202)
