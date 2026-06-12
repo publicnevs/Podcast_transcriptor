@@ -120,6 +120,7 @@ function render(ep) {
         <button class="btn btn-secondary btn-sm" onclick="copyForAI()">${icon('sparkles',{size:16})} Für KI kopieren</button>
         <button class="btn btn-secondary btn-sm" onclick="openExportSheet()">${icon('download',{size:16})} Exportieren</button>
         <button class="btn btn-secondary btn-sm" id="regen-summary-btn" onclick="regenerateSummary()">${icon('refresh-cw',{size:16})} Zusammenfassung neu</button>
+        <button class="btn btn-secondary btn-sm" data-owner-only onclick="createArticleFromEp(this)">${icon('newspaper',{size:16})} Zu Redaktion</button>
         <button class="btn btn-ghost btn-icon" id="watch-btn" data-on="${ep.watchlist?'1':'0'}" title="Leseliste" onclick="toggleWatch()">${icon(ep.watchlist?'bookmark-check':'bookmark')}</button>
         <button class="btn btn-ghost btn-icon" title="Teilen" onclick="shareEpisode()">${icon('share-2')}</button>
         <button class="btn btn-ghost btn-icon" title="Mehr" onclick="openEpMenu(this)">${icon('more-vertical')}</button>
@@ -418,6 +419,36 @@ function openExportSheet() {
     { icon:'file-text', label:'Text (.txt)', onClick: () => downloadFile(`/api/episodes/${episodeId}/export?format=txt`, epSlug()+'.txt') },
     { icon:'printer', label:'Als PDF drucken', onClick: () => window.print() },
   ]);
+}
+
+// Ressort-Presets — must mirror RESSORTS in digest.html so the article matches
+// what the Redaktion builder would produce.
+const EP_RESSORTS = [
+  { icon:'calendar',  label:'Überblick — kompakt, ~3 Min.', format:'daily_briefing', length:3, style:3 },
+  { icon:'newspaper', label:'Magazin — Artikel mit Analyse', format:'magazin',       length:3, style:3 },
+  { icon:'radar',     label:'Dossier — tiefer Deep-Dive',   format:'magazin',        length:5, style:2 },
+];
+
+function createArticleFromEp() {
+  openSheet('Redaktions-Artikel erstellen', EP_RESSORTS.map(r => ({
+    icon: r.icon,
+    label: r.label,
+    onClick: () => _generateArticle(r),
+  })));
+}
+
+async function _generateArticle(r) {
+  try {
+    const res = await API.post('/api/digests', {
+      title: '',
+      format: r.format,
+      length: r.length,
+      style: r.style,
+      episode_ids: [episodeId],
+    });
+    toast('Artikel wird erstellt… öffne die Redaktion', 'info');
+    setTimeout(() => { location.href = '/digest/' + res.id; }, 2000);
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 function openEpMenu(anchor) {

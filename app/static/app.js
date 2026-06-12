@@ -317,9 +317,9 @@ function showSearchResults(results, anchor) {
   if (!dd) {
     dd = document.createElement('div');
     dd.id = 'search-dropdown';
-    // Anchor to the input's right edge but allow the panel to be much wider than
-    // the narrow search box, so results don't force excessive scrolling on desktop.
-    dd.style.cssText = 'position:absolute;top:calc(100% + 4px);left:auto;right:0;width:min(560px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:200;max-height:70vh;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.25);';
+    // Anchor to the input's left edge and grow rightward, so the panel can be much
+    // wider than the narrow search box without spilling off the right of the screen.
+    dd.style.cssText = 'position:absolute;top:calc(100% + 4px);left:0;right:auto;width:min(560px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:200;max-height:70vh;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.25);';
     anchor.parentNode.style.position = 'relative';
     anchor.parentNode.appendChild(dd);
   }

@@ -70,18 +70,29 @@ vi .env
 
 ### Lite-Modell setzen (Kosten sparen)
 
-Das günstige Lite-Modell für Zusammenfassungen/Tagging aktivieren — eine Zeile in der `.env` ergänzen:
+Das günstige Lite-Modell für Zusammenfassungen/Tagging aktivieren — eine Zeile in der `.env` ergänzen.
 
+> ⚠️ **WICHTIG: Jede Zeile EINZELN eintippen und mit Enter abschließen.**
+> Nicht mehrere Zeilen auf einmal kopieren und keinen weiteren Text (z. B. „dann …")
+> hinter einen Befehl schreiben. Sonst kommt es zu Fehlern wie `tee: invalid option -- 'd'`.
+
+**Schritt 1 — ins Projektverzeichnis wechseln:**
 ```bash
 cd /volume1/docker/Podcast_transcriptor
+```
 
-# Zeile anhängen (bestehende .env bleibt erhalten)
+**Schritt 2 — die Zeile an die `.env` anhängen (bestehende Werte bleiben erhalten):**
+```bash
 echo 'GEMINI_LITE_MODEL=gemini-2.5-flash-lite' | sudo tee -a .env
+```
 
-# Prüfen
+**Schritt 3 — prüfen, dass die Zeile drinsteht:**
+```bash
 cat .env
+```
 
-# Container mit neuer Variable neu starten
+**Schritt 4 — Container mit der neuen Variable neu bauen & starten:**
+```bash
 sudo docker-compose up -d --build
 ```
 

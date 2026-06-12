@@ -292,6 +292,13 @@
         <div class="feature-item">
           <span class="feature-check" data-icon="check" data-icon-size="15"></span>
           <div>
+            <div class="feature-title">Artikel aus einer Folge</div>
+            <div class="feature-desc">Direkt auf der Episodenseite per „Zu Redaktion" einen Artikel (Überblick / Magazin / Dossier) aus dieser Folge erzeugen</div>
+          </div>
+        </div>
+        <div class="feature-item">
+          <span class="feature-check" data-icon="check" data-icon-size="15"></span>
+          <div>
             <div class="feature-title">Geführter Wizard</div>
             <div class="feature-desc">3-Schritt-Assistent: Quelle wählen (Thema / Podcast / Folgen / Diese Woche), Format, Feinschliff</div>
           </div>
@@ -364,23 +371,50 @@
   <div class="section-title" style="margin-top:2rem;margin-bottom:1rem" data-icon="wrench" data-icon-size="16">Tech-Stack</div>
   <div class="card" style="margin-bottom:2rem">
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem">
-      ${[
-        ['Backend','Python 3.11 + FastAPI'],
-        ['Datenbank','SQLite + FTS5'],
-        ['Audio-Download','yt-dlp + ffmpeg'],
-        ['Transkription','Gemini 2.5 Flash / Whisper'],
-        ['KI-Artikel','Gemini 2.5 Pro'],
-        ['RSS/OPML','feedparser'],
-        ['Background-Jobs','APScheduler'],
-        ['Push','ntfy.sh'],
-        ['Frontend','Vanilla JS (kein Framework)'],
-        ['Deployment','Docker Compose'],
-        ['Hosting','Synology DS218+'],
-      ].map(([k,v]) => `
-        <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
-          <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">${k}</div>
-          <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">${v}</div>
-        </div>`).join('')}
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Backend</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">Python 3.11 + FastAPI</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Datenbank</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">SQLite + FTS5</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Audio-Download</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">yt-dlp + ffmpeg</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Transkription</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">Gemini 2.5 Flash / Whisper</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">KI-Artikel</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">Gemini 2.5 Pro</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">RSS/OPML</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">feedparser</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Background-Jobs</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">APScheduler</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Push</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">ntfy.sh</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Frontend</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">Vanilla JS (kein Framework)</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Deployment</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">Docker Compose</div>
+      </div>
+      <div style="padding:.625rem .875rem;background:var(--bg-card2);border-radius:var(--radius-sm);border:1px solid var(--border)">
+        <div style="font-size:.72rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em">Hosting</div>
+        <div style="font-size:.875rem;font-weight:500;margin-top:.2rem">Synology DS218+</div>
+      </div>
     </div>
   </div>
 

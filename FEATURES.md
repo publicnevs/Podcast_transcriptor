@@ -66,6 +66,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 📰 PodScribe Redaktion (Digest)
 
+- **Artikel aus einer Folge** — direkt auf der Episodenseite per „Zu Redaktion" einen Artikel (Überblick, Magazin oder Dossier) aus genau dieser Folge erzeugen; er erscheint dann normal in der Redaktion.
 - **Geführter Wizard** — 3-Schritt-Assistent: zuerst Quellen wählen, dann Format, dann Feinschliff. Kein überladenes Formular.
 - **Vier Quell-Modi:**
   - **Diese Woche** — ein Tap genügt für ein sofortiges Briefing der letzten 7 Tage.
