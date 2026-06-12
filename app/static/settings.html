@@ -282,6 +282,37 @@
     </div>
   </div>
 
+  <!-- Auto digest (weekly trending issue) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="zap" data-icon-size="18">Automatische Trending-Ausgabe</h2>
+    <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
+      Erstellt wöchentlich automatisch eine Zeitung aus den heißesten Themen
+      deiner Bibliothek (Radar-Trends der letzten 7 Tage).
+    </p>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.9rem">
+        <input type="checkbox" id="autodig-enabled" style="width:auto">
+        Automatische Ausgabe aktivieren
+      </label>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <div class="form-group">
+          <label class="form-label">Wochentag</label>
+          <select id="autodig-dow" style="width:160px">
+            <option value="0">Montag</option><option value="1">Dienstag</option>
+            <option value="2">Mittwoch</option><option value="3">Donnerstag</option>
+            <option value="4">Freitag</option><option value="5">Samstag</option>
+            <option value="6">Sonntag</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Uhrzeit</label>
+          <select id="autodig-hour" style="width:100px"></select>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveAutoDigest()">Speichern</button>
+    </div>
+  </div>
+
   <!-- App base URL (notification deep links) -->
   <div class="card" style="margin-bottom:1rem">
     <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="globe" data-icon-size="18">App-Adresse (für Benachrichtigungs-Links)</h2>
@@ -388,6 +419,11 @@ async function loadSettings() {
     // Base URL
     document.getElementById('base-url').value = s.public_base_url || '';
 
+    // Auto digest
+    document.getElementById('autodig-enabled').checked = s.auto_digest_enabled === '1';
+    document.getElementById('autodig-dow').value = s.auto_digest_dow || '0';
+    document.getElementById('autodig-hour').value = s.auto_digest_hour || '8';
+
     // Access control
     document.getElementById('owner-status').innerHTML = s.owner_configured
       ? 'Eigentümer-Passwort gesetzt (Gäste lesen nur).'
@@ -412,6 +448,21 @@ async function saveAccess() {
     document.getElementById('owner-pass').value = '';
     document.getElementById('guest-pass').value = '';
     loadSettings();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+// Populate hour dropdown (0–23) before loadSettings sets the value.
+document.getElementById('autodig-hour').innerHTML =
+  Array.from({length:24}, (_,h) => `<option value="${h}">${String(h).padStart(2,'0')}:00</option>`).join('');
+
+async function saveAutoDigest() {
+  try {
+    await API.put('/api/settings', {
+      auto_digest_enabled: document.getElementById('autodig-enabled').checked,
+      auto_digest_dow: parseInt(document.getElementById('autodig-dow').value),
+      auto_digest_hour: parseInt(document.getElementById('autodig-hour').value),
+    });
+    toast('✅ Automatische Ausgabe gespeichert', 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 

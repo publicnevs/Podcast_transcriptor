@@ -160,6 +160,10 @@ class SettingsUpdate(BaseModel):
     owner_password: Optional[str] = None
     guest_password: Optional[str] = None
     guest_rag_enabled: Optional[bool] = None
+    # Weekly auto digest from trending tags
+    auto_digest_enabled: Optional[bool] = None
+    auto_digest_dow: Optional[int] = None
+    auto_digest_hour: Optional[int] = None
 
 
 class LoginRequest(BaseModel):
@@ -1078,6 +1082,13 @@ async def update_settings(data: SettingsUpdate):
     if data.guest_rag_enabled is not None:
         await set_setting("guest_rag_enabled", "1" if data.guest_rag_enabled else "0")
         auth.invalidate()
+    # Auto digest
+    if data.auto_digest_enabled is not None:
+        await set_setting("auto_digest_enabled", "1" if data.auto_digest_enabled else "0")
+    if data.auto_digest_dow is not None:
+        await set_setting("auto_digest_dow", str(max(0, min(6, data.auto_digest_dow))))
+    if data.auto_digest_hour is not None:
+        await set_setting("auto_digest_hour", str(max(0, min(23, data.auto_digest_hour))))
     await _apply_runtime_config()
     # When enabling protection from open mode, keep THIS browser signed in as owner
     # so the user doesn't lock themselves out (they had no cookie before).

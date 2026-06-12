@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Thema</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content" style="max-width:900px">
+  <div id="topic-view">
+    <div class="empty-state"><div class="spinner"></div></div>
+  </div>
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/tags');
+initGlobalSearch();
+initReadProgress();
+
+const topicId = parseInt(location.pathname.split('/').filter(Boolean)[1]);
+
+async function load() {
+  const view = document.getElementById('topic-view');
+  try {
+    const data = await API.get(`/api/topics/${topicId}`);
+    const tag = data.tag;
+    document.title = `PodScribe — Thema: ${tag.label}`;
+    const eps = data.episodes || [];
+
+    // Group chronological episodes by month for a light timeline feel.
+    const months = [];
+    eps.forEach(e => {
+      const key = (e.pub_date || '').slice(0, 7) || '—';
+      if (!months.length || months[months.length-1].key !== key) {
+        months.push({ key, eps: [] });
+      }
+      months[months.length-1].eps.push(e);
+    });
+    const fmtMonth = (key) => {
+      const [y, m] = key.split('-');
+      const names = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+      return m ? `${names[parseInt(m)-1]} ${y}` : 'Ohne Datum';
+    };
+
+    view.innerHTML = `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem;flex-wrap:wrap">
+        <a href="/tags/${tag.id}" class="btn btn-ghost btn-icon" title="Zur Tag-Ansicht">${icon('chevron-left')}</a>
+        <h1 style="font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.45rem">${icon('radar',{size:20})} Thema: ${escHtml(tag.label)}</h1>
+        <span style="color:var(--text-muted);font-size:.85rem">${eps.length} Folge(n), chronologisch</span>
+      </div>
+      <div style="display:flex;gap:.5rem;margin-bottom:1.5rem;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary btn-sm" data-owner-only onclick="buildDossier()">${icon('newspaper',{size:15})} Dossier erstellen</button>
+        ${data.last_summary_digest_id ? `<a class="btn btn-secondary btn-sm" href="/digest/${data.last_summary_digest_id}">${icon('book-open',{size:15})} Letztes Dossier lesen</a>` : ''}
+        <span style="color:var(--text-muted);font-size:.78rem">Ein Dossier fasst alle Folgen dieses Themas quellenübergreifend zusammen.</span>
+      </div>
+      ${eps.length ? months.map(m => `
+        <div class="section-title" style="margin-top:1rem">${fmtMonth(m.key)}</div>
+        <div class="episode-list">
+          ${m.eps.map(e => `
+            <div class="episode-item ${e.read_at?'read':'unread'}" onclick="location.href='/episode/${e.id}'">
+              <div style="flex:1;min-width:0">
+                <div class="episode-title">${escHtml(e.title)}</div>
+                <div class="episode-meta">
+                  <span>${fmtDate(e.pub_date)}</span>
+                  <span style="color:var(--text-muted)">${escHtml(e.podcast_title||'')}</span>
+                  ${e.feed_type==='newsletter' ? `<span style="display:inline-flex;align-items:center;gap:.2rem">${icon('mail',{size:12})} Newsletter</span>` : ''}
+                  ${e.feed_type==='newsfeed' ? `<span style="display:inline-flex;align-items:center;gap:.2rem">${icon('newspaper',{size:12})} News</span>` : ''}
+                </div>
+                ${e.summary ? `<div class="episode-summary">${escHtml(e.summary)}</div>` : ''}
+              </div>
+            </div>`).join('')}
+        </div>`).join('')
+      : `<div class="empty-state"><p>Keine fertigen Folgen zu diesem Thema.</p></div>`}`;
+  } catch(e) {
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function buildDossier() {
+  try {
+    const r = await API.post(`/api/topics/${topicId}/summary`, {});
+    toast('Dossier wird erstellt…', 'info');
+    location.href = `/digest/${r.id}`;  // reader page polls until it's done
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+load();
+</script>
+</body>
+</html>

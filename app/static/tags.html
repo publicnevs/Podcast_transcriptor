@@ -63,7 +63,7 @@ async function loadTagCloud() {
       <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
         <h1 style="font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.45rem">${icon('tag',{size:20})} Tags</h1>
         <span style="color:var(--text-muted);font-size:.875rem">${tags.length} Tags</span>
-        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="showBackfillBtn()">${icon('settings',{size:15})} Tags neu generieren</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" data-owner-only onclick="showBackfillBtn()">${icon('settings',{size:15})} Tags neu generieren</button>
       </div>
       <div id="backfill-wrap" style="display:none;margin-bottom:1rem">
         <button class="btn btn-primary btn-sm" onclick="runBackfill()">${icon('tag',{size:15})} Fehlende Tags für alle Folgen generieren</button>
@@ -113,7 +113,8 @@ async function loadTagEpisodes(id) {
         <a href="/tags" class="btn btn-ghost btn-icon" title="Alle Tags">${icon('chevron-left')}</a>
         <h1 style="font-size:1.3rem;font-weight:700;display:flex;align-items:center;gap:.45rem">${icon('tag',{size:18})} ${escHtml(tagName)}</h1>
         ${tag ? `<span style="color:var(--text-muted);font-size:.85rem">${tag.episode_count} Folge(n)</span>` : ''}
-        <button class="btn btn-ghost btn-sm" style="margin-left:auto;font-size:.8rem" onclick="startRename(${id}, '${escHtml(tagName).replace(/'/g,"\\'")}')">${icon('pencil',{size:15})} Umbenennen</button>
+        <a href="/topic/${id}" class="btn btn-secondary btn-sm" style="margin-left:auto;font-size:.8rem">${icon('radar',{size:15})} Themen-Explorer</a>
+        <button class="btn btn-ghost btn-sm" style="font-size:.8rem" data-owner-only onclick="startRename(${id}, '${escHtml(tagName).replace(/'/g,"\\'")}')">${icon('pencil',{size:15})} Umbenennen</button>
       </div>
       <div id="rename-wrap" style="display:none;margin-bottom:1rem;display:none">
         <input id="rename-input" type="text" value="${escHtml(tagName)}" style="width:200px;margin-right:.5rem">
