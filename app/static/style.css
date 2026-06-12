@@ -1228,6 +1228,14 @@ body.role-guest [data-guest-only] { display: flex; }
   color: var(--text-muted);
 }
 .ticker-source .icon { width: 13px; height: 13px; }
+.ticker-date { margin-left: auto; text-transform: none; letter-spacing: 0; font-size: .7rem; opacity: .85; }
+
+/* Desktop: wrap into a grid instead of a hidden-scrollbar row, so cards on the
+   right are never clipped and no scroll affordance is needed. */
+@media (min-width: 768px) {
+  .ticker { flex-wrap: wrap; overflow-x: visible; scroll-snap-type: none; }
+  .ticker-card { flex: 1 1 260px; max-width: 320px; }
+}
 .ticker-takeaway {
   font-size: .9rem; line-height: 1.35; color: var(--text);
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;

@@ -238,7 +238,11 @@
     </p>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="btn btn-danger btn-sm" onclick="clearQueue()">Warteschlange leeren</button>
+      <button class="btn btn-secondary btn-sm" onclick="cleanupOrphans(this)">Verwaiste Inhalte aufräumen</button>
     </div>
+    <p style="font-size:.78rem;color:var(--text-muted);margin-top:.5rem">
+      Entfernt übrig gebliebene Folgen/Mails von Abos, die du bereits gelöscht hast.
+    </p>
   </div>
 
   <!-- Digest email (SMTP) -->
@@ -680,6 +684,21 @@ async function backfillSummaries() {
     await API.post('/api/summaries/backfill', {});
     toast('🧾 Zusammenfassungen werden im Hintergrund nachgeneriert…', 'success');
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function cleanupOrphans(btn) {
+  const ok = await confirmModal(
+    'Verwaiste Inhalte aufräumen?',
+    'Entfernt endgültig alle Folgen/Mails, deren Abo bereits gelöscht wurde.',
+    'Aufräumen'
+  );
+  if (!ok) return;
+  if (btn) btn.disabled = true;
+  try {
+    const r = await API.post('/api/maintenance/cleanup-orphans', {});
+    toast(`🧹 ${r.removed ?? 0} verwaiste Einträge entfernt`, 'success');
+  } catch(e) { toast(e.message, 'error'); }
+  finally { if (btn) btn.disabled = false; }
 }
 
 async function loadWhisperStatus() {

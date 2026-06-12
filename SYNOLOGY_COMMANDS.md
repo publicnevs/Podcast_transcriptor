@@ -68,6 +68,25 @@ cat .env
 vi .env
 ```
 
+### Lite-Modell setzen (Kosten sparen)
+
+Das günstige Lite-Modell für Zusammenfassungen/Tagging aktivieren — eine Zeile in der `.env` ergänzen:
+
+```bash
+cd /volume1/docker/Podcast_transcriptor
+
+# Zeile anhängen (bestehende .env bleibt erhalten)
+echo 'GEMINI_LITE_MODEL=gemini-2.5-flash-lite' | sudo tee -a .env
+
+# Prüfen
+cat .env
+
+# Container mit neuer Variable neu starten
+sudo docker-compose up -d --build
+```
+
+> Ohne diese Zeile nutzt „Lite" automatisch das teurere Flash-Modell — es wird dann NICHT gespart.
+
 ---
 
 ## 🐳 Docker

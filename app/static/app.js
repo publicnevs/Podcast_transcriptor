@@ -233,7 +233,6 @@ function renderNav(activePath) {
       <nav class="topbar-nav">
         <a href="/" ${isLib?'class="active"':''}>${icon('library')} <span>Bibliothek</span></a>
         <a href="/?add=1">${icon('plus')} <span>Abonnieren</span></a>
-        <a href="/discover" ${activePath==='/discover'?'class="active"':''}>${icon('compass')} <span>Entdecken</span></a>
         <a href="/search" ${activePath==='/search'?'class="active"':''}>${icon('sparkles')} <span>Fragen</span></a>
         <a href="/radar" ${activePath==='/radar'?'class="active"':''}>${icon('radar')} <span>Radar</span></a>
         <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
@@ -246,7 +245,7 @@ function renderNav(activePath) {
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">${icon('library', {size:22})}</span>Bibliothek</a>
       <a href="/?add=1" data-owner-only><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
-      <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">${icon('compass', {size:22})}</span>Entdecken</a>
+      <a href="/search" ${activePath==='/search'?'class="active"':''}><span class="bn-icon">${icon('sparkles', {size:22})}</span>Fragen</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Redaktion</a>
       <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
       <a href="/login" data-guest-only><span class="bn-icon">${icon('lock', {size:22})}</span>Anmelden</a>
@@ -318,7 +317,9 @@ function showSearchResults(results, anchor) {
   if (!dd) {
     dd = document.createElement('div');
     dd.id = 'search-dropdown';
-    dd.style.cssText = 'position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:200;max-height:420px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.25);';
+    // Anchor to the input's right edge but allow the panel to be much wider than
+    // the narrow search box, so results don't force excessive scrolling on desktop.
+    dd.style.cssText = 'position:absolute;top:calc(100% + 4px);left:auto;right:0;width:min(560px,92vw);background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);z-index:200;max-height:70vh;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,.25);';
     anchor.parentNode.style.position = 'relative';
     anchor.parentNode.appendChild(dd);
   }

@@ -209,8 +209,13 @@ async function copyContent() {
 }
 
 async function emailDigest() {
+  const def = localStorage.getItem('ps_last_email_to') || '';
+  const to = prompt('An welche E-Mail-Adresse senden?\n(Leer lassen = Standard-Adresse aus den Einstellungen)', def);
+  if (to === null) return;  // cancelled
+  const addr = to.trim();
   try {
-    await API.post(`/api/digests/${digestId}/email`, {});
+    await API.post(`/api/digests/${digestId}/email`, addr ? { to_addr: addr } : {});
+    if (addr) localStorage.setItem('ps_last_email_to', addr);
     toast('✉️ Ausgabe per E-Mail gesendet', 'success');
   } catch(e) {
     toast(e.message || 'Versand fehlgeschlagen — SMTP in den Einstellungen prüfen', 'error');

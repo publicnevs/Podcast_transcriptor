@@ -648,6 +648,23 @@ def _build_episodes_text(episode_data: list, max_per_ep: int = 10000) -> str:
     return text
 
 
+def _coerce_issue(raw_text: str, title: str, default_reading_min: int) -> dict:
+    """Parse an LLM issue response into the canonical issue dict.
+
+    Never dumps raw JSON into the article body: if the response can't be parsed
+    into a {sections:[…]} structure, raises so _build_issue marks the digest as
+    'error' (clean error card + retry) instead of showing garbage.
+    """
+    data = _parse_json(raw_text)
+    if isinstance(data, dict) and isinstance(data.get("sections"), list) and data["sections"]:
+        data.setdefault("title", title)
+        data.setdefault("subtitle", "")
+        data.setdefault("reading_time_min", default_reading_min)
+        data.setdefault("tldr_md", "")
+        return data
+    raise RuntimeError("Antwort des Modells nicht lesbar (kein gültiges Artikel-JSON)")
+
+
 def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
                 title: str, prev_tldr: str, model: str = "", custom_style: str = "", focus: str = "") -> dict:
     # Normalise legacy format name
@@ -671,14 +688,10 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=8192),
+            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=8192,
+                                               response_mime_type="application/json"),
         )
-        data = _parse_json(response.text)
-        if not isinstance(data, dict) or "sections" not in data:
-            data = {"title": title, "subtitle": "", "reading_time_min": 3,
-                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
-                    "tldr_md": ""}
-        return data
+        return _coerce_issue(response.text, title, 3)
 
     # ── Summary + Takeaways ───────────────────────────────────────────────────
     if fmt == "summary_takeaways":
@@ -705,14 +718,10 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=8192),
+            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=8192,
+                                               response_mime_type="application/json"),
         )
-        data = _parse_json(response.text)
-        if not isinstance(data, dict) or "sections" not in data:
-            data = {"title": title, "subtitle": "", "reading_time_min": 3,
-                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
-                    "tldr_md": ""}
-        return data
+        return _coerce_issue(response.text, title, 3)
 
     # ── Teams Post ────────────────────────────────────────────────────────────
     if fmt == "teams_post":
@@ -726,14 +735,10 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=2048),
+            config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=2048,
+                                               response_mime_type="application/json"),
         )
-        data = _parse_json(response.text)
-        if not isinstance(data, dict) or "sections" not in data:
-            data = {"title": title, "subtitle": "", "reading_time_min": 1,
-                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
-                    "tldr_md": ""}
-        return data
+        return _coerce_issue(response.text, title, 1)
 
     # ── Magazin / Newsletter (slider-based) ───────────────────────────────────
     lconf = _LENGTH_MAP.get(int(length), _LENGTH_MAP[3])
@@ -772,14 +777,10 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
     response = client.models.generate_content(
         model=chosen_model,
         contents=[prompt],
-        config=types.GenerateContentConfig(temperature=temp, max_output_tokens=lconf["tokens"]),
+        config=types.GenerateContentConfig(temperature=temp, max_output_tokens=lconf["tokens"],
+                                           response_mime_type="application/json"),
     )
-    data = _parse_json(response.text)
-    if not isinstance(data, dict) or "sections" not in data:
-        data = {"title": title, "subtitle": "", "reading_time_min": 10,
-                "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
-                "tldr_md": ""}
-    return data
+    return _coerce_issue(response.text, title, 10)
 
 
 def _title_sync(episode_data: list, fmt: str) -> str:
@@ -813,13 +814,16 @@ def _parse_json(text: str) -> dict:
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
+    # strict=False tolerates literal newlines/control chars inside JSON strings —
+    # Gemini frequently emits multi-line `body_md` values which are invalid under
+    # the strict JSON spec and would otherwise raise JSONDecodeError.
     try:
-        return json.loads(text)
+        return json.loads(text, strict=False)
     except json.JSONDecodeError:
         m = re.search(r"\{.*\}", text, re.DOTALL)
         if m:
             try:
-                return json.loads(m.group(0))
+                return json.loads(m.group(0), strict=False)
             except Exception:
                 pass
         return {

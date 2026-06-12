@@ -82,7 +82,17 @@
   </div>
 
   <!-- Podcasts Grid -->
-  <div class="section-title" data-icon="library" data-icon-size="16">Podcasts &amp; Feeds</div>
+  <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">
+    <div class="section-title" data-icon="library" data-icon-size="16" style="margin-bottom:0">Podcasts &amp; Feeds</div>
+    <div style="display:flex;align-items:center;gap:.4rem;margin-left:auto">
+      <select id="podcast-sort" onchange="changeSort(this.value)" class="btn btn-secondary btn-sm" style="padding:.3rem .5rem">
+        <option value="title">A–Z</option>
+        <option value="recent">Zuletzt aktiv</option>
+        <option value="unread">Ungelesen zuerst</option>
+      </select>
+      <button class="btn btn-secondary btn-sm" data-owner-only title="Feeds nach neuen Folgen prüfen" onclick="refreshFeeds(this)"><span data-icon="refresh-cw" data-icon-size="15"></span> <span class="rf-label">Aktualisieren</span></button>
+    </div>
+  </div>
   <div id="podcast-grid" class="card-grid"></div>
 
 </div>
@@ -102,11 +112,36 @@ initReadProgress();
 setInterval(pollQueue, 8000);
 
 let firstLoad = true;
+let podcastSort = localStorage.getItem('ps_podcast_sort') || 'title';
+
+function changeSort(s) {
+  podcastSort = s;
+  localStorage.setItem('ps_podcast_sort', s);
+  loadPodcasts();
+}
+
+async function refreshFeeds(btn) {
+  if (btn) { btn.disabled = true; btn.querySelector('.rf-label').textContent = 'Prüfe…'; }
+  try {
+    await API.post('/api/scheduler/trigger', {});
+    // Also pull the newsletter inbox if it's configured (best-effort, ignore errors).
+    try { await API.post('/api/newsletter/check', {}); } catch {}
+    toast('🔄 Feed-Check gestartet — neue Folgen erscheinen in Kürze', 'success');
+    setTimeout(() => { loadPodcasts(); loadTakeaways(); }, 4000);
+  } catch(e) {
+    toast(e.message || 'Aktualisierung fehlgeschlagen', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.querySelector('.rf-label').textContent = 'Aktualisieren'; }
+  }
+}
+
 async function loadPodcasts() {
   const grid = document.getElementById('podcast-grid');
   if (firstLoad) { grid.innerHTML = skeletonCards(6); }
+  const sel = document.getElementById('podcast-sort');
+  if (sel && sel.value !== podcastSort) sel.value = podcastSort;
   try {
-    const podcasts = await API.get('/api/podcasts');
+    const podcasts = await API.get(`/api/podcasts?sort=${encodeURIComponent(podcastSort)}`);
     firstLoad = false;
     if (!podcasts.length) {
       grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">${icon('headphones',{size:44})}</div><p>Noch keine Podcasts abonniert.<br>Füge deinen ersten Podcast oben hinzu.</p></div>`;
@@ -234,6 +269,7 @@ async function loadTakeaways() {
         <div class="ticker-source">
           ${it.feed_type==='newsletter' ? icon('mail',{size:13}) : (it.feed_type==='newsfeed' ? icon('newspaper',{size:13}) : icon('headphones',{size:13}))}
           <span>${escHtml(it.podcast_title)}</span>
+          ${it.pub_date ? `<span class="ticker-date">${fmtDate(it.pub_date)}</span>` : ''}
         </div>
         <div class="ticker-takeaway">${escHtml(it.takeaway)}</div>
         <div class="ticker-episode">${escHtml(it.title)}</div>

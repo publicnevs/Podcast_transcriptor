@@ -67,14 +67,14 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # read paths below; everything else (writes + cost actions) is owner-only.
 _GUEST_PAGE_RE = re.compile(
     r"^/(?:$|podcast/\d+$|episode/\d+$|digests$|digest/\d+$|tags$|tags/\d+$"
-    r"|topic/\d+$|about$|discover$|radar$|search$|login$)"
+    r"|topic/\d+$|about$|radar$|search$|login$)"
 )
 _GUEST_STATIC_RE = re.compile(r"^/(?:static/|sw\.js$|manifest\.json$|health$|s/|favicon)")
 _GUEST_API_RE = re.compile(
     r"^/api/(?:me$|podcasts$|podcasts/\d+$|podcasts/\d+/episodes$|podcasts/\d+/export$"
     r"|episodes/\d+$|episodes/\d+/audio$|episodes/\d+/tags$|episodes/\d+/related$"
     r"|episodes/\d+/export$|search$|tags$|tags/\d+/episodes$|digests$|digests/\d+$"
-    r"|radar$|overview/week$|recommended$|recipes$|issue-options$"
+    r"|radar$|overview/week$|recipes$|issue-options$"
     r"|recent-takeaways$|topics/\d+$)$"
 )
 
@@ -186,6 +186,10 @@ class SmtpTest(BaseModel):
 
 class AskRequest(BaseModel):
     question: str
+
+
+class EmailDigestRequest(BaseModel):
+    to_addr: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -321,11 +325,6 @@ async def page_about():
     return FileResponse(STATIC_DIR / "about.html")
 
 
-@app.get("/discover", response_class=HTMLResponse)
-async def page_discover():
-    return FileResponse(STATIC_DIR / "discover.html")
-
-
 @app.get("/tags", response_class=HTMLResponse)
 async def page_tags():
     return FileResponse(STATIC_DIR / "tags.html")
@@ -364,10 +363,17 @@ async def page_login():
 # ── Podcasts ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/podcasts")
-async def list_podcasts():
+async def list_podcasts(sort: str = "title"):
+    order = {
+        "title": "p.title COLLATE NOCASE",
+        # newest episode activity first (feeds with fresh episodes float up)
+        "recent": "MAX(e.pub_date) DESC NULLS LAST, p.title COLLATE NOCASE",
+        # most unread first, then alphabetical
+        "unread": "unread_count DESC, p.title COLLATE NOCASE",
+    }.get(sort, "p.title COLLATE NOCASE")
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("""
+        async with db.execute(f"""
             SELECT p.*,
                 COUNT(CASE WHEN e.status='done' AND e.read_at IS NULL THEN 1 END) AS unread_count,
                 COUNT(CASE WHEN e.status='done' THEN 1 END) AS done_count,
@@ -375,93 +381,10 @@ async def list_podcasts():
             FROM podcasts p
             LEFT JOIN episodes e ON e.podcast_id = p.id
             GROUP BY p.id
-            ORDER BY p.title COLLATE NOCASE
+            ORDER BY {order}
         """) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
-
-
-# Curated starter feeds — KI/AI podcasts. Feeds providing <podcast:transcript>
-# tags (e.g. Latent Space, Practical AI) are transcribed for free from the feed.
-RECOMMENDED_PODCASTS = [
-    {"title": "Latent Space", "lang": "en",
-     "rss": "https://api.substack.com/feed/podcast/1084081.rss",
-     "desc": "Entwickler-Deep-Dives: Code, Agenten, LLM-Architekturen, Gründer-Interviews. Liefert Transkripte im Feed.",
-     "transcripts": True},
-    {"title": "The Cognitive Revolution", "lang": "en",
-     "rss": "https://api.substack.com/feed/podcast/1033902.rss",
-     "desc": "Nathan Labenz interviewt KI-Forscher an der Front. Analytisch, Safety & Transformation.",
-     "transcripts": False},
-    {"title": "Practical AI", "lang": "en",
-     "rss": "https://changelog.com/practicalai/feed",
-     "desc": "Brücke zwischen ML-Theorie und produktivem Einsatz. Transkripte (VTT) im Feed enthalten.",
-     "transcripts": True},
-    {"title": "The AI Podcast (NVIDIA)", "lang": "en",
-     "rss": "https://feeds.content.audioboom.com/podcasts/4929837.rss",
-     "desc": "Kurze, gut produzierte Episoden zu konkreten KI-Use-Cases von Biologie bis autonomes Fahren.",
-     "transcripts": False},
-    {"title": "KI-Update (heise)", "lang": "de",
-     "rss": "https://kiupdate.podigee.io/feed/mp3",
-     "desc": "Werktägliches kurzes Update zu KI in Wirtschaft, Forschung und Praxis. Transkripte (JSON+VTT) im Feed.",
-     "transcripts": True},
-    {"title": "Tech, KI & Schmetterlinge (Sascha Lobo)", "lang": "de",
-     "rss": "https://tech-ki.podigee.io/feed/mp3",
-     "desc": "Sascha Lobo über Technologie, KI und digitale Souveränität. Transkripte (JSON+VTT) im Feed.",
-     "transcripts": True},
-    {"title": "Me, Myself, and AI (MIT Sloan)", "lang": "en",
-     "rss": "https://feeds.megaphone.fm/TPG7603691495",
-     "desc": "MIT Sloan Management Review: wie Unternehmen KI strategisch einsetzen. 118 Folgen.",
-     "transcripts": False},
-    {"title": "The AI in Business Podcast (Emerj)", "lang": "en",
-     "rss": "https://techemergence.libsyn.com/rss",
-     "desc": "Daniel Faggella über KI im Unternehmenseinsatz. Riesiges, aktives Archiv (1100+ Folgen).",
-     "transcripts": False},
-    {"title": "Everyday AI Podcast", "lang": "en",
-     "rss": "https://rss.buzzsprout.com/2175779.rss",
-     "desc": "Täglicher, praxisnaher Podcast zu KI-Tools, ChatGPT und Workflows.",
-     "transcripts": False},
-    {"title": "Your Copilot (Microsoft 365)", "lang": "de",
-     "rss": "https://podcast.yourcopilot.de/feed/mp3",
-     "desc": "KI in der Microsoft-365-Welt verstehen und anwenden. Transkripte im Feed enthalten.",
-     "transcripts": True},
-    {"title": "KI verstehen (Deutschlandfunk)", "lang": "de",
-     "rss": "https://www.deutschlandfunk.de/ki-verstehen-102.xml",
-     "desc": "DLF erklärt, was KI kann, was nicht und was sie mit uns macht. Gut recherchiert.",
-     "transcripts": False},
-    {"title": "KI Kompakt", "lang": "de",
-     "rss": "https://kikompakt.podigee.io/feed/mp3",
-     "desc": "Kompakte Einordnung aktueller KI-Themen auf Deutsch.",
-     "transcripts": False},
-    {"title": "Prompt mich mal!", "lang": "de",
-     "rss": "https://letscast.fm/podcasts/prompt-mich-mal-dd164d90/feed",
-     "desc": "Podcast über KI, ChatGPT und kreative Prompts — praxisnah auf Deutsch.",
-     "transcripts": False},
-    {"title": "KI REVOLUTION (Everlast AI)", "lang": "de",
-     "rss": "https://anchor.fm/s/d9945e24/podcast/rss",
-     "desc": "Business-Podcast von Everlast AI: Künstliche Intelligenz, Zukunft, Automation.",
-     "transcripts": False},
-    {"title": "KI TALK (Maxi Raabe & Niklas Volland)", "lang": "de",
-     "rss": "https://anchor.fm/s/f48c2e50/podcast/rss",
-     "desc": "Zwei Praktiker diskutieren aktuelle KI-Entwicklungen und Tools.",
-     "transcripts": False},
-    {"title": "Der KI-Unternehmer", "lang": "de",
-     "rss": "https://feeds.libsyn.com/323729/rss",
-     "desc": "Strategien zum Erfolg mit KI im Unternehmen. Großes Archiv (500+ Folgen).",
-     "transcripts": False},
-    {"title": "Der KI-Podcast (ARD/BR)", "lang": "de",
-     "rss": "https://feeds.br.de/der-ki-podcast/feed.xml",
-     "desc": "Gesellschaftliche & praktische Auswirkungen von KI im Alltag. Gut recherchiert (Transkription via Gemini).",
-     "transcripts": False},
-]
-
-
-@app.get("/api/recommended")
-async def recommended_podcasts():
-    """Curated starter list + which ones the user already subscribes to."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT rss_url FROM podcasts") as cur:
-            subscribed = {r[0] for r in await cur.fetchall()}
-    return [{**p, "subscribed": p["rss"] in subscribed} for p in RECOMMENDED_PODCASTS]
 
 
 @app.post("/api/podcasts", status_code=201)
@@ -559,6 +482,10 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
 @app.delete("/api/podcasts/{podcast_id}")
 async def delete_podcast(podcast_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
+        # FK enforcement is per-connection in SQLite — enable it so ON DELETE
+        # CASCADE actually fires for episodes/transcripts/summaries/tags/chunks.
+        await db.execute("PRAGMA foreign_keys=ON")
+        # FTS virtual table is not covered by CASCADE — delete its rows manually first.
         await db.execute(
             "DELETE FROM transcripts_fts WHERE episode_id IN "
             "(SELECT id FROM episodes WHERE podcast_id=?)", (podcast_id,))
@@ -626,11 +553,28 @@ async def bulk_export(podcast_id: int):
 @app.delete("/api/episodes/{episode_id}")
 async def delete_episode(episode_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys=ON")
         # FTS virtual table is not covered by CASCADE — delete manually first
         await db.execute("DELETE FROM transcripts_fts WHERE episode_id=?", (episode_id,))
         await db.execute("DELETE FROM episodes WHERE id=?", (episode_id,))
         await db.commit()
     return {"ok": True}
+
+
+@app.post("/api/maintenance/cleanup-orphans")
+async def cleanup_orphans():
+    """Delete episodes whose podcast no longer exists (e.g. left over from a
+    deleted subscription before FK cascade was enforced), plus their FTS rows."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("PRAGMA foreign_keys=ON")
+        await db.execute(
+            "DELETE FROM transcripts_fts WHERE episode_id IN "
+            "(SELECT id FROM episodes WHERE podcast_id NOT IN (SELECT id FROM podcasts))")
+        cur = await db.execute(
+            "DELETE FROM episodes WHERE podcast_id NOT IN (SELECT id FROM podcasts)")
+        removed = cur.rowcount
+        await db.commit()
+    return {"ok": True, "removed": removed}
 
 
 @app.post("/api/episodes/transcribe", status_code=202)
@@ -909,11 +853,18 @@ async def save_note(episode_id: int, data: NoteCreate):
 # ── Search ─────────────────────────────────────────────────────────────────────
 
 @app.get("/api/search")
-async def search(q: str = Query(..., min_length=2), limit: int = 20):
+async def search(q: str = Query(..., min_length=2), limit: int = 20,
+                 podcast_id: Optional[int] = None):
+    where = "transcripts_fts MATCH ?"
+    params: list = [q]
+    if podcast_id:
+        where += " AND e.podcast_id = ?"
+        params.append(podcast_id)
+    params.append(limit)
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         try:
-            async with db.execute("""
+            async with db.execute(f"""
                 SELECT e.id, e.title, e.pub_date, p.title AS podcast_title, p.id AS podcast_id,
                     snippet(transcripts_fts, 1, '<mark>', '</mark>', '…', 40) AS snippet,
                     (SELECT GROUP_CONCAT(t.label || '|' || t.id, ',')
@@ -923,10 +874,10 @@ async def search(q: str = Query(..., min_length=2), limit: int = 20):
                 JOIN transcripts t ON transcripts_fts.rowid = t.id
                 JOIN episodes e ON t.episode_id = e.id
                 LEFT JOIN podcasts p ON p.id = e.podcast_id
-                WHERE transcripts_fts MATCH ?
+                WHERE {where}
                 ORDER BY rank
                 LIMIT ?
-            """, (q, limit)) as cur:
+            """, params) as cur:
                 rows = await cur.fetchall()
         except Exception:
             rows = []
@@ -1144,7 +1095,7 @@ async def recent_takeaways(limit: int = 12):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
-            SELECT e.id AS episode_id, e.title, p.id AS podcast_id,
+            SELECT e.id AS episode_id, e.title, e.pub_date, p.id AS podcast_id,
                    p.title AS podcast_title, p.artwork_url, p.feed_type,
                    s.takeaways_json
             FROM episodes e
@@ -1168,6 +1119,7 @@ async def recent_takeaways(limit: int = 12):
         out.append({
             "episode_id": r["episode_id"],
             "title": r["title"],
+            "pub_date": r["pub_date"],
             "podcast_id": r["podcast_id"],
             "podcast_title": r["podcast_title"],
             "artwork_url": r["artwork_url"],
@@ -1233,7 +1185,7 @@ async def email_test(data: SmtpTest):
 
 
 @app.post("/api/digests/{digest_id}/email")
-async def email_digest(digest_id: int):
+async def email_digest(digest_id: int, data: EmailDigestRequest = EmailDigestRequest()):
     from . import mailer
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -1245,9 +1197,10 @@ async def email_digest(digest_id: int):
         raise HTTPException(404, "Digest nicht gefunden")
     if row["status"] != "done":
         raise HTTPException(400, "Digest ist noch nicht fertig.")
-    to_addr = await get_setting("digest_email_to")
+    # Per-send recipient overrides the configured default.
+    to_addr = (data.to_addr or "").strip() or await get_setting("digest_email_to")
     if not to_addr:
-        raise HTTPException(400, "Keine Empfänger-Adresse konfiguriert.")
+        raise HTTPException(400, "Keine Empfänger-Adresse angegeben oder konfiguriert.")
     try:
         await mailer.send_email(to_addr, row["title"] or "PodScribe Redaktion",
                                 row["content_html"], row["tldr_md"] or "")
@@ -1724,7 +1677,7 @@ async def get_tag_episodes(tag_id: int, page: int = 1, limit: int = 30):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
-            SELECT e.id, e.title, e.pub_date, e.status, e.read_at, e.word_count,
+            SELECT e.id, e.title, e.pub_date, e.status, e.read_at,
                    p.title AS podcast_title, p.id AS podcast_id, p.artwork_url,
                    s.summary
             FROM episode_tags et
@@ -2068,9 +2021,13 @@ async def overview_week(days: int = 7):
             r["chapters"] = []
         r.pop("chapters_json", None)
         by_podcast.setdefault(r["podcast_title"] or "—", []).append(r)
+    # Flat list newest-first, so the UI can switch between "by date" and
+    # "by podcast" views without a second request.
+    by_date = sorted(rows, key=lambda r: (r.get("pub_date") or ""), reverse=True)
     return {
         "range_from": cutoff, "episode_count": len(rows),
         "by_podcast": [{"podcast_title": k, "episodes": v} for k, v in by_podcast.items()],
+        "by_date": by_date,
         "top_tags": sorted(({"label": k, "count": v} for k, v in top_tags.items()),
                            key=lambda x: -x["count"])[:20],
     }

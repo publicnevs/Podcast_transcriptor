@@ -302,16 +302,6 @@ function switchTab(t) {
   if (t==='recipes') loadRecipes();
 }
 
-function openDigestMenu(anchor, id, status) {
-  const items = [
-    { icon:'trash-2', label:'Löschen', danger:true, onClick: () => deleteDigest(id) },
-  ];
-  if (status === 'error') {
-    items.unshift({ icon:'refresh-cw', label:'Neu generieren', onClick: () => retryDigest(id) });
-  }
-  openMenu(anchor, items);
-}
-
 // ── Issues list ─────────────────────────────────────────────────────────────
 async function loadDigests() {
   const list = document.getElementById('digest-list');
@@ -334,7 +324,7 @@ async function loadDigests() {
           ${d.status==='error' ? `<div style="margin-top:.35rem"><button class="btn btn-ghost btn-sm" data-owner-only onclick="event.stopPropagation();retryDigest(${d.id})">${icon('refresh-cw',{size:13})} Neu generieren</button></div>` : ''}
         </div>
         <div class="episode-actions" onclick="event.stopPropagation()">
-          <button class="btn btn-ghost btn-icon btn-sm" data-owner-only title="Mehr" onclick="openDigestMenu(this, ${d.id}, '${d.status}')">${icon('more-vertical')}</button>
+          <button class="btn btn-ghost btn-icon btn-sm" data-owner-only title="Löschen" onclick="deleteDigest(${d.id})">${icon('trash-2')}</button>
         </div>
       </div>`).join('');
     if (digests.some(d => d.status === 'generating') && ++listPollCount < MAX_LIST_POLLS) {
@@ -734,30 +724,77 @@ async function saveAsRecipe() {
 }
 
 // ── Weekly overview ─────────────────────────────────────────────────────────
+let weekData = null;
+let weekSort = localStorage.getItem('ps_week_sort') || 'date';
+
+function _weekEpisodeCard(e, showDate) {
+  const d = (e.pub_date||'').slice(0,10);
+  const datePrefix = (showDate && d) ? `<span style="color:var(--text-muted);font-weight:400;font-size:.78rem;margin-right:.4rem">${d}</span>` : '';
+  return `
+    <div class="episode-item" onclick="location.href='/episode/${e.id}'">
+      <div>
+        <div class="episode-title">${datePrefix}${escHtml(e.title)}</div>
+        <div style="font-size:.8rem;color:var(--text-muted);margin:.25rem 0">${escHtml((e.summary||'').slice(0,180))}${(e.summary||'').length>180?'…':''}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.3rem">${(e.tags||[]).map(t=>`<span class="chip" style="cursor:default;padding:.15rem .5rem;font-size:.7rem">${escHtml(t)}</span>`).join('')}</div>
+      </div>
+      <div class="episode-actions" onclick="event.stopPropagation()">
+        <button class="btn btn-ghost btn-icon btn-sm" data-owner-only title="Folge löschen" onclick="deleteWeekEpisode(${e.id})">${icon('trash-2')}</button>
+      </div>
+    </div>`;
+}
+
+function renderWeek() {
+  const box = document.getElementById('week-content');
+  const w = weekData;
+  if (!w || !w.episode_count) { box.innerHTML = `<div class="empty-state"><div class="icon">${icon('calendar',{size:44})}</div><p>Diese Woche noch keine fertigen Folgen.</p></div>`; return; }
+  let html = '';
+  if (w.top_tags.length) {
+    html += `<div style="margin-bottom:1.25rem"><div class="form-label" style="margin-bottom:.5rem">Top-Themen der Woche (klicken → Newsletter)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:.4rem">${w.top_tags.map(t =>
+        `<span class="chip" onclick="newsletterFromTag('${escHtml(t.label).replace(/'/g,"\\'")}')">${escHtml(t.label)}<span class="cnt">${t.count}</span></span>`).join('')}</div></div>`;
+  }
+  // Sort toggle
+  html += `<div class="segmented" style="margin-bottom:1rem;max-width:280px">
+      <button class="${weekSort==='date'?'active':''}" onclick="setWeekSort('date')">${icon('calendar',{size:14})} Datum</button>
+      <button class="${weekSort==='podcast'?'active':''}" onclick="setWeekSort('podcast')">${icon('headphones',{size:14})} Podcast</button>
+    </div>`;
+  if (weekSort === 'podcast') {
+    for (const grp of w.by_podcast) {
+      html += `<div class="section-title" style="margin-top:1rem">${escHtml(grp.podcast_title)}</div>`;
+      html += grp.episodes.map(e => _weekEpisodeCard(e, false)).join('');
+    }
+  } else {
+    html += (w.by_date || []).map(e => _weekEpisodeCard(e, true)).join('');
+  }
+  box.innerHTML = html;
+}
+
+function setWeekSort(s) {
+  weekSort = s;
+  localStorage.setItem('ps_week_sort', s);
+  renderWeek();
+}
+
+async function deleteWeekEpisode(id) {
+  if (!confirm('Diese Folge/Mail wirklich löschen?')) return;
+  try {
+    await API.del(`/api/episodes/${id}`);
+    toast('Gelöscht','success');
+    if (weekData) {
+      weekData.by_date = (weekData.by_date||[]).filter(e => e.id !== id);
+      weekData.by_podcast = (weekData.by_podcast||[]).map(g => ({...g, episodes: g.episodes.filter(e => e.id !== id)})).filter(g => g.episodes.length);
+      weekData.episode_count = (weekData.by_date||[]).length;
+      renderWeek();
+    }
+  } catch(e) { toast(e.message,'error'); }
+}
+
 async function loadWeek() {
   const box = document.getElementById('week-content');
   box.innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
   try {
-    const w = await API.get('/api/overview/week?days=7');
-    if (!w.episode_count) { box.innerHTML = `<div class="empty-state"><div class="icon">${icon('calendar',{size:44})}</div><p>Diese Woche noch keine fertigen Folgen.</p></div>`; return; }
-    let html = '';
-    if (w.top_tags.length) {
-      html += `<div style="margin-bottom:1.25rem"><div class="form-label" style="margin-bottom:.5rem">Top-Themen der Woche (klicken → Newsletter)</div>
-        <div style="display:flex;flex-wrap:wrap;gap:.4rem">${w.top_tags.map(t =>
-          `<span class="chip" onclick="newsletterFromTag('${escHtml(t.label).replace(/'/g,"\\'")}')">${escHtml(t.label)}<span class="cnt">${t.count}</span></span>`).join('')}</div></div>`;
-    }
-    for (const grp of w.by_podcast) {
-      html += `<div class="section-title" style="margin-top:1rem">${escHtml(grp.podcast_title)}</div>`;
-      html += grp.episodes.map(e => `
-        <div class="episode-item" onclick="location.href='/episode/${e.id}'">
-          <div>
-            <div class="episode-title">${escHtml(e.title)}</div>
-            <div style="font-size:.8rem;color:var(--text-muted);margin:.25rem 0">${escHtml((e.summary||'').slice(0,180))}${(e.summary||'').length>180?'…':''}</div>
-            <div style="display:flex;flex-wrap:wrap;gap:.3rem">${(e.tags||[]).map(t=>`<span class="chip" style="cursor:default;padding:.15rem .5rem;font-size:.7rem">${escHtml(t)}</span>`).join('')}</div>
-          </div>
-        </div>`).join('');
-    }
-    box.innerHTML = html;
+    weekData = await API.get('/api/overview/week?days=7');
+    renderWeek();
   } catch(e) { box.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`; }
 }
 

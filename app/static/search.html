@@ -54,6 +54,9 @@
     </p>
     <div style="display:flex;gap:.5rem;margin-bottom:1.25rem;flex-wrap:wrap">
       <input type="text" id="fts-query" placeholder="Suchbegriff…" style="flex:1;min-width:240px" autocomplete="off">
+      <select id="fts-podcast" class="btn btn-secondary" style="padding:.4rem .6rem">
+        <option value="">Alle Podcasts</option>
+      </select>
       <button class="btn btn-primary" onclick="ftsSearch()"><span data-icon="search">Suchen</span></button>
     </div>
     <div id="fts-results"></div>
@@ -78,6 +81,7 @@ function setMode(m) {
   document.getElementById('mode-fts').classList.toggle('active', m==='fts');
   document.getElementById('chat-view').style.display = m==='chat' ? '' : 'none';
   document.getElementById('fts-view').style.display = m==='fts' ? '' : 'none';
+  if (m==='fts') loadFtsPodcasts();
   (m==='chat' ? document.getElementById('question') : document.getElementById('fts-query')).focus();
 }
 
@@ -163,14 +167,29 @@ async function send() {
 
 function resetChat() { messages = []; renderThread(false); }
 
+// Populate the podcast filter dropdown once.
+let ftsPodsLoaded = false;
+async function loadFtsPodcasts() {
+  if (ftsPodsLoaded) return;
+  ftsPodsLoaded = true;
+  try {
+    const pods = await API.get('/api/podcasts');
+    const sel = document.getElementById('fts-podcast');
+    pods.sort((a,b)=> (a.title||'').localeCompare(b.title||''));
+    sel.innerHTML = '<option value="">Alle Podcasts</option>' +
+      pods.map(p => `<option value="${p.id}">${escHtml(p.title)}</option>`).join('');
+  } catch {}
+}
+
 // Classic FTS search (guest-open, no LLM cost)
 async function ftsSearch() {
   const q = document.getElementById('fts-query').value.trim();
   if (!q) return;
+  const pid = document.getElementById('fts-podcast').value;
   const view = document.getElementById('fts-results');
   view.innerHTML = `<div class="empty-state"><div class="spinner"></div></div>`;
   try {
-    const results = await API.get(`/api/search?q=${encodeURIComponent(q)}&limit=25`);
+    const results = await API.get(`/api/search?q=${encodeURIComponent(q)}&limit=25${pid?`&podcast_id=${pid}`:''}`);
     if (!results.length) {
       view.innerHTML = `<div class="empty-state"><p>Keine Treffer für „${escHtml(q)}".</p></div>`;
       return;

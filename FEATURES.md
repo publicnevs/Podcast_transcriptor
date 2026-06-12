@@ -21,6 +21,9 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Auto-Transkription pro Podcast** — pro Feed festlegen, ob neue Folgen automatisch transkribiert werden.
 - **Flexible Abo-Optionen** — maximale Folgenzahl begrenzen, Prüf-Intervall einstellen, gezielt einzelne Folgen transkribieren.
 - **„Neue Folgen suchen"-Button** — einen Feed jederzeit manuell auf neue Folgen prüfen.
+- **„Aktualisieren"-Button** — auf der Startseite alle Feeds (und das Newsletter-Postfach) mit einem Klick auf neue Inhalte prüfen.
+- **Podcasts sortieren** — auf der Startseite nach A–Z, zuletzt aktiv oder ungelesen zuerst.
+- **Verwaiste Inhalte aufräumen** — Folgen/Mails von bereits gelöschten Abos in den Einstellungen entfernen; einzelne Folgen/Mails direkt löschbar.
 - **Newsletter-Avatare** — Feeds ohne Bild bekommen ein automatisch generiertes Icon (Farbe + Initialen + Mail-Symbol).
 
 ## 🎙️ Transkription
@@ -52,12 +55,12 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 🔎 Bibliothek, Suche & Intelligenz
 
-- **Volltextsuche** — blitzschnelle Suche über alle Transkripte (auch bei großen Beständen).
+- **Volltextsuche** — blitzschnelle Suche über alle Transkripte (auch bei großen Beständen); optional auf einen einzelnen Podcast eingrenzbar.
 - **„Frag deine Bibliothek" (KI-Chat)** — stelle Fragen in natürlicher Sprache; die KI antwortet auf Basis deiner Folgen **mit zitierten Quellen** und Deep-Links zur genauen Stelle. Mehrere Folgefragen im Gespräch möglich.
 - **Verwandte Folgen** — zu jeder Folge passende andere Folgen (über gemeinsame Themen & inhaltliche Ähnlichkeit).
 - **Themen-Explorer** — pro Schlagwort eine chronologische Zeitleiste aller Folgen plus optionale themenübergreifende Zusammenfassung.
 - **Ungelesen-Tracking** — Badge pro Podcast, gespeicherte Lese-/Scroll-Position, „als gelesen" markieren.
-- **Takeaway-Ticker** — auf der Startseite eine wischbare Reihe der neuesten Erkenntnisse.
+- **Takeaway-Ticker** — auf der Startseite die neuesten Erkenntnisse (mit Datum); auf dem Desktop als umbrechendes Raster, auf dem Handy wischbar.
 - **Filter & Sortierung** — nach Podcast, Zeitraum, Lese- und Transkriptions-Status.
 - **Notizen** — persönliche Notizen pro Folge.
 
@@ -81,7 +84,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Rezepte & Zeitplan** — wiederkehrende Ausgaben speichern und automatisch zu festen Zeiten erzeugen lassen.
 - **Automatische Trending-Ausgabe** — wöchentlich automatisch eine Ausgabe aus den aktuell meistdiskutierten Themen (an-/abschaltbar, Wochentag & Uhrzeit wählbar).
 - **Fehler-Recovery** — hängengebliebene Ausgaben (z.B. nach Server-Neustart) als Fehler markiert; mit einem Klick neu generieren.
-- **Per E-Mail zustellen** — Ausgaben automatisch oder manuell per Mail verschicken.
+- **Per E-Mail zustellen** — Ausgaben automatisch oder manuell verschicken; beim manuellen Versand kann eine beliebige Empfängeradresse angegeben werden.
 - **Teilen** — Ausgabe über einen Link teilen.
 
 ## 📤 Export
