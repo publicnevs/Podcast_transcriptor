@@ -543,12 +543,16 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
         async with db.execute("SELECT last_insert_rowid()") as cur:
             podcast_id = (await cur.fetchone())[0]
 
+        # On the first subscribe, only pull in the 3 newest episodes so the
+        # Neuzugänge inbox isn't flooded with a feed's entire back catalogue.
+        # Later scheduler runs use the podcast's own max_episodes unchanged.
+        initial_limit = min(3, data.max_episodes) if data.max_episodes > 0 else 3
         await insert_new_episodes(
             db, podcast_id, episodes,
             feed_type=feed_type,
             full_text_extraction=data.full_text_extraction,
             auto_transcribe=data.auto_transcribe,
-            limit=data.max_episodes if data.max_episodes > 0 else 0,
+            limit=initial_limit,
         )
         await db.commit()
 
@@ -933,8 +937,9 @@ async def transcribe_one(episode_id: int, background_tasks: BackgroundTasks):
 
 @app.get("/api/inbox")
 async def get_inbox():
-    """Newly arrived but not-yet-processed items across all feeds: episodes that
-    are idle ('pending') awaiting an opt-in, plus anything queued/running/failed."""
+    """Timeline of recent arrivals across all feeds: everything added in the last
+    30 days (including already-processed 'done' items) plus any still-unprocessed
+    episode regardless of age (pending opt-in, queued/running, or failed)."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
@@ -943,7 +948,8 @@ async def get_inbox():
                    p.feed_type, p.artwork_url
             FROM episodes e
             LEFT JOIN podcasts p ON p.id = e.podcast_id
-            WHERE e.status IN ('pending','queued','downloading','transcribing','error')
+            WHERE e.created_at >= datetime('now', '-30 days')
+               OR e.status IN ('pending','queued','downloading','transcribing','error')
             ORDER BY e.created_at DESC, e.pub_date DESC
             LIMIT 200
         """) as cur:
@@ -1824,43 +1830,29 @@ async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
                 match=recipe.get("match", "any"))
             episode_ids = [e["id"] for e in eps]
 
-    # Free article: let the AI pick relevant library episodes from the prompt
-    # (RAG retrieval), optionally constrained to chosen podcasts.
-    if not episode_ids and data.selection_mode == "ai" and data.prompt.strip():
-        from . import rag
-        try:
-            _, sources, err = await rag._retrieve(data.prompt, k=12)
-            if not err and sources:
-                allowed = set((recipe or {}).get("podcast_ids") or [])
-                picked = []
-                for s in sources:
-                    if s["episode_id"] in picked:
-                        continue
-                    picked.append(s["episode_id"])
-                episode_ids = picked[:8]
-                if allowed:
-                    async with aiosqlite.connect(DB_PATH) as db:
-                        db.row_factory = aiosqlite.Row
-                        qmarks = ",".join("?" * len(episode_ids))
-                        async with db.execute(
-                            f"SELECT id FROM episodes WHERE id IN ({qmarks}) AND podcast_id IN "
-                            f"({','.join('?'*len(allowed))})",
-                            (*episode_ids, *allowed)) as cur:
-                            episode_ids = [r["id"] for r in await cur.fetchall()]
-        except Exception as e:
-            logger.warning(f"AI episode selection failed: {e}")
+    # Free article with AI selection: the RAG retrieval that picks library
+    # episodes runs inside _build_issue (background task), NOT here — otherwise
+    # the Gemini embedding call blocks the HTTP response and the UI hangs on
+    # "Generiere…". So episode_ids may legitimately stay empty at this point.
+    ai_select = data.format == "artikel" and data.selection_mode == "ai" and data.prompt.strip()
 
-    # The free-article format may run with no episodes (article purely from the
-    # prompt); every other format needs at least one source episode.
-    if not episode_ids and not (data.format == "artikel" and data.prompt.strip()):
+    # Every format needs source episodes, except a free article (the article can
+    # come purely from the prompt, or from episodes the AI picks in the background).
+    if not episode_ids and not ai_select and not (data.format == "artikel" and data.prompt.strip()):
         raise HTTPException(400, "Keine passenden Folgen gefunden")
 
+    # Persist the article parameters in recipe_json so a retry can rebuild fully.
+    recipe_json = json.dumps({
+        **(recipe or {}),
+        "prompt": data.prompt, "selection_mode": data.selection_mode,
+        "focus": data.focus, "custom_style": data.custom_style,
+    })
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, recipe_json, status)
                VALUES (?, ?, ?, ?, ?, ?, ?, 'generating')""",
             (data.title, data.mode, data.format, data.length, data.style,
-             json.dumps(episode_ids), json.dumps(recipe or {})),
+             json.dumps(episode_ids), recipe_json),
         )
         await db.commit()
         async with db.execute("SELECT last_insert_rowid()") as cur:
@@ -1868,7 +1860,8 @@ async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(_build_issue, digest_id, episode_ids,
                               data.format, data.length, data.style, data.title,
-                              data.model, data.custom_style, data.focus, data.prompt)
+                              data.model, data.custom_style, data.focus, data.prompt,
+                              data.selection_mode)
     return {"id": digest_id, "status": "generating"}
 
 
@@ -1888,8 +1881,32 @@ def _sections_to_md(result: dict) -> str:
 
 async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                        style: int, title: str, model: str = "",
-                       custom_style: str = "", focus: str = "", prompt: str = ""):
+                       custom_style: str = "", focus: str = "", prompt: str = "",
+                       selection_mode: str = "manual"):
     try:
+        episode_ids = list(episode_ids)
+        # Free-article AI episode selection runs HERE (background task), not in the
+        # request handler — the Gemini embedding call would otherwise block the
+        # HTTP response and leave the UI stuck on "Generiere…".
+        if selection_mode == "ai" and prompt.strip() and not episode_ids:
+            from . import rag
+            try:
+                _, sources, err = await rag._retrieve(prompt, k=12)
+                if not err and sources:
+                    seen = set()
+                    for s in sources:
+                        if s["episode_id"] not in seen:
+                            seen.add(s["episode_id"])
+                            episode_ids.append(s["episode_id"])
+                    episode_ids = episode_ids[:8]
+                    async with aiosqlite.connect(DB_PATH) as db:
+                        await db.execute(
+                            "UPDATE digests SET episode_ids_json=? WHERE id=?",
+                            (json.dumps(episode_ids), digest_id))
+                        await db.commit()
+            except Exception as e:
+                logger.warning(f"AI episode selection failed: {e}")
+
         episode_data = []
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row
@@ -1939,7 +1956,9 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
     except Exception as e:
         logger.error(f"Issue {digest_id} failed: {e}", exc_info=True)
         async with aiosqlite.connect(DB_PATH) as db:
-            await db.execute("UPDATE digests SET status='error' WHERE id=?", (digest_id,))
+            await db.execute(
+                "UPDATE digests SET status='error', error_msg=? WHERE id=?",
+                (str(e)[:500], digest_id))
             await db.commit()
 
 
@@ -1952,6 +1971,32 @@ async def get_digest(digest_id: int):
     if not row:
         raise HTTPException(404)
     return dict(row)
+
+
+@app.post("/api/digests/{digest_id}/retry")
+async def retry_digest(digest_id: int, background_tasks: BackgroundTasks):
+    """Re-run a failed issue with its original parameters (stored in recipe_json)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM digests WHERE id=?", (digest_id,)) as cur:
+            d = await cur.fetchone()
+        if not d:
+            raise HTTPException(404)
+        if d["status"] != "error":
+            raise HTTPException(400, "Nur fehlgeschlagene Ausgaben können wiederholt werden")
+        await db.execute(
+            "UPDATE digests SET status='generating', error_msg=NULL WHERE id=?",
+            (digest_id,))
+        await db.commit()
+
+    recipe = json.loads(d["recipe_json"] or "{}")
+    episode_ids = json.loads(d["episode_ids_json"] or "[]")
+    background_tasks.add_task(
+        _build_issue, digest_id, episode_ids,
+        d["format"], d["length"], d["style"], d["title"],
+        "", recipe.get("custom_style", ""), recipe.get("focus", ""),
+        recipe.get("prompt", ""), recipe.get("selection_mode", "manual"))
+    return {"id": digest_id, "status": "generating"}
 
 
 @app.delete("/api/digests/{digest_id}")

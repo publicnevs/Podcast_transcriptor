@@ -216,6 +216,8 @@ _MIGRATIONS = [
     # User-managed categories + manual ordering for the library homepage
     "ALTER TABLE podcasts ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL",
     "ALTER TABLE podcasts ADD COLUMN position INTEGER DEFAULT 0",
+    # Surface why an issue/digest failed so the reader can show it + offer retry
+    "ALTER TABLE digests ADD COLUMN error_msg TEXT",
 ]
 
 

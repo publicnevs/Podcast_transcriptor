@@ -81,7 +81,11 @@ function render() {
       <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.5rem">
         <a href="/digests" class="btn btn-ghost btn-icon">←</a>
       </div>
-      <div class="card" style="border-color:var(--error)"><p style="color:var(--error)">Fehler beim Generieren.</p></div>`;
+      <div class="card" style="border-color:var(--error)">
+        <p style="color:var(--error);font-weight:600">Fehler beim Generieren.</p>
+        ${digest.error_msg ? `<p style="font-size:.85rem;color:var(--text-muted);margin-top:.35rem;white-space:pre-wrap">${escHtml(digest.error_msg)}</p>` : ''}
+        <button class="btn btn-primary btn-sm" data-owner-only style="margin-top:.85rem" onclick="retryDigest()">Erneut versuchen</button>
+      </div>`;
     return;
   }
 
@@ -127,6 +131,16 @@ function renderTldr(md) {
   }
   if (inList) html += '</ul>';
   return html;
+}
+
+async function retryDigest() {
+  try {
+    await API.post(`/api/digests/${digestId}/retry`, {});
+    toast('Wird erneut generiert…', 'info');
+    load();  // status is back to 'generating' → render() resumes polling
+  } catch(e) {
+    toast(e.message || 'Erneuter Versuch fehlgeschlagen', 'error');
+  }
 }
 
 async function copyContent() {

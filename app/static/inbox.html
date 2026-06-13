@@ -20,7 +20,7 @@
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem">
     <div>
       <h1 style="font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:.5rem" data-icon="inbox" data-icon-size="22">Neuzugänge</h1>
-      <p style="color:var(--text-muted);margin-top:.375rem;font-size:.9rem">Neue Folgen, Artikel & Mails — transkribiere sie bei Bedarf.</p>
+      <p style="color:var(--text-muted);margin-top:.375rem;font-size:.9rem">Zeitleiste aller neuen Folgen, Artikel & Mails — transkribiere sie bei Bedarf.</p>
     </div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" id="check-btn" data-icon="refresh-cw" data-icon-size="15" onclick="checkAll()">Auf neue Folgen prüfen</button>
@@ -55,7 +55,7 @@ async function load() {
   try {
     const items = await API.get('/api/inbox');
     if (!items.length) {
-      list.innerHTML = `<div class="empty-state"><div class="icon">${icon('inbox',{size:44})}</div><p>Keine offenen Neuzugänge.<br>Alles transkribiert oder in Bearbeitung.</p></div>`;
+      list.innerHTML = `<div class="empty-state"><div class="icon">${icon('inbox',{size:44})}</div><p>Noch keine Neuzugänge.<br>Abonniere Quellen oder prüfe auf neue Folgen.</p></div>`;
       return;
     }
     list.innerHTML = items.map(renderItem).join('');
@@ -65,8 +65,18 @@ async function load() {
   }
 }
 
+function actionFor(e) {
+  // pending → opt-in transcribe; error → retry; running → spinner; done → none.
+  if (e.status === 'pending')
+    return `<button class="btn btn-primary btn-sm" onclick="transcribe(this, ${e.id})">${icon('sparkles',{size:15})} Transkribieren</button>`;
+  if (e.status === 'error')
+    return `<button class="btn btn-secondary btn-sm" onclick="transcribe(this, ${e.id})">${icon('refresh-cw',{size:15})} Erneut</button>`;
+  if (e.status === 'queued' || e.status === 'downloading' || e.status === 'transcribing')
+    return `<span class="spinner" style="width:18px;height:18px"></span>`;
+  return '';  // done — row click opens the episode
+}
+
 function renderItem(e) {
-  const pending = e.status === 'pending';
   return `
     <div class="episode-item" style="align-items:flex-start;gap:1rem">
       <div style="flex:1;min-width:0;cursor:pointer" onclick="location.href='/episode/${e.id}'">
@@ -78,11 +88,7 @@ function renderItem(e) {
         </div>
         ${e.error_msg ? `<div class="episode-summary" style="color:var(--error);margin-top:.35rem">${escHtml(e.error_msg)}</div>` : ''}
       </div>
-      <div style="flex-shrink:0">
-        ${pending
-          ? `<button class="btn btn-primary btn-sm" onclick="transcribe(this, ${e.id})">${icon('sparkles',{size:15})} Transkribieren</button>`
-          : `<span class="badge">${escHtml(e.status)}</span>`}
-      </div>
+      <div style="flex-shrink:0;display:flex;align-items:center">${actionFor(e)}</div>
     </div>`;
 }
 
