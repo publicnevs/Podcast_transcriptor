@@ -205,6 +205,12 @@ _LENGTH_MAP = {
     5: {"label": "Magazin",     "words": 4000, "sections": 6, "tokens": 32000},
 }
 
+# Hard cap (milliseconds) on a single issue-generation request so a stalled
+# Gemini call can never leave a digest stuck on status='generating' forever.
+# Slightly below the asyncio.wait_for guard in main._build_issue so the clean
+# SDK error fires first.
+_ISSUE_TIMEOUT_MS = 210_000
+
 _STYLE_MAP = {
     1: ("Technisch", "Fachlich präzise. Verwende korrekte Fachbegriffe ohne Vereinfachung, "
         "nenne Tools, Modelle und Versionen exakt, gib konkrete Schritte/Konfigurationen wieder. "
@@ -707,7 +713,8 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.7, max_output_tokens=lconf["tokens"]),
+            config=types.GenerateContentConfig(temperature=0.7, max_output_tokens=lconf["tokens"],
+                                               http_options=types.HttpOptions(timeout=_ISSUE_TIMEOUT_MS)),
         )
         data = _parse_json(response.text)
         if not isinstance(data, dict) or "sections" not in data:
@@ -730,7 +737,8 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=8192),
+            config=types.GenerateContentConfig(temperature=0.5, max_output_tokens=8192,
+                                               http_options=types.HttpOptions(timeout=_ISSUE_TIMEOUT_MS)),
         )
         data = _parse_json(response.text)
         if not isinstance(data, dict) or "sections" not in data:
@@ -764,7 +772,8 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=8192),
+            config=types.GenerateContentConfig(temperature=0.3, max_output_tokens=8192,
+                                               http_options=types.HttpOptions(timeout=_ISSUE_TIMEOUT_MS)),
         )
         data = _parse_json(response.text)
         if not isinstance(data, dict) or "sections" not in data:
@@ -785,7 +794,8 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
         response = client.models.generate_content(
             model=chosen_model,
             contents=[prompt],
-            config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=2048),
+            config=types.GenerateContentConfig(temperature=0.6, max_output_tokens=2048,
+                                               http_options=types.HttpOptions(timeout=_ISSUE_TIMEOUT_MS)),
         )
         data = _parse_json(response.text)
         if not isinstance(data, dict) or "sections" not in data:
@@ -831,7 +841,8 @@ def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
     response = client.models.generate_content(
         model=chosen_model,
         contents=[prompt],
-        config=types.GenerateContentConfig(temperature=temp, max_output_tokens=lconf["tokens"]),
+        config=types.GenerateContentConfig(temperature=temp, max_output_tokens=lconf["tokens"],
+                                           http_options=types.HttpOptions(timeout=_ISSUE_TIMEOUT_MS)),
     )
     data = _parse_json(response.text)
     if not isinstance(data, dict) or "sections" not in data:

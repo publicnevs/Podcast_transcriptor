@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -731,7 +732,7 @@ async def get_category(category_id: int):
             SELECT e.id, e.title, e.pub_date, e.status, p.title AS podcast_title
             FROM episodes e JOIN podcasts p ON p.id=e.podcast_id
             WHERE p.category_id=? AND e.status='done'
-            ORDER BY e.pub_date DESC NULLS LAST, e.created_at DESC
+            ORDER BY e.pub_date IS NULL, e.pub_date DESC, e.created_at DESC
             LIMIT 20
         """, (category_id,)) as cur:
             episodes = [dict(r) for r in await cur.fetchall()]
@@ -845,7 +846,7 @@ async def get_podcast_episodes(podcast_id: int, status: Optional[str] = None,
             FROM episodes e
             LEFT JOIN summaries s ON s.episode_id = e.id
             {where}
-            ORDER BY e.pub_date DESC NULLS LAST, e.created_at DESC
+            ORDER BY e.pub_date IS NULL, e.pub_date DESC, e.created_at DESC
             LIMIT ? OFFSET ?
         """, (*params, limit, offset)) as cur:
             rows = await cur.fetchall()
@@ -1772,7 +1773,7 @@ async def _select_episode_ids(db, *, date_window_days=None, date_from=None, date
         WHERE {' AND '.join(where)}
         GROUP BY e.id
         {having}
-        ORDER BY e.pub_date DESC NULLS LAST, e.created_at DESC
+        ORDER BY e.pub_date IS NULL, e.pub_date DESC, e.created_at DESC
     """
     if having:
         params.append(len(tag_ids))
@@ -1891,7 +1892,9 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
         if selection_mode == "ai" and prompt.strip() and not episode_ids:
             from . import rag
             try:
-                _, sources, err = await rag._retrieve(prompt, k=12)
+                # Timeout-guarded: the Gemini embedding call has no timeout of
+                # its own, so an unguarded hang here would never resolve the digest.
+                _, sources, err = await asyncio.wait_for(rag._retrieve(prompt, k=12), timeout=90)
                 if not err and sources:
                     seen = set()
                     for s in sources:
@@ -1924,18 +1927,21 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                     if row:
                         episode_data.append(dict(row))
 
-        # Auto-title if empty
+        # Auto-title if empty. Wrapped in a timeout so a stalled Gemini call can
+        # never leave the digest stuck on 'generating' (frontend polls forever).
         if not title.strip():
             from .transcriber import generate_title
-            title = await generate_title(episode_data, fmt)
+            title = await asyncio.wait_for(generate_title(episode_data, fmt), timeout=120)
             async with aiosqlite.connect(DB_PATH) as db:
                 await db.execute("UPDATE digests SET title=? WHERE id=?", (title, digest_id))
                 await db.commit()
 
-        result = await generate_issue(episode_data, fmt=fmt, length=length,
-                                      style=style, title=title,
-                                      model=model, custom_style=custom_style,
-                                      focus=focus, prompt=prompt)
+        result = await asyncio.wait_for(
+            generate_issue(episode_data, fmt=fmt, length=length,
+                           style=style, title=title,
+                           model=model, custom_style=custom_style,
+                           focus=focus, prompt=prompt),
+            timeout=240)
         content_md = _sections_to_md(result)
         content_html = markdown2.markdown(
             content_md, extras=["fenced-code-blocks", "tables", "header-ids"])
@@ -1953,12 +1959,20 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
         from .mailer import maybe_email_digest
         await maybe_email_digest(digest_id, title, content_html,
                                  result.get("tldr_md", ""))
+    except (asyncio.TimeoutError, TimeoutError):
+        logger.error(f"Issue {digest_id} timed out")
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "UPDATE digests SET status='error', error_msg=? WHERE id=?",
+                ("Zeitüberschreitung bei der KI-Generierung. Bitte erneut versuchen "
+                 "(ggf. mit kürzerer Länge oder schnellerem Modell).", digest_id))
+            await db.commit()
     except Exception as e:
         logger.error(f"Issue {digest_id} failed: {e}", exc_info=True)
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute(
                 "UPDATE digests SET status='error', error_msg=? WHERE id=?",
-                (str(e)[:500], digest_id))
+                (str(e)[:500] or e.__class__.__name__, digest_id))
             await db.commit()
 
 
@@ -2057,15 +2071,16 @@ async def get_tag_episodes(tag_id: int, page: int = 1, limit: int = 30):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
-            SELECT e.id, e.title, e.pub_date, e.status, e.read_at, e.word_count,
+            SELECT e.id, e.title, e.pub_date, e.status, e.read_at, t.word_count,
                    p.title AS podcast_title, p.id AS podcast_id, p.artwork_url,
                    s.summary
             FROM episode_tags et
             JOIN episodes e ON e.id = et.episode_id
             LEFT JOIN podcasts p ON p.id = e.podcast_id
+            LEFT JOIN transcripts t ON t.episode_id = e.id
             LEFT JOIN summaries s ON s.episode_id = e.id
             WHERE et.tag_id = ?
-            ORDER BY e.pub_date DESC NULLS LAST
+            ORDER BY e.pub_date IS NULL, e.pub_date DESC
             LIMIT ? OFFSET ?
         """, (tag_id, limit, offset)) as cur:
             rows = await cur.fetchall()
@@ -2092,7 +2107,7 @@ async def topic_detail(tag_id: int):
             LEFT JOIN podcasts p ON p.id = e.podcast_id
             LEFT JOIN summaries s ON s.episode_id = e.id
             WHERE et.tag_id = ? AND e.status='done'
-            ORDER BY e.pub_date ASC NULLS LAST
+            ORDER BY e.pub_date IS NULL, e.pub_date ASC
         """, (tag_id,)) as cur:
             episodes = [dict(r) for r in await cur.fetchall()]
         async with db.execute("""
