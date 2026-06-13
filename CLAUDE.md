@@ -37,7 +37,7 @@ There is no test suite — manual testing via the browser UI is the primary veri
 The Synology NAS does **not** use `git pull`. Deployment is done by downloading a
 tarball of the branch with `wget`, extracting it with `tar`, and all commands run
 with `sudo` (the deploy user is not in the docker group / lacks write perms on the
-app dir). The current development branch is `claude/admiring-faraday-77whnp`.
+app dir). The current development branch is `claude/hopeful-curie-l0thft`.
 
 ```bash
 # 1. Go to the app directory
@@ -45,7 +45,7 @@ cd /volume1/docker/Podcast_transcriptor
 
 # 2. Download the branch tarball from GitHub
 sudo wget -O podscribe.tar.gz \
-  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/admiring-faraday-77whnp.tar.gz
+  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/hopeful-curie-l0thft.tar.gz
 
 # 3. Extract, stripping the top-level folder so files land in the current dir
 sudo tar -xzf podscribe.tar.gz --strip-components=1
@@ -93,13 +93,14 @@ same work block.
 - **`transcript_fetch.py`** — Fetches and parses pre-existing feed transcripts (`<podcast:transcript>`): VTT / SRT / JSON / plain-text → normalized `{time, speaker, text}` segments. Used by the fast path to skip audio download + audio transcription.
 - **`feed_parser.py`** — RSS/OPML parsing, Spotify redirect resolution, Podcast Index `<podcast:transcript>` tag detection (decides whether the fast path applies).
 - **`tagging.py`** — Canonical topic tagging with alias-based de-dup: slugify → alias lookup → exact slug → fuzzy merge (`difflib`, threshold 0.82) → else create new tag. Writes `tags` / `tag_aliases` / `episode_tags`.
-- **`database.py`** — All SQLite queries via aiosqlite. Schema: 12 tables + FTS5 virtual table (`settings`, `podcasts`, `episodes`, `transcripts`, `summaries`, `notes`, `digests`, `tags`, `tag_aliases`, `episode_tags`, `issue_recipes`, `scheduled_issues`). Key design: denormalized counts (`unread_count`, `done_count`) on `podcasts` for UI performance; `segments_json` in `transcripts` stores timestamped segments for player sync. New columns are added via additive `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE` migrations near the bottom of the file.
+- **`database.py`** — All SQLite queries via aiosqlite. Schema: 13 tables + FTS5 virtual table (`settings`, `podcasts`, `episodes`, `transcripts`, `summaries`, `notes`, `digests`, `tags`, `tag_aliases`, `episode_tags`, `issue_recipes`, `scheduled_issues`, `episode_chunks`). Key design: denormalized counts (`unread_count`, `done_count`) on `podcasts` for UI performance; `segments_json` in `transcripts` stores timestamped segments for player sync. New columns are added via additive `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE` migrations near the bottom of the file.
 - **`scheduler.py`** — APScheduler jobs: hourly feed checks (`check_all_feeds` scans **all** podcasts, gated per-feed by `_feed_due`), scheduled digest generation (cron-style via `scheduled_issues` table). New episodes are inserted with their natural status (`pending` when auto-transcribe is off); `process_queued()` only processes `queued` rows, so nothing is auto-transcribed that the user didn't opt into. A single feed can also be re-scanned on demand via `POST /api/podcasts/{id}/check` (ignores the auto-transcribe gate — this is what the "check for new episodes" button calls).
 - **`exporter.py`** — TXT, Markdown, PDF, "AI Copy" (XML) export formatters.
 - **`notifier.py`** — ntfy.sh push notifications (topic/URL from `settings`); fails silently when unconfigured. Optional `click_path` adds a tappable deep link (ntfy `Click` header) when `public_base_url` is set.
 - **`newsletter.py`** — IMAP newsletter inbox (stdlib `imaplib`+`email`, blocking work in an executor). `check_inbox()` fetches new mails, groups them **per sender** into pseudo-podcasts (`feed_type='newsletter'`, `rss_url='newsletter:<addr>'`), and feeds each mail through `processor.insert_new_episodes` like a newsfeed article. Dedup via Message-ID in `episodes.episode_url`; IMAP `SINCE` only bounds the scan. Polled daily by a dedicated scheduler job and on demand (`POST /api/newsletter/check`).
 - **`mailer.py`** — Outbound SMTP (stdlib `smtplib`+`email`) for digest delivery. `maybe_email_digest()` is called at the end of `_build_issue` (no-op unless `digest_email_enabled`); manual send via `POST /api/digests/{id}/email`.
 - **`rag.py`** — Semantic search over the whole library. Each processed episode is chunked along `segments_json` and embedded (`transcriber.embed_texts`, Gemini embeddings) into `episode_chunks` (vectors as packed float32 BLOBs, no numpy). `answer()` embeds the question, ranks chunks by cosine similarity in pure Python, and has Gemini Flash compose a cited answer. `reindex_all()` backfills existing episodes. Indexing is best-effort — a missing API key never breaks transcription.
+- **`auth.py`** — Owner/guest access control, stdlib-only (PBKDF2 password hashing + HMAC-signed session cookie `ps_session`). **Open-by-default**: with no owner password set, `current_role()` returns `"owner"` for everyone (back-compat single-user mode). Once an owner password is configured, unauthenticated requests become read-only `"guest"`. Enforcement is a single ASGI middleware in `main.py` (`@app.middleware("http")`) that gates writes + cost actions to owners; guests may only `GET` an allowlist of read paths (`_guest_get_ok`) and, if `guest_rag_enabled`, `POST /api/ask` + `/api/chat` under a per-IP token bucket (`allow_rag`). The auth config is cached and refreshed via `auth.invalidate()` after settings changes.
 
 ### Frontend (`app/static/`)
 
@@ -108,8 +109,8 @@ Vanilla JS SPA — no build step, no framework. Pages share `app.js` utilities. 
 - **`icons.js`** — Unified inline-SVG icon set (Lucide outline, ISC license) bundled locally so it works offline (no CDN, no build). `icon(name, {size,cls})` returns an `<svg>` string used inside JS templates; `hydrateIcons()` (runs on `DOMContentLoaded`) fills any `data-icon="name"` element in static HTML. Add a new glyph to the `ICONS` map to extend.
 - **`app.js`** — Shared utilities: `API` (fetch wrappers), `toast()`, `confirmModal()`, `renderNav()`, `statusBadge()`, plus reusable UI helpers `openSheet(title, items)` (bottom-sheet on mobile / dialog on desktop), `openMenu(anchorEl, items)` (⋮ context popover), and `downloadFile(url, filename)` (blob download that works in the installed PWA).
 - **`episode.html`** — The most complex page. Audio player syncs with transcript: clicking a paragraph seeks audio; during playback, current paragraph highlights and auto-scrolls (uses `segments_json` for timestamp mapping). Action bar uses the export bottom-sheet + ⋮ menu; the summary card always shows Zusammenfassung + Themenübersicht + Key Takeaways and offers a regenerate button (`POST /api/episodes/{id}/regenerate-summary`).
-- Other pages: `index.html` (library), `podcast.html` (single feed), `digest.html` (digest/"Redaktion" builder + recipes/scheduling — UI label is "Redaktion", routes/tables stay `digest`/`digests`), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds), `tags.html` (browse by topic tag), `settings.html` (API key, backend, intervals), `about.html`.
-- **`sw.js`** — Service Worker (cache `podscribe-v2`); caches the app shell incl. `icons.js` for offline reading, and **skips** `/audio` and `/export` so streaming and downloads always hit the network. Bump the cache name when shipping shell changes to force-refresh clients.
+- Other pages: `index.html` (library), `podcast.html` (single feed), `digest.html` (digest/"Redaktion" builder + recipes/scheduling — UI label is "Redaktion", routes/tables stay `digest`/`digests`), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds), `tags.html` (browse by topic tag), `topic.html` (single tag's episodes), `radar.html` ("Themen-Radar" topic overview), `search.html` ("Frag deine Bibliothek" — RAG Q&A / chat UI over `/api/ask` + `/api/chat`), `login.html` (owner/guest password entry), `settings.html` (API key, backend, intervals, access control), `about.html`.
+- **`sw.js`** — Service Worker (cache `podscribe-v6`); caches the app shell incl. `icons.js` for offline reading, and **skips** `/audio` and `/export` so streaming and downloads always hit the network. Bump the cache name when shipping shell changes to force-refresh clients.
 - **`style.css`** — CSS variables design system, dark mode, mobile-first (bottom nav) + desktop (top nav) responsive layout. Reusable components: `.sheet`, `.menu-popover`, `.fab`, `.icon`. `.action-bar` and `.meta-line` are single-line, horizontally scrollable (hidden scrollbar) on mobile.
 
 ### Data Flow
@@ -127,3 +128,4 @@ Vanilla JS SPA — no build step, no framework. Pages share `app.js` utilities. 
 - **Segments JSON**: Transcript timing lives in `transcripts.segments_json` as a JSON array of `{time, speaker, text}` objects, where `time` is an `HH:MM:SS` string. The player frontend fetches this and builds a seek map client-side.
 - **FTS5**: Full-text search uses SQLite's FTS5 extension. The `transcripts_fts` virtual table is kept in sync via triggers. Search queries go through ranked FTS5 SQL, not Python-level filtering.
 - **No ORM**: Raw SQL via aiosqlite throughout `database.py`.
+- **Open-by-default auth**: The app stays fully open (single-user) until an owner password is set in Settings. After that, a single ASGI middleware splits requests into owner (full access) vs read-only guest. When adding a new write/cost route, it's owner-gated automatically; when adding a guest-readable `GET` route, add it to the allowlist in `auth.py`/`main.py`.
