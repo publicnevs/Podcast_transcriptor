@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Neuzugänge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+<div class="main-content">
+
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem">
+    <div>
+      <h1 style="font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:.5rem" data-icon="inbox" data-icon-size="22">Neuzugänge</h1>
+      <p style="color:var(--text-muted);margin-top:.375rem;font-size:.9rem">Neue Folgen, Artikel & Mails — transkribiere sie bei Bedarf.</p>
+    </div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" id="check-btn" data-icon="refresh-cw" data-icon-size="15" onclick="checkAll()">Auf neue Folgen prüfen</button>
+      <button class="btn btn-secondary btn-sm" data-icon="mail" data-icon-size="15" onclick="checkMail()">Postfach prüfen</button>
+      <a class="btn btn-ghost btn-sm" href="/discover" data-icon="compass" data-icon-size="15">Entdecken</a>
+    </div>
+  </div>
+
+  <div id="inbox-list" class="episode-list">
+    <div class="empty-state"><div class="spinner"></div></div>
+  </div>
+
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/inbox');
+initGlobalSearch();
+
+function srcIcon(ft) {
+  if (ft==='newsletter') return icon('mail',{size:14});
+  if (ft==='newsfeed') return icon('newspaper',{size:14});
+  if (ft==='website') return icon('link',{size:14});
+  return icon('headphones',{size:14});
+}
+
+async function load() {
+  const list = document.getElementById('inbox-list');
+  try {
+    const items = await API.get('/api/inbox');
+    if (!items.length) {
+      list.innerHTML = `<div class="empty-state"><div class="icon">${icon('inbox',{size:44})}</div><p>Keine offenen Neuzugänge.<br>Alles transkribiert oder in Bearbeitung.</p></div>`;
+      return;
+    }
+    list.innerHTML = items.map(renderItem).join('');
+    hydrateIcons();
+  } catch(e) {
+    list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+  }
+}
+
+function renderItem(e) {
+  const pending = e.status === 'pending';
+  return `
+    <div class="episode-item" style="align-items:flex-start;gap:1rem">
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="location.href='/episode/${e.id}'">
+        <div class="episode-title">${escHtml(e.title)}</div>
+        <div class="episode-meta">
+          <span style="display:inline-flex;align-items:center;gap:.25rem">${srcIcon(e.feed_type)} ${escHtml(e.podcast_title||'')}</span>
+          <span>${fmtDate(e.pub_date||e.created_at)}</span>
+          ${statusBadge(e.status)}
+        </div>
+        ${e.error_msg ? `<div class="episode-summary" style="color:var(--error);margin-top:.35rem">${escHtml(e.error_msg)}</div>` : ''}
+      </div>
+      <div style="flex-shrink:0">
+        ${pending
+          ? `<button class="btn btn-primary btn-sm" onclick="transcribe(this, ${e.id})">${icon('sparkles',{size:15})} Transkribieren</button>`
+          : `<span class="badge">${escHtml(e.status)}</span>`}
+      </div>
+    </div>`;
+}
+
+async function transcribe(btn, id) {
+  btn.disabled = true; btn.innerHTML = '…';
+  try {
+    await API.post(`/api/episodes/${id}/transcribe`, {});
+    toast('In die Warteschlange gestellt', 'success');
+    setTimeout(load, 800);
+  } catch(e) {
+    toast(e.message, 'error');
+    btn.disabled = false; btn.innerHTML = icon('sparkles',{size:15}) + ' Transkribieren';
+  }
+}
+
+async function checkAll() {
+  const btn = document.getElementById('check-btn');
+  btn.disabled = true; const old = btn.innerHTML; btn.innerHTML = 'Prüfe…';
+  try {
+    const r = await API.post('/api/feeds/check-all', {});
+    toast(`${r.new_feeds||0} neue Folge(n), ${r.new_mail||0} Mail(s)`, 'success');
+    await load();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.innerHTML = old; }
+}
+
+async function checkMail() {
+  try {
+    const r = await API.post('/api/newsletter/check', {});
+    toast(`${r.new||0} neue Mail(s)`, 'success');
+    await load();
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+load();
+setInterval(load, 12000);
+</script>
+</body>
+</html>

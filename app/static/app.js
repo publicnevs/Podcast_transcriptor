@@ -233,7 +233,7 @@ function renderNav(activePath) {
       <nav class="topbar-nav">
         <a href="/" ${isLib?'class="active"':''}>${icon('library')} <span>Bibliothek</span></a>
         <a href="/?add=1">${icon('plus')} <span>Abonnieren</span></a>
-        <a href="/discover" ${activePath==='/discover'?'class="active"':''}>${icon('compass')} <span>Entdecken</span></a>
+        <a href="/inbox" ${activePath==='/inbox'?'class="active"':''}>${icon('inbox')} <span>Neuzugänge</span></a>
         <a href="/search" ${activePath==='/search'?'class="active"':''}>${icon('sparkles')} <span>Fragen</span></a>
         <a href="/radar" ${activePath==='/radar'?'class="active"':''}>${icon('radar')} <span>Radar</span></a>
         <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
@@ -246,7 +246,7 @@ function renderNav(activePath) {
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">${icon('library', {size:22})}</span>Bibliothek</a>
       <a href="/?add=1" data-owner-only><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
-      <a href="/discover" ${activePath==='/discover'?'class="active"':''}><span class="bn-icon">${icon('compass', {size:22})}</span>Entdecken</a>
+      <a href="/inbox" ${activePath==='/inbox'?'class="active"':''}><span class="bn-icon">${icon('inbox', {size:22})}</span>Neuzugänge</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Redaktion</a>
       <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
       <a href="/login" data-guest-only><span class="bn-icon">${icon('lock', {size:22})}</span>Anmelden</a>

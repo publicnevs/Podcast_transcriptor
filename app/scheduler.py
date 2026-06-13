@@ -28,14 +28,43 @@ def _feed_due(podcast) -> bool:
     return True  # unparseable timestamp → check anyway
 
 
-async def check_all_feeds():
+async def _check_website(db, podcast) -> int:
+    """Re-scrape a monitored web page; add a new episode only when the page
+    content changed (deduped via a sha1 hash stored in episode_url)."""
+    import hashlib
+    from datetime import datetime
+    from .processor import _fetch_article_text
+
+    text = await _fetch_article_text(podcast["rss_url"])
+    if not text:
+        return 0
+    digest = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+    marker = f"website-hash:{digest}"
+    async with db.execute(
+        "SELECT 1 FROM episodes WHERE podcast_id=? AND episode_url=?",
+        (podcast["id"], marker),
+    ) as cur:
+        if await cur.fetchone():
+            return 0  # unchanged since last scrape
+    await db.execute(
+        """INSERT INTO episodes (podcast_id, title, audio_url, episode_url,
+               pub_date, description, status)
+           VALUES (?, ?, '', ?, ?, ?, 'queued')""",
+        (podcast["id"], f"{podcast['title']} — {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+         marker, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), text),
+    )
+    return 1
+
+
+async def check_all_feeds(force: bool = False) -> int:
     from .feed_parser import parse_rss_feed
     from .processor import process_queued, insert_new_episodes
 
     # Check ALL feeds so new episodes get listed even when auto-transcription is
     # off. insert_new_episodes assigns 'pending' for non-auto podcasts, and
     # process_queued() below only processes 'queued' rows — so nothing is
-    # auto-transcribed that the user didn't opt into.
+    # auto-transcribed that the user didn't opt into. force=True bypasses the
+    # per-feed interval gate (used by the on-demand 'check all' button).
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("SELECT * FROM podcasts") as cur:
@@ -47,7 +76,22 @@ async def check_all_feeds():
         # the separate check_newsletter_inbox job, not parsed as feeds here.
         if (podcast["feed_type"] or "") == "newsletter":
             continue
-        if not _feed_due(podcast):
+        if not force and not _feed_due(podcast):
+            continue
+        # Monitored web pages are re-scraped, not RSS-parsed. The 'Web-Clips'
+        # collection (non-http rss_url) holds one-shot clips and is never rescanned.
+        if (podcast["feed_type"] or "") == "website":
+            if not str(podcast["rss_url"]).startswith("http"):
+                continue
+            try:
+                async with aiosqlite.connect(DB_PATH) as db:
+                    new_count += await _check_website(db, podcast)
+                    await db.execute(
+                        "UPDATE podcasts SET last_checked=CURRENT_TIMESTAMP WHERE id=?",
+                        (podcast["id"],))
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Website check failed for {podcast['rss_url']}: {e}")
             continue
         try:
             feed_data = await parse_rss_feed(podcast["rss_url"])
@@ -90,6 +134,7 @@ async def check_all_feeds():
             click_path="/",
         )
         await process_queued()
+    return new_count
 
 
 async def run_due_issues():

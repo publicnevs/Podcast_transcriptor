@@ -65,6 +65,39 @@ def export_ai_copy(episode_title, podcast_title, pub_date, transcript, summary, 
     return "\n".join(lines)
 
 
+def export_chat_markdown(messages):
+    """Render a RAG chat conversation (list of {role, content, sources}) as
+    Markdown, including cited sources as deep links into the episodes."""
+    from datetime import datetime
+    lines = [
+        "# Frag deine Bibliothek — Gespräch",
+        f"*Exportiert mit PodScribe am {datetime.now().strftime('%d.%m.%Y %H:%M')}*",
+        "",
+        "---",
+        "",
+    ]
+    for m in messages:
+        role = m.get("role")
+        content = m.get("content", "")
+        if role == "user":
+            lines += [f"## ❓ {content}", ""]
+        else:
+            lines += [content, ""]
+            sources = m.get("sources") or []
+            if sources:
+                lines += ["**Quellen:**"]
+                for s in sources:
+                    t = s.get("start_time") or "00:00:00"
+                    ep_id = s.get("episode_id")
+                    label = f"{s.get('episode_title', '')} ({s.get('podcast_title', '')}) — {t}"
+                    link = f"/episode/{ep_id}?t={t}" if ep_id else ""
+                    ref = s.get("ref", "")
+                    lines.append(f"- [{ref}] [{label}]({link})" if link else f"- [{ref}] {label}")
+                lines.append("")
+            lines += ["---", ""]
+    return "\n".join(lines)
+
+
 def bulk_export_markdown(podcast_title, episodes):
     lines = [
         f"# {podcast_title} — Alle Transkripte",

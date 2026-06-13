@@ -43,6 +43,8 @@
       <input type="text" id="question" placeholder="z.B. Was wurde zuletzt über Agenten-Frameworks gesagt?"
              style="flex:1;min-width:240px" autocomplete="off">
       <button class="btn btn-primary" id="ask-btn" onclick="send()"><span data-icon="sparkles">Fragen</span></button>
+      <button class="btn btn-ghost btn-icon" id="export-btn" onclick="exportChat()" style="display:none" title="Als Markdown exportieren"></button>
+      <button class="btn btn-ghost btn-icon" id="print-btn" onclick="printChat()" style="display:none" title="Drucken / als PDF"></button>
       <button class="btn btn-ghost" id="reset-btn" onclick="resetChat()" style="display:none" title="Neues Gespräch">Neu</button>
     </div>
   </div>
@@ -69,6 +71,8 @@ document.getElementById('nav-mount').innerHTML = renderNav('/search');
 initGlobalSearch();
 initReadProgress();
 document.getElementById('title-icon').innerHTML = icon('sparkles', {size:20});
+document.getElementById('export-btn').innerHTML = icon('download', {size:16});
+document.getElementById('print-btn').innerHTML = icon('printer', {size:16});
 
 // Client-side conversation history (stateless backend; see /api/chat)
 let messages = [];
@@ -131,8 +135,44 @@ function renderThread(pending) {
          ${m.sources && m.sources.length ? `<div style="display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem">${sourceCards(m.sources)}</div>` : ''}
        </div>`
   ).join('') + (pending ? `<div class="chat-msg chat-assistant"><div class="spinner" style="width:22px;height:22px"></div></div>` : '');
-  document.getElementById('reset-btn').style.display = messages.length ? '' : 'none';
+  const has = messages.length > 0;
+  document.getElementById('reset-btn').style.display = has ? '' : 'none';
+  document.getElementById('export-btn').style.display = has ? '' : 'none';
+  document.getElementById('print-btn').style.display = has ? '' : 'none';
   t.lastElementChild?.scrollIntoView({ behavior:'smooth', block:'end' });
+}
+
+async function exportChat() {
+  if (!messages.length) return;
+  try {
+    const r = await fetch('/api/chat/export', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ messages })
+    });
+    if (!r.ok) throw new Error('Export fehlgeschlagen');
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'podscribe-chat.md';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+function printChat() {
+  if (!messages.length) return;
+  const body = messages.map(m => {
+    if (m.role === 'user') return `<h3>❓ ${escHtml(m.content)}</h3>`;
+    const src = (m.sources||[]).map(s =>
+      `<li>[${s.ref}] ${escHtml(s.episode_title||'')} (${escHtml(s.podcast_title||'')}) — ${escHtml(s.start_time||'')}</li>`).join('');
+    return `<p style="white-space:pre-wrap">${escHtml(m.content)}</p>${src?`<ul>${src}</ul>`:''}<hr>`;
+  }).join('');
+  const w = window.open('', '_blank');
+  w.document.write(`<html><head><title>PodScribe — Gespräch</title>
+    <style>body{font-family:Inter,system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.6}h3{margin-top:1.5rem}hr{border:none;border-top:1px solid #ddd;margin:1rem 0}ul{color:#555;font-size:.9rem}</style>
+    </head><body><h1>Frag deine Bibliothek</h1>${body}</body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 300);
 }
 
 async function send() {

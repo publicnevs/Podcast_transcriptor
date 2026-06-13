@@ -85,7 +85,7 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
         # Newsfeed path: no audio download. Strategy: feed content first
         # (often already full text via content:encoded), fetch the web page
         # only as a fallback when the feed text is too short.
-        if feed_type in ("newsfeed", "newsletter"):
+        if feed_type in ("newsfeed", "newsletter", "website"):
             await _set_status(episode_id, "transcribing")
             async with aiosqlite.connect(DB_PATH) as db:
                 async with db.execute(

@@ -65,6 +65,19 @@
             <button class="btn btn-secondary" style="align-self:flex-start" data-icon="sparkles" data-icon-size="16" onclick="directTranscribe()">Transkribieren</button>
           </div>
         </details>
+
+        <details style="margin-top:.25rem">
+          <summary style="color:var(--text-muted);font-size:.875rem" data-icon="link" data-icon-size="15">Website aufbereiten / überwachen</summary>
+          <div style="margin-top:.75rem;display:flex;flex-direction:column;gap:.5rem">
+            <input type="url" id="website-url" placeholder="https://beispiel.de/seite">
+            <input type="text" id="website-title" placeholder="Titel (optional)">
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+              <button class="btn btn-secondary" data-icon="sparkles" data-icon-size="16" onclick="scrapeOnce()">Einmal aufbereiten</button>
+              <button class="btn btn-secondary" data-icon="refresh-cw" data-icon-size="16" onclick="watchWebsite()">Dauerhaft überwachen</button>
+            </div>
+            <span style="font-size:.78rem;color:var(--text-muted)">„Überwachen" prüft die Seite regelmäßig und legt bei Änderungen einen neuen Eintrag an.</span>
+          </div>
+        </details>
       </div>
     </div>
   </div>
@@ -81,9 +94,8 @@
     <div id="takeaways-ticker" class="ticker"></div>
   </div>
 
-  <!-- Podcasts Grid -->
-  <div class="section-title" data-icon="library" data-icon-size="16">Podcasts &amp; Feeds</div>
-  <div id="podcast-grid" class="card-grid"></div>
+  <!-- Podcasts grouped by category (drag a tile to reorder / move) -->
+  <div id="library-mount"></div>
 
 </div>
 
@@ -102,35 +114,113 @@ initReadProgress();
 setInterval(pollQueue, 8000);
 
 let firstLoad = true;
+let _dragId = null;
+
+function feedTypeBadge(p) {
+  if (p.feed_type==='newsfeed') return `<span title="Newsfeed" style="display:inline-flex">${icon('newspaper',{size:14})}</span>`;
+  if (p.feed_type==='newsletter') return `<span title="Newsletter" style="display:inline-flex">${icon('mail',{size:14})}</span>`;
+  if (p.feed_type==='website') return `<span title="Website" style="display:inline-flex">${icon('link',{size:14})}</span>`;
+  if (p.auto_transcribe) return `<span title="Auto-Transkription aktiv" style="display:inline-flex">${icon('refresh-cw',{size:14})}</span>`;
+  return '';
+}
+
+function unitLabel(p) {
+  return p.feed_type==='newsletter'?'Ausgaben':(p.feed_type==='newsfeed'?'Artikel':(p.feed_type==='website'?'Snapshots':'Transkripte'));
+}
+
+function cardHtml(p) {
+  return `
+    <div class="podcast-card" draggable="true" data-id="${p.id}"
+         ondragstart="onCardDragStart(event,${p.id})" ondragend="onCardDragEnd(event)"
+         ondragover="onCardDragOver(event)" ondrop="onCardDrop(event,${p.id})"
+         onclick="if(!event.defaultPrevented)location.href='/podcast/${p.id}'">
+      ${tileVisual(p)}
+      <div class="podcast-card-body">
+        <div class="podcast-card-title">${escHtml(p.title)}</div>
+        <div class="podcast-card-meta">
+          ${p.unread_count > 0 ? `<span class="unread-badge">${p.unread_count} neu</span>` : ''}
+          <span>${p.done_count} ${unitLabel(p)}</span>
+          ${feedTypeBadge(p)}
+        </div>
+      </div>
+    </div>`;
+}
+
 async function loadPodcasts() {
-  const grid = document.getElementById('podcast-grid');
-  if (firstLoad) { grid.innerHTML = skeletonCards(6); }
+  const mount = document.getElementById('library-mount');
+  if (firstLoad) { mount.innerHTML = `<div class="card-grid">${skeletonCards(6)}</div>`; }
   try {
-    const podcasts = await API.get('/api/podcasts');
+    const [podcasts, categories] = await Promise.all([
+      API.get('/api/podcasts'), API.get('/api/categories')
+    ]);
     firstLoad = false;
     if (!podcasts.length) {
-      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="icon">${icon('headphones',{size:44})}</div><p>Noch keine Podcasts abonniert.<br>Füge deinen ersten Podcast oben hinzu.</p></div>`;
+      mount.innerHTML = `<div class="empty-state"><div class="icon">${icon('headphones',{size:44})}</div><p>Noch keine Podcasts abonniert.<br>Füge deinen ersten Podcast oben hinzu.</p></div>`;
       return;
     }
-    grid.classList.add('fade-in');
-    grid.innerHTML = podcasts.map(p => `
-      <div class="podcast-card" onclick="location.href='/podcast/${p.id}'">
-        ${tileVisual(p)}
-        <div class="podcast-card-body">
-          <div class="podcast-card-title">${escHtml(p.title)}</div>
-          <div class="podcast-card-meta">
-            ${p.unread_count > 0 ? `<span class="unread-badge">${p.unread_count} neu</span>` : ''}
-            <span>${p.done_count} ${p.feed_type==='newsletter'?'Ausgaben':(p.feed_type==='newsfeed'?'Artikel':'Transkripte')}</span>
-            ${p.auto_transcribe && p.feed_type!=='newsfeed' && p.feed_type!=='newsletter' ? `<span title="Auto-Transkription aktiv" style="display:inline-flex">${icon('refresh-cw',{size:14})}</span>` : ''}
-            ${p.feed_type==='newsfeed' ? `<span title="Newsfeed" style="display:inline-flex">${icon('newspaper',{size:14})}</span>` : ''}
-            ${p.feed_type==='newsletter' ? `<span title="Newsletter" style="display:inline-flex">${icon('mail',{size:14})}</span>` : ''}
-          </div>
+    // Group podcasts by category_id
+    const byCat = {};
+    for (const p of podcasts) { (byCat[p.category_id||0] ||= []).push(p); }
+    let html = '';
+    for (const c of categories) {
+      const items = byCat[c.id] || [];
+      html += `<div class="cat-section" data-cat="${c.id}">
+        <div class="section-title" style="display:flex;align-items:center;gap:.4rem">
+          ${icon('folder',{size:16})}
+          <a href="/category/${c.id}" style="text-decoration:none;color:inherit">${escHtml(c.name)}</a>
+          <span style="color:var(--text-muted);font-weight:400">(${items.length})</span>
         </div>
-      </div>`).join('');
+        <div class="card-grid" data-cat="${c.id}" ondragover="onCardDragOver(event)" ondrop="onSectionDrop(event,${c.id})">
+          ${items.map(cardHtml).join('') || `<div class="empty-state" style="grid-column:1/-1;padding:1rem;font-size:.85rem">Ziehe hierher, um zuzuordnen.</div>`}
+        </div></div>`;
+    }
+    const uncategorized = byCat[0] || [];
+    html += `<div class="cat-section" data-cat="0">
+      <div class="section-title" data-icon="library" data-icon-size="16">Ohne Kategorie <span style="color:var(--text-muted);font-weight:400">(${uncategorized.length})</span></div>
+      <div class="card-grid" data-cat="0" ondragover="onCardDragOver(event)" ondrop="onSectionDrop(event,0)">
+        ${uncategorized.map(cardHtml).join('') || `<div class="empty-state" style="grid-column:1/-1;padding:1rem;font-size:.85rem">Alles zugeordnet.</div>`}
+      </div></div>`;
+    mount.classList.add('fade-in');
+    mount.innerHTML = html;
+    hydrateIcons();
   } catch(e) {
     firstLoad = false;
-    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;color:var(--error)">${escHtml(e.message)}</div>`;
+    mount.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
   }
+}
+
+// ── Drag & drop: reorder tiles and move them between categories ──────────────
+function onCardDragStart(ev, id) { _dragId = id; ev.dataTransfer.effectAllowed='move'; }
+function onCardDragEnd(ev) { _dragId = null; }
+function onCardDragOver(ev) { if (_dragId!==null) { ev.preventDefault(); ev.dataTransfer.dropEffect='move'; } }
+
+function onCardDrop(ev, targetId) {
+  ev.preventDefault(); ev.stopPropagation();
+  if (_dragId===null || _dragId===targetId) return;
+  const dragEl = document.querySelector(`.podcast-card[data-id="${_dragId}"]`);
+  const targetEl = ev.currentTarget;
+  if (dragEl && targetEl) { targetEl.parentNode.insertBefore(dragEl, targetEl); persistOrder(); }
+}
+
+function onSectionDrop(ev, catId) {
+  ev.preventDefault();
+  if (_dragId===null) return;
+  const dragEl = document.querySelector(`.podcast-card[data-id="${_dragId}"]`);
+  const grid = ev.currentTarget.closest('.card-grid') || ev.currentTarget;
+  if (dragEl && grid && !grid.contains(dragEl)) { grid.appendChild(dragEl); }
+  persistOrder();
+}
+
+async function persistOrder() {
+  const items = [];
+  document.querySelectorAll('.card-grid[data-cat]').forEach(grid => {
+    const cat = parseInt(grid.dataset.cat) || 0;
+    grid.querySelectorAll('.podcast-card[data-id]').forEach((el, idx) => {
+      items.push({ id: parseInt(el.dataset.id), position: idx, category_id: cat });
+    });
+  });
+  try { await API.post('/api/podcasts/reorder', items); }
+  catch(e) { toast(e.message, 'error'); }
 }
 
 
@@ -215,6 +305,36 @@ async function directTranscribe() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+async function scrapeOnce() {
+  const url = document.getElementById('website-url').value.trim();
+  if (!url) return toast('Bitte eine URL eingeben', 'error');
+  const title = document.getElementById('website-title').value.trim();
+  const btn = event.target.closest('button'); btn.disabled = true;
+  try {
+    const r = await API.post('/api/scrape', { url, title });
+    toast(`✅ "${r.title}" wird aufbereitet`, 'success');
+    document.getElementById('website-url').value = '';
+    document.getElementById('website-title').value = '';
+    setTimeout(loadPodcasts, 1500);
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
+async function watchWebsite() {
+  const url = document.getElementById('website-url').value.trim();
+  if (!url) return toast('Bitte eine URL eingeben', 'error');
+  const title = document.getElementById('website-title').value.trim();
+  const btn = event.target.closest('button'); btn.disabled = true;
+  try {
+    const r = await API.post('/api/podcasts/website', { url, title });
+    toast(`✅ "${r.title}" wird überwacht`, 'success');
+    document.getElementById('website-url').value = '';
+    document.getElementById('website-title').value = '';
+    await loadPodcasts();
+  } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; }
+}
+
 async function toggleWatch(id, btn) {
   await API.patch(`/api/episodes/${id}/watchlist`);
   await loadWatchlist();
@@ -251,7 +371,7 @@ if (new URLSearchParams(location.search).get('add') === '1') {
 loadPodcasts();
 loadWatchlist();
 loadTakeaways();
-setInterval(() => { loadPodcasts(); }, 10000);
+setInterval(() => { if (_dragId===null) loadPodcasts(); }, 10000);
 setInterval(loadTakeaways, 60000);
 </script>
 </body>

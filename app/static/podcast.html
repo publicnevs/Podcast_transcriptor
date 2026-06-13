@@ -58,6 +58,12 @@
         <span style="display:block;margin-bottom:.25rem">Prüf-Intervall (Stunden)</span>
         <input type="number" id="set-interval" min="1" style="width:100%" oninput="markDirty()">
       </label>
+      <label style="display:block;font-size:.875rem">
+        <span style="display:block;margin-bottom:.25rem">Kategorie</span>
+        <select id="set-category" style="width:100%" onchange="markDirty()">
+          <option value="0">— Ohne Kategorie —</option>
+        </select>
+      </label>
       <label id="set-fulltext-wrap" style="display:none;align-items:center;gap:.625rem;font-size:.875rem;cursor:pointer">
         <input type="checkbox" id="set-fulltext" style="width:auto" onchange="markDirty()">
         <span data-icon="newspaper" data-icon-size="15">Volltext von der Artikelseite laden (Newsfeed)</span>
@@ -260,7 +266,18 @@ function populateSettings() {
   } else {
     ftWrap.style.display = 'none';
   }
+  populateCategoryOptions();
   document.getElementById('set-save').disabled = true;
+}
+
+async function populateCategoryOptions() {
+  const sel = document.getElementById('set-category');
+  try {
+    const cats = await API.get('/api/categories');
+    sel.innerHTML = '<option value="0">— Ohne Kategorie —</option>' +
+      cats.map(c => `<option value="${c.id}">${escHtml(c.name)}</option>`).join('');
+    sel.value = String(podcastData.category_id || 0);
+  } catch {}
 }
 
 function markDirty() {
@@ -273,6 +290,7 @@ async function savePodcastSettings() {
     max_episodes: parseInt(document.getElementById('set-maxep').value) || 0,
     max_transcripts: parseInt(document.getElementById('set-maxtr').value) || 0,
     check_interval_hours: parseInt(document.getElementById('set-interval').value) || 1,
+    category_id: parseInt(document.getElementById('set-category').value) || 0,
   };
   if (podcastData.feed_type === 'newsfeed') {
     payload.full_text_extraction = document.getElementById('set-fulltext').checked;

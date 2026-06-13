@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from . import auth
 from .database import DB_PATH, init_db, get_setting, set_setting
-from .exporter import (bulk_export_markdown, export_ai_copy,
+from .exporter import (bulk_export_markdown, export_ai_copy, export_chat_markdown,
                         export_markdown, export_txt)
 from .feed_parser import parse_rss_feed, parse_opml
 from .processor import process_episode, process_queued, insert_new_episodes
@@ -67,7 +67,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # read paths below; everything else (writes + cost actions) is owner-only.
 _GUEST_PAGE_RE = re.compile(
     r"^/(?:$|podcast/\d+$|episode/\d+$|digests$|digest/\d+$|tags$|tags/\d+$"
-    r"|topic/\d+$|about$|discover$|radar$|search$|login$)"
+    r"|topic/\d+$|about$|discover$|radar$|search$|login$|inbox$|category/\d+$)"
 )
 _GUEST_STATIC_RE = re.compile(r"^/(?:static/|sw\.js$|manifest\.json$|health$|s/|favicon)")
 _GUEST_API_RE = re.compile(
@@ -75,7 +75,7 @@ _GUEST_API_RE = re.compile(
     r"|episodes/\d+$|episodes/\d+/audio$|episodes/\d+/tags$|episodes/\d+/related$"
     r"|episodes/\d+/export$|search$|tags$|tags/\d+/episodes$|digests$|digests/\d+$"
     r"|radar$|overview/week$|recommended$|recipes$|issue-options$"
-    r"|recent-takeaways$|topics/\d+$)$"
+    r"|recent-takeaways$|topics/\d+$|categories$|categories/\d+$|inbox$)$"
 )
 
 
@@ -122,6 +122,28 @@ class PodcastUpdate(BaseModel):
     check_interval_hours: Optional[int] = None
     full_text_extraction: Optional[bool] = None
     max_transcripts: Optional[int] = None
+    category_id: Optional[int] = None
+    position: Optional[int] = None
+
+
+class CategoryCreate(BaseModel):
+    name: str
+
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    position: Optional[int] = None
+
+
+class ReorderItem(BaseModel):
+    id: int
+    position: int
+    category_id: Optional[int] = None
+
+
+class WebsiteSource(BaseModel):
+    url: str
+    title: str = ""
 
 
 class TranscribeRequest(BaseModel):
@@ -197,6 +219,16 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage] = []
 
 
+class ChatExportMessage(BaseModel):
+    role: str
+    content: str = ""
+    sources: List[dict] = []
+
+
+class ChatExportRequest(BaseModel):
+    messages: List[ChatExportMessage] = []
+
+
 class DigestRequest(BaseModel):
     episode_ids: List[int] = []
     title: str
@@ -207,6 +239,8 @@ class DigestRequest(BaseModel):
     model: str = ""              # pro | flash | lite | "" (format default)
     custom_style: str = ""
     focus: str = ""
+    prompt: str = ""             # free-text instruction for the "artikel" format
+    selection_mode: str = "manual"  # manual | ai (RAG picks episodes from prompt)
     recipe: Optional[dict] = None  # {date_window_days?, date_from?, date_to?, podcast_ids[], tag_ids[], match}
 
 
@@ -361,6 +395,16 @@ async def page_login():
     return FileResponse(STATIC_DIR / "login.html")
 
 
+@app.get("/inbox", response_class=HTMLResponse)
+async def page_inbox():
+    return FileResponse(STATIC_DIR / "inbox.html")
+
+
+@app.get("/category/{category_id}", response_class=HTMLResponse)
+async def page_category(category_id: int):
+    return FileResponse(STATIC_DIR / "category.html")
+
+
 # ── Podcasts ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/podcasts")
@@ -375,7 +419,7 @@ async def list_podcasts():
             FROM podcasts p
             LEFT JOIN episodes e ON e.podcast_id = p.id
             GROUP BY p.id
-            ORDER BY p.title COLLATE NOCASE
+            ORDER BY p.position ASC, p.title COLLATE NOCASE
         """) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]
@@ -546,6 +590,11 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
         fields["full_text_extraction"] = 1 if data.full_text_extraction else 0
     if data.max_transcripts is not None:
         fields["max_transcripts"] = data.max_transcripts
+    if data.category_id is not None:
+        # 0 (or negative) means "no category" → store NULL
+        fields["category_id"] = data.category_id if data.category_id > 0 else None
+    if data.position is not None:
+        fields["position"] = data.position
     if not fields:
         return {"ok": True}
     set_clause = ", ".join(f"{k}=?" for k in fields)
@@ -565,6 +614,211 @@ async def delete_podcast(podcast_id: int):
         await db.execute("DELETE FROM podcasts WHERE id=?", (podcast_id,))
         await db.commit()
     return {"ok": True}
+
+
+@app.post("/api/podcasts/reorder")
+async def reorder_podcasts(items: List[ReorderItem]):
+    """Persist drag-&-drop ordering (and optional category assignment) from the
+    library homepage. category_id=0/negative clears the category (NULL)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        for it in items:
+            if it.category_id is None:
+                await db.execute("UPDATE podcasts SET position=? WHERE id=?",
+                                 (it.position, it.id))
+            else:
+                cat = it.category_id if it.category_id > 0 else None
+                await db.execute(
+                    "UPDATE podcasts SET position=?, category_id=? WHERE id=?",
+                    (it.position, cat, it.id))
+        await db.commit()
+    return {"ok": True}
+
+
+# ── Categories (user-managed) ────────────────────────────────────────────────
+
+@app.get("/api/categories")
+async def list_categories():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT c.id, c.name, c.position,
+                   (SELECT COUNT(*) FROM podcasts p WHERE p.category_id=c.id) AS podcast_count
+            FROM categories c
+            ORDER BY c.position ASC, c.name COLLATE NOCASE
+        """) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/categories", status_code=201)
+async def create_category(data: CategoryCreate):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, "Name darf nicht leer sein.")
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COALESCE(MAX(position), -1)+1 FROM categories") as cur:
+            pos = (await cur.fetchone())[0]
+        try:
+            cur = await db.execute(
+                "INSERT INTO categories (name, position) VALUES (?, ?)", (name, pos))
+            await db.commit()
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                raise HTTPException(400, "Kategorie existiert bereits.")
+            raise
+        return {"id": cur.lastrowid, "name": name, "position": pos}
+
+
+@app.patch("/api/categories/{category_id}")
+async def update_category(category_id: int, data: CategoryUpdate):
+    fields = {}
+    if data.name is not None and data.name.strip():
+        fields["name"] = data.name.strip()
+    if data.position is not None:
+        fields["position"] = data.position
+    if not fields:
+        return {"ok": True}
+    set_clause = ", ".join(f"{k}=?" for k in fields)
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            await db.execute(f"UPDATE categories SET {set_clause} WHERE id=?",
+                             (*fields.values(), category_id))
+            await db.commit()
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                raise HTTPException(400, "Kategorie existiert bereits.")
+            raise
+    return {"ok": True}
+
+
+@app.delete("/api/categories/{category_id}")
+async def delete_category(category_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Detach podcasts first (FK ON DELETE SET NULL only fires on new DBs).
+        await db.execute("UPDATE podcasts SET category_id=NULL WHERE category_id=?",
+                         (category_id,))
+        await db.execute("DELETE FROM categories WHERE id=?", (category_id,))
+        await db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/categories/{category_id}")
+async def get_category(category_id: int):
+    """Bundle a category's podcasts, their latest episodes, and topic tags."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM categories WHERE id=?", (category_id,)) as cur:
+            cat = await cur.fetchone()
+        if not cat:
+            raise HTTPException(404, "Kategorie nicht gefunden")
+        async with db.execute("""
+            SELECT p.*,
+                COUNT(CASE WHEN e.status='done' AND e.read_at IS NULL THEN 1 END) AS unread_count,
+                COUNT(CASE WHEN e.status='done' THEN 1 END) AS done_count,
+                COUNT(e.id) AS total_count
+            FROM podcasts p
+            LEFT JOIN episodes e ON e.podcast_id = p.id
+            WHERE p.category_id=?
+            GROUP BY p.id
+            ORDER BY p.position ASC, p.title COLLATE NOCASE
+        """, (category_id,)) as cur:
+            podcasts = [dict(r) for r in await cur.fetchall()]
+        async with db.execute("""
+            SELECT e.id, e.title, e.pub_date, e.status, p.title AS podcast_title
+            FROM episodes e JOIN podcasts p ON p.id=e.podcast_id
+            WHERE p.category_id=? AND e.status='done'
+            ORDER BY e.pub_date DESC NULLS LAST, e.created_at DESC
+            LIMIT 20
+        """, (category_id,)) as cur:
+            episodes = [dict(r) for r in await cur.fetchall()]
+        async with db.execute("""
+            SELECT t.id, t.label, COUNT(*) AS cnt
+            FROM episode_tags et
+            JOIN tags t ON t.id=et.tag_id
+            JOIN episodes e ON e.id=et.episode_id
+            JOIN podcasts p ON p.id=e.podcast_id
+            WHERE p.category_id=?
+            GROUP BY t.id ORDER BY cnt DESC LIMIT 30
+        """, (category_id,)) as cur:
+            tags = [dict(r) for r in await cur.fetchall()]
+    return {"category": dict(cat), "podcasts": podcasts,
+            "episodes": episodes, "tags": tags}
+
+
+# ── Website sources (scrape a URL: one-shot or recurring) ────────────────────
+
+WEBCLIPS_RSS = "webclips:local"
+
+
+async def _ensure_webclips_podcast(db) -> int:
+    """Return the id of the shared 'Web-Clips' collection podcast, creating it once."""
+    await db.execute(
+        """INSERT OR IGNORE INTO podcasts (title, rss_url, feed_type, description)
+           VALUES ('Web-Clips', ?, 'website', 'Einmalig aufbereitete Web-Seiten')""",
+        (WEBCLIPS_RSS,))
+    async with db.execute("SELECT id FROM podcasts WHERE rss_url=?", (WEBCLIPS_RSS,)) as cur:
+        return (await cur.fetchone())[0]
+
+
+@app.post("/api/scrape", status_code=202)
+async def scrape_url(data: WebsiteSource, background_tasks: BackgroundTasks):
+    """One-shot: fetch a web page, prepare it as an article episode under Web-Clips."""
+    from .processor import _fetch_article_text
+    url = data.url.strip()
+    if not url:
+        raise HTTPException(400, "URL fehlt.")
+    text = await _fetch_article_text(url)
+    if not text:
+        raise HTTPException(400, "Konnte keinen Text von der Seite extrahieren.")
+    title = data.title.strip() or url.split("//")[-1][:120]
+    async with aiosqlite.connect(DB_PATH) as db:
+        podcast_id = await _ensure_webclips_podcast(db)
+        await db.execute(
+            """INSERT INTO episodes (podcast_id, title, audio_url, episode_url,
+                   pub_date, description, status)
+               VALUES (?, ?, '', ?, ?, ?, 'queued')""",
+            (podcast_id, title, url,
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S"), text))
+        await db.commit()
+    background_tasks.add_task(process_queued)
+    return {"ok": True, "title": title}
+
+
+@app.post("/api/podcasts/website", status_code=201)
+async def add_website_source(data: WebsiteSource, background_tasks: BackgroundTasks):
+    """Subscribe a web page as a recurring 'website' source — the scheduler
+    re-scrapes it and adds a new episode whenever the page content changes."""
+    import hashlib
+    from .processor import _fetch_article_text
+    url = data.url.strip()
+    if not url:
+        raise HTTPException(400, "URL fehlt.")
+    text = await _fetch_article_text(url)
+    if not text:
+        raise HTTPException(400, "Konnte keinen Text von der Seite extrahieren.")
+    title = data.title.strip() or url.split("//")[-1][:120]
+    digest = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+    async with aiosqlite.connect(DB_PATH) as db:
+        try:
+            cur = await db.execute(
+                """INSERT INTO podcasts (title, rss_url, website_url, feed_type, auto_transcribe)
+                   VALUES (?, ?, ?, 'website', 1)""",
+                (title, url, url))
+            await db.commit()
+        except Exception as e:
+            if "UNIQUE" in str(e):
+                raise HTTPException(400, "Diese Website wird bereits überwacht.")
+            raise
+        podcast_id = cur.lastrowid
+        await db.execute(
+            """INSERT INTO episodes (podcast_id, title, audio_url, episode_url,
+                   pub_date, description, status)
+               VALUES (?, ?, '', ?, ?, ?, 'queued')""",
+            (podcast_id, title, f"website-hash:{digest}",
+             datetime.now().strftime("%Y-%m-%d %H:%M:%S"), text))
+        await db.commit()
+    background_tasks.add_task(process_queued)
+    return {"id": podcast_id, "title": title}
 
 
 @app.get("/api/podcasts/{podcast_id}/episodes")
@@ -660,6 +914,61 @@ async def transcribe_urls(data: TranscribeRequest, background_tasks: BackgroundT
             background_tasks.add_task(process_episode, ep_id, url, url.split("/")[-1], "Manuell")
         await db.commit()
     return {"queued": len(episode_ids), "episode_ids": episode_ids}
+
+
+@app.post("/api/episodes/{episode_id}/transcribe", status_code=202)
+async def transcribe_one(episode_id: int, background_tasks: BackgroundTasks):
+    """Queue a single, already-known episode for transcription/enrichment on
+    demand (used by the Neuzugänge inbox 'Transkribieren' button)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM episodes WHERE id=?", (episode_id,)) as cur:
+            if not await cur.fetchone():
+                raise HTTPException(404, "Folge nicht gefunden")
+        await db.execute("UPDATE episodes SET status='queued', error_msg=NULL WHERE id=?",
+                         (episode_id,))
+        await db.commit()
+    background_tasks.add_task(process_queued)
+    return {"ok": True, "episode_id": episode_id}
+
+
+@app.get("/api/inbox")
+async def get_inbox():
+    """Newly arrived but not-yet-processed items across all feeds: episodes that
+    are idle ('pending') awaiting an opt-in, plus anything queued/running/failed."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.id, e.title, e.status, e.pub_date, e.created_at, e.audio_url,
+                   e.error_msg, p.id AS podcast_id, p.title AS podcast_title,
+                   p.feed_type, p.artwork_url
+            FROM episodes e
+            LEFT JOIN podcasts p ON p.id = e.podcast_id
+            WHERE e.status IN ('pending','queued','downloading','transcribing','error')
+            ORDER BY e.created_at DESC, e.pub_date DESC
+            LIMIT 200
+        """) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/feeds/check-all")
+async def check_all_feeds_now():
+    """On-demand scan of every feed plus the newsletter inbox (the inbox
+    'Aktualisieren' button). Returns how many new items were listed."""
+    from .scheduler import check_all_feeds
+    from . import newsletter
+    new_feeds = 0
+    try:
+        new_feeds = await check_all_feeds(force=True)
+    except Exception as e:
+        logger.warning(f"check-all feeds failed: {e}")
+    new_mail = 0
+    if (await get_setting("newsletter_enabled")) == "1":
+        try:
+            new_mail = await newsletter.check_inbox()
+        except Exception as e:
+            logger.warning(f"check-all newsletter failed: {e}")
+    return {"ok": True, "new_feeds": new_feeds, "new_mail": new_mail}
 
 
 @app.get("/api/episodes/{episode_id}")
@@ -1317,6 +1626,21 @@ async def chat_library(data: ChatRequest):
         raise HTTPException(400, f"Anfrage fehlgeschlagen: {e}")
 
 
+@app.post("/api/chat/export")
+async def export_chat(data: ChatExportRequest):
+    """Export a client-side chat conversation (the chat is stateless) as a
+    Markdown download, sources included as deep links."""
+    msgs = [{"role": m.role, "content": m.content, "sources": m.sources}
+            for m in data.messages if (m.content or "").strip()]
+    if not msgs:
+        raise HTTPException(400, "Kein Gesprächsverlauf.")
+    body = export_chat_markdown(msgs)
+    return Response(
+        body.encode("utf-8"), media_type="text/markdown",
+        headers={"Content-Disposition": 'attachment; filename="podscribe-chat.md"'},
+    )
+
+
 @app.get("/api/episodes/{episode_id}/related")
 async def episode_related(episode_id: int, limit: int = 6):
     from . import rag
@@ -1499,7 +1823,36 @@ async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
                 podcast_ids=recipe.get("podcast_ids"), tag_ids=recipe.get("tag_ids"),
                 match=recipe.get("match", "any"))
             episode_ids = [e["id"] for e in eps]
-    if not episode_ids:
+
+    # Free article: let the AI pick relevant library episodes from the prompt
+    # (RAG retrieval), optionally constrained to chosen podcasts.
+    if not episode_ids and data.selection_mode == "ai" and data.prompt.strip():
+        from . import rag
+        try:
+            _, sources, err = await rag._retrieve(data.prompt, k=12)
+            if not err and sources:
+                allowed = set((recipe or {}).get("podcast_ids") or [])
+                picked = []
+                for s in sources:
+                    if s["episode_id"] in picked:
+                        continue
+                    picked.append(s["episode_id"])
+                episode_ids = picked[:8]
+                if allowed:
+                    async with aiosqlite.connect(DB_PATH) as db:
+                        db.row_factory = aiosqlite.Row
+                        qmarks = ",".join("?" * len(episode_ids))
+                        async with db.execute(
+                            f"SELECT id FROM episodes WHERE id IN ({qmarks}) AND podcast_id IN "
+                            f"({','.join('?'*len(allowed))})",
+                            (*episode_ids, *allowed)) as cur:
+                            episode_ids = [r["id"] for r in await cur.fetchall()]
+        except Exception as e:
+            logger.warning(f"AI episode selection failed: {e}")
+
+    # The free-article format may run with no episodes (article purely from the
+    # prompt); every other format needs at least one source episode.
+    if not episode_ids and not (data.format == "artikel" and data.prompt.strip()):
         raise HTTPException(400, "Keine passenden Folgen gefunden")
 
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1515,7 +1868,7 @@ async def create_digest(data: DigestRequest, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(_build_issue, digest_id, episode_ids,
                               data.format, data.length, data.style, data.title,
-                              data.model, data.custom_style, data.focus)
+                              data.model, data.custom_style, data.focus, data.prompt)
     return {"id": digest_id, "status": "generating"}
 
 
@@ -1535,7 +1888,7 @@ def _sections_to_md(result: dict) -> str:
 
 async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                        style: int, title: str, model: str = "",
-                       custom_style: str = "", focus: str = ""):
+                       custom_style: str = "", focus: str = "", prompt: str = ""):
     try:
         episode_data = []
         async with aiosqlite.connect(DB_PATH) as db:
@@ -1564,7 +1917,8 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
 
         result = await generate_issue(episode_data, fmt=fmt, length=length,
                                       style=style, title=title,
-                                      model=model, custom_style=custom_style, focus=focus)
+                                      model=model, custom_style=custom_style,
+                                      focus=focus, prompt=prompt)
         content_md = _sections_to_md(result)
         content_html = markdown2.markdown(
             content_md, extras=["fenced-code-blocks", "tables", "header-ids"])

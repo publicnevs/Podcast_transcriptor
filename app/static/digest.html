@@ -70,6 +70,17 @@
           <div id="ressort-hint" style="font-size:.78rem;color:var(--text-muted);margin-top:.4rem"></div>
         </div>
 
+        <!-- Free article: prompt + AI/manual source toggle (artikel only) -->
+        <div class="form-group" id="article-group" style="display:none">
+          <label class="form-label">Anweisung / Prompt</label>
+          <textarea id="article-prompt" placeholder="z.B. Schreibe eine Wochenzeitung über KI-Trends mit einem optimistischen Tonfall und konkreten Beispielen." style="min-height:80px"></textarea>
+          <div class="segmented" id="sel-seg" style="margin-top:.6rem">
+            <button type="button" data-sel="ai" class="active" onclick="setSelMode('ai')">KI wählt Folgen</button>
+            <button type="button" data-sel="manual" onclick="setSelMode('manual')">Folgen manuell wählen</button>
+          </div>
+          <div style="font-size:.78rem;color:var(--text-muted);margin-top:.4rem" id="sel-hint">Die KI sucht passende Folgen aus deiner Bibliothek zum Prompt.</div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Titel <span style="color:var(--text-muted);font-weight:400">(leer = automatisch)</span></label>
           <div style="display:flex;gap:.375rem">
@@ -212,14 +223,19 @@ const RESSORTS = {
   dossier: { label:'Dossier', iconName:'radar', format:'magazin',
     sliders:true, len:5, style:2,
     hint:'Tiefgehender Themen-Deep-Dive über alle Quellen hinweg. Tipp: Thema über Tags wählen und den redaktionellen Fokus nutzen.' },
+  artikel: { label:'Freier Artikel', iconName:'pencil', format:'artikel',
+    sliders:true, len:3, style:3,
+    hint:'Schreibe einen Artikel/eine Zeitung aus einer freien Anweisung. Die KI kann passende Folgen selbst wählen — oder du wählst sie manuell.' },
 };
 let ressort = 'ueberblick';
+let selMode = 'ai';   // for the free-article ressort: ai | manual
 const backendFormat = () => RESSORTS[ressort].format;
 
 const FORMAT_ICONS = {
   daily_briefing: icon('calendar',{size:16}), magazin: icon('newspaper',{size:16}),
   newsletter: icon('file-text',{size:16}), summary_takeaways: icon('list',{size:16}),
   teams_post: icon('share-2',{size:16}), zeitung: icon('newspaper',{size:16}),
+  artikel: icon('pencil',{size:16}),
 };
 const fmtIcon = (f) => FORMAT_ICONS[f] || icon('newspaper',{size:16});
 
@@ -295,6 +311,9 @@ async function openNewDigest() {
   document.getElementById('model-sel').value = '';
   document.getElementById('custom-style-input').value = '';
   document.getElementById('focus-input').value = '';
+  document.getElementById('article-prompt').value = '';
+  selMode = 'ai';
+  document.querySelectorAll('#sel-seg button').forEach(b => b.classList.toggle('active', b.dataset.sel==='ai'));
   renderFormatButtons();
   setRessort('ueberblick');
   document.getElementById('new-modal').style.display = '';
@@ -319,8 +338,28 @@ function setRessort(key) {
   document.getElementById('custom-style-group').style.display = r.sliders ? '' : 'none';
   document.getElementById('len-slider').value = r.len;
   document.getElementById('style-slider').value = r.style;
+  document.getElementById('article-group').style.display = key === 'artikel' ? '' : 'none';
   setTimeframe(key === 'ueberblick' ? '1' : '7');
+  applyArticleUi();
   updateSliderLabels();
+}
+
+function setSelMode(mode) {
+  selMode = mode;
+  document.querySelectorAll('#sel-seg button').forEach(b => b.classList.toggle('active', b.dataset.sel===mode));
+  document.getElementById('sel-hint').textContent = mode === 'ai'
+    ? 'Die KI sucht passende Folgen aus deiner Bibliothek zum Prompt.'
+    : 'Wähle die Quell-Folgen unten selbst (Zeitraum, Tags oder Einzelauswahl).';
+  applyArticleUi();
+}
+
+// In free-article + AI mode the sources are chosen by the AI, so the manual
+// source selectors are hidden (podcasts stay as an optional constraint).
+function applyArticleUi() {
+  const aiPick = ressort === 'artikel' && selMode === 'ai';
+  document.querySelector('#tf-seg').closest('.form-group').style.display = aiPick ? 'none' : '';
+  document.getElementById('tag-group').style.display = aiPick ? 'none' : (timeframe==='manual'?'none':'');
+  document.getElementById('episode-picker').style.display = (!aiPick && timeframe==='manual') ? '' : 'none';
 }
 
 function setTimeframe(tf) {
@@ -482,8 +521,19 @@ async function createDigest() {
   const custom_style = document.getElementById('custom-style-input').value.trim();
   const focus = document.getElementById('focus-input').value.trim();
   const payload = { title, format: backendFormat(), length, style, model, custom_style, focus };
-  if (timeframe === 'manual') {
-    if (!selectedIds.size) return toast('Bitte mindestens eine Folge wählen', 'error');
+
+  const isArticle = ressort === 'artikel';
+  if (isArticle) {
+    payload.prompt = document.getElementById('article-prompt').value.trim();
+    payload.selection_mode = selMode;
+    if (!payload.prompt) return toast('Bitte eine Anweisung / einen Prompt eingeben', 'error');
+  }
+
+  if (isArticle && selMode === 'ai') {
+    // AI picks the episodes from the prompt; pass podcasts as optional constraint.
+    payload.recipe = { podcast_ids: [...selPods], tag_ids: [], match: 'any', date_window_days: null };
+  } else if (timeframe === 'manual') {
+    if (!selectedIds.size && !(isArticle && payload.prompt)) return toast('Bitte mindestens eine Folge wählen', 'error');
     payload.episode_ids = [...selectedIds];
   } else {
     payload.recipe = currentRecipe();

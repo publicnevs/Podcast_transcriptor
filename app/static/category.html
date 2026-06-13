@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Kategorie</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+<div class="main-content">
+
+  <div class="page-header" style="display:block;margin-bottom:1.5rem">
+    <h1 id="cat-title" style="font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:.5rem"></h1>
+  </div>
+
+  <div class="section-title" data-icon="library" data-icon-size="16">Quellen</div>
+  <div id="pod-grid" class="card-grid"></div>
+
+  <div class="section-title" data-icon="tag" data-icon-size="16" style="margin-top:1.5rem">Themen</div>
+  <div id="tag-cloud" style="display:flex;flex-wrap:wrap;gap:.5rem"></div>
+
+  <div class="section-title" data-icon="sparkles" data-icon-size="16" style="margin-top:1.5rem">Neueste Folgen</div>
+  <div id="ep-list" class="episode-list"></div>
+
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/');
+initGlobalSearch();
+
+const catId = parseInt(location.pathname.split('/').pop());
+
+async function load() {
+  try {
+    const data = await API.get(`/api/categories/${catId}`);
+    document.getElementById('cat-title').innerHTML = `${icon('folder',{size:22})} ${escHtml(data.category.name)}`;
+    document.title = `PodScribe — ${data.category.name}`;
+
+    const grid = document.getElementById('pod-grid');
+    grid.innerHTML = data.podcasts.length ? data.podcasts.map(p => `
+      <div class="podcast-card" onclick="location.href='/podcast/${p.id}'">
+        ${tileVisual(p)}
+        <div class="podcast-card-body">
+          <div class="podcast-card-title">${escHtml(p.title)}</div>
+          <div class="podcast-card-meta">
+            ${p.unread_count>0?`<span class="unread-badge">${p.unread_count} neu</span>`:''}
+            <span>${p.done_count} Transkripte</span>
+          </div>
+        </div>
+      </div>`).join('') : `<div class="empty-state" style="grid-column:1/-1">Noch keine Quellen in dieser Kategorie.</div>`;
+
+    const cloud = document.getElementById('tag-cloud');
+    cloud.innerHTML = data.tags.map(t => `<a class="badge" href="/topic/${t.id}" style="text-decoration:none">${escHtml(t.label)} <span style="color:var(--text-muted)">${t.cnt}</span></a>`).join('') || '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Themen.</span>';
+
+    const list = document.getElementById('ep-list');
+    list.innerHTML = data.episodes.map(e => `
+      <div class="episode-item" onclick="location.href='/episode/${e.id}'">
+        <div>
+          <div class="episode-title">${escHtml(e.title)}</div>
+          <div class="episode-meta"><span>${escHtml(e.podcast_title||'')}</span><span>${fmtDate(e.pub_date)}</span></div>
+        </div>
+      </div>`).join('') || '<div class="empty-state">Noch keine Folgen.</div>';
+    hydrateIcons();
+  } catch(e) {
+    document.getElementById('cat-title').textContent = 'Kategorie nicht gefunden';
+  }
+}
+load();
+</script>
+</body>
+</html>

@@ -37,6 +37,7 @@ FORMATS = {
     "daily_briefing":   {"label": "📅 Daily Briefing",       "default_model": "flash", "uses_sliders": False},
     "magazin":          {"label": "📰 Magazin",               "default_model": "pro",   "uses_sliders": True},
     "newsletter":       {"label": "✉️ Newsletter",            "default_model": "flash", "uses_sliders": True},
+    "artikel":          {"label": "📝 Freier Artikel",        "default_model": "pro",   "uses_sliders": True},
     "summary_takeaways":{"label": "📋 Summary + Takeaways",  "default_model": "lite",  "uses_sliders": False},
     "teams_post":       {"label": "💬 Teams Post",            "default_model": "lite",  "uses_sliders": False},
 }
@@ -271,6 +272,30 @@ Sprache: Deutsch.
 FOLGEN:
 {episodes_text}"""
 
+ARTIKEL_PROMPT = """Du bist Autor*in und schreibst einen zusammenhängenden Artikel nach einer freien Anweisung.
+
+ANWEISUNG DES NUTZERS (maßgeblich für Thema, Aufbau und Tonfall):
+{instruction}
+
+STIL: {style_name} — {style_instruction}
+UMFANG: ca. {total_words} Wörter, gegliedert in sinnvolle Abschnitte mit Zwischenüberschriften.
+{focus_block}
+{sources_block}
+
+Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
+{{
+  "title": "{title}",
+  "subtitle": "<eine prägnante Zeile>",
+  "reading_time_min": <Zahl>,
+  "sections": [
+    {{"kind": "intro", "heading": "", "body_md": "Einleitung"}},
+    {{"kind": "article", "heading": "## Zwischenüberschrift", "body_md": "Fließtext …"}}
+  ],
+  "tldr_md": "- Kernpunkt 1\\n- Kernpunkt 2"
+}}
+
+Sprache: Deutsch. Erfinde keine Fakten; wenn Quellen vorliegen, stütze dich auf sie."""
+
 SUMMARY_TAKEAWAYS_PROMPT = """Du bist ein präziser Redakteur. Erstelle für jede der folgenden Podcast-Folgen eine knappe deutsche Zusammenfassung (3-5 Sätze) und 3-5 Key Takeaways.
 {focus_block}
 Gib AUSSCHLIESSLICH valides JSON zurück (keine Markdown-Fences):
@@ -481,15 +506,17 @@ async def embed_texts(texts: list) -> list:
 
 async def generate_issue(episode_data: list, *, fmt: str, length: int = 3, style: int = 3,
                          title: str, prev_tldr: str = "",
-                         model: str = "", custom_style: str = "", focus: str = "") -> dict:
-    """Multi-section issue for any of the 5 formats.
+                         model: str = "", custom_style: str = "", focus: str = "",
+                         prompt: str = "") -> dict:
+    """Multi-section issue for any of the formats.
     Returns {title, subtitle, reading_time_min, sections:[{kind,heading,body_md}], tldr_md}."""
     if not _configure_gemini():
         raise RuntimeError("Kein Gemini API Key konfiguriert")
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(
-        None, _issue_sync, episode_data, fmt, length, style, title, prev_tldr, model, custom_style, focus
-    )
+        None, _issue_sync, episode_data, fmt, length, style, title, prev_tldr,
+        model, custom_style, focus, prompt
+    )  # `prompt` is threaded as user_prompt into _issue_sync
 
 
 async def generate_title(episode_data: list, fmt: str) -> str:
@@ -647,13 +674,47 @@ def _build_episodes_text(episode_data: list, max_per_ep: int = 10000) -> str:
 
 
 def _issue_sync(episode_data: list, fmt: str, length: int, style: int,
-                title: str, prev_tldr: str, model: str = "", custom_style: str = "", focus: str = "") -> dict:
+                title: str, prev_tldr: str, model: str = "", custom_style: str = "",
+                focus: str = "", user_prompt: str = "") -> dict:
     # Normalise legacy format name
     if fmt == "zeitung":
         fmt = "magazin"
 
     chosen_model = _resolve_model(model, fmt)
     focus_block = f"\nREDAKTIONELLER FOKUS / Empfehlung: {focus}\n" if focus else ""
+
+    # ── Freier Artikel (free-prompt; library episodes optional) ───────────────
+    if fmt == "artikel":
+        lconf = _LENGTH_MAP.get(int(length), _LENGTH_MAP[3])
+        if custom_style:
+            style_name, style_instruction = "Benutzerdefiniert", custom_style
+        else:
+            style_name, style_instruction = _STYLE_MAP.get(int(style), _STYLE_MAP[3])
+        episodes_text = _build_episodes_text(episode_data, 10000) if episode_data else ""
+        sources_block = (
+            f"QUELLEN AUS DER BIBLIOTHEK (als Faktenbasis nutzen, nicht erfinden):\n{episodes_text[:120000]}"
+            if episodes_text.strip()
+            else "Es liegen keine Bibliotheks-Quellen vor — schreibe den Artikel allein "
+                 "auf Basis der Anweisung und deines Allgemeinwissens."
+        )
+        prompt = ARTIKEL_PROMPT.format(
+            instruction=(user_prompt or focus or title or "Schreibe einen Artikel."),
+            style_name=style_name, style_instruction=style_instruction,
+            total_words=lconf["words"], focus_block=focus_block,
+            title=title or "Artikel", sources_block=sources_block,
+        )
+        client = _client()
+        response = client.models.generate_content(
+            model=chosen_model,
+            contents=[prompt],
+            config=types.GenerateContentConfig(temperature=0.7, max_output_tokens=lconf["tokens"]),
+        )
+        data = _parse_json(response.text)
+        if not isinstance(data, dict) or "sections" not in data:
+            data = {"title": title, "subtitle": "", "reading_time_min": 5,
+                    "sections": [{"kind": "article", "heading": "", "body_md": response.text}],
+                    "tldr_md": ""}
+        return data
 
     # ── Daily Briefing ────────────────────────────────────────────────────────
     if fmt == "daily_briefing":

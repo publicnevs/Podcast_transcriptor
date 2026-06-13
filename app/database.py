@@ -87,6 +87,13 @@ CREATE TABLE IF NOT EXISTS digests (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    position INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT UNIQUE NOT NULL,
@@ -206,6 +213,9 @@ _MIGRATIONS = [
     "ALTER TABLE issue_recipes ADD COLUMN model TEXT DEFAULT ''",
     "ALTER TABLE issue_recipes ADD COLUMN custom_style TEXT DEFAULT ''",
     "ALTER TABLE issue_recipes ADD COLUMN focus TEXT DEFAULT ''",
+    # User-managed categories + manual ordering for the library homepage
+    "ALTER TABLE podcasts ADD COLUMN category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL",
+    "ALTER TABLE podcasts ADD COLUMN position INTEGER DEFAULT 0",
 ]
 
 

@@ -16,12 +16,26 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 - **RSS-Feeds abonnieren** — per RSS-URL, YouTube-Kanal oder direkter Audio-URL.
 - **Newsletter-Abos** — E-Mail-Newsletter landen als „Podcast" in der Bibliothek (per IMAP-Postfach); jeder Absender wird zu einem eigenen Feed gruppiert.
+- **Websites abonnieren & aufbereiten** — eine beliebige Webseite eingeben: entweder **einmalig aufbereiten** (Text wird gescraped und als Artikel mit Zusammenfassung abgelegt) oder **dauerhaft überwachen** (PodScribe prüft die Seite regelmäßig und legt bei Änderungen automatisch einen neuen Eintrag an).
 - **OPML-Import** — alle Abos auf einmal aus Apple Podcasts, Pocket Casts & Co. übernehmen.
 - **Automatische Folgen-Erkennung** — neue Folgen werden stündlich im Hintergrund gefunden.
 - **Auto-Transkription pro Podcast** — pro Feed festlegen, ob neue Folgen automatisch transkribiert werden.
 - **Flexible Abo-Optionen** — maximale Folgenzahl begrenzen, Prüf-Intervall einstellen, gezielt einzelne Folgen transkribieren.
 - **„Neue Folgen suchen"-Button** — einen Feed jederzeit manuell auf neue Folgen prüfen.
 - **Newsletter-Avatare** — Feeds ohne Bild bekommen ein automatisch generiertes Icon (Farbe + Initialen + Mail-Symbol).
+
+## 🗂️ Kategorien & Startseite
+
+- **Eigene Kategorien** — lege beliebige Kategorien an (z.B. Gesundheit, Finanzen, News, KI), benenne sie um oder lösche sie (in den Einstellungen).
+- **Podcasts zuordnen** — jedem Feed in seinen Einstellungen eine Kategorie zuweisen.
+- **Startseite nach Kategorien** — die Bibliothek ist in Kategorie-Abschnitte gegliedert; jede Überschrift führt zu einer Kategorie-Übersicht (Quellen, Themen-Tags und neueste Folgen gebündelt).
+- **Per Drag-&-Drop sortieren** — Kacheln auf der Startseite ziehen, um die Reihenfolge zu ändern oder sie in eine andere Kategorie zu verschieben.
+
+## 📥 Neuzugänge
+
+- **Neuzugänge-Seite** — alle frisch eingetroffenen, noch nicht aufbereiteten Folgen, Artikel und Mails an einem Ort.
+- **Transkribieren auf Knopfdruck** — einzelne Neuzugänge gezielt transkribieren/aufbereiten lassen.
+- **Sofort aktualisieren** — „Auf neue Folgen prüfen" (alle Feeds) und „Postfach prüfen" (Newsletter) direkt von der Seite auslösen.
 
 ## 🎙️ Transkription
 
@@ -53,7 +67,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 ## 🔎 Bibliothek, Suche & Intelligenz
 
 - **Volltextsuche** — blitzschnelle Suche über alle Transkripte (auch bei großen Beständen).
-- **„Frag deine Bibliothek" (KI-Chat)** — stelle Fragen in natürlicher Sprache; die KI antwortet auf Basis deiner Folgen **mit zitierten Quellen** und Deep-Links zur genauen Stelle. Mehrere Folgefragen im Gespräch möglich.
+- **„Frag deine Bibliothek" (KI-Chat)** — stelle Fragen in natürlicher Sprache; die KI antwortet auf Basis deiner Folgen **mit zitierten Quellen** und Deep-Links zur genauen Stelle. Mehrere Folgefragen im Gespräch möglich. Das Gespräch lässt sich **als Markdown exportieren oder drucken** (inkl. Quellen).
 - **Verwandte Folgen** — zu jeder Folge passende andere Folgen (über gemeinsame Themen & inhaltliche Ähnlichkeit).
 - **Themen-Explorer** — pro Schlagwort eine chronologische Zeitleiste aller Folgen plus optionale themenübergreifende Zusammenfassung.
 - **Ungelesen-Tracking** — Badge pro Podcast, gespeicherte Lese-/Scroll-Position, „als gelesen" markieren.
@@ -63,10 +77,11 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 📰 PodScribe Redaktion (Digest)
 
-- **Drei Ressorts:**
+- **Vier Ressorts:**
   - **Überblick** — kompaktes Briefing der letzten Folgen.
   - **Magazin** — ausführlicher Artikel mit einstellbarer Länge.
   - **Dossier** — tiefe Themen-Recherche zu einem gesetzten Schwerpunkt.
+  - **Freier Artikel** — schreibe eine Zeitung/einen Artikel aus einer **freien Anweisung (Prompt)**. Wahlweise wählt die **KI passende Folgen** aus deiner Bibliothek selbst aus, oder du **wählst sie manuell**. Auch ganz ohne Quellen (reiner Prompt) möglich.
 - **Live-Vorschau** — vor dem Erzeugen sehen, welche Folgen einfließen und wie lange das Lesen dauert.
 - **Journalistische Artikel** — echte Redaktionstexte (1200–2000 Wörter), KI-geschrieben aus deinen Transkripten.
 - **TL;DR oben** — jeder Artikel startet mit dem Wichtigsten in Kürze.
