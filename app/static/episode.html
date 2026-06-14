@@ -177,6 +177,9 @@ function renderDoneContent(ep, segments, takeaways, chapters) {
           <h3 style="margin-top:1rem">Key Takeaways</h3>
           <div class="takeaways">${takeaways.map(t=>`<div class="takeaway">${escHtml(t)}</div>`).join('')}</div>
         ` : ''}
+        <div style="margin-top:1.25rem;padding-top:1rem;border-top:1px solid var(--border)">
+          <button class="btn btn-secondary btn-sm" onclick="createArticleFromEpisode()">${icon('newspaper',{size:16})} Artikel in Redaktion erstellen</button>
+        </div>
       </div>` : `
       <div class="summary-card" style="text-align:center">
         <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem">Noch keine Zusammenfassung für diese Folge.</p>
@@ -425,10 +428,30 @@ function openEpMenu(anchor) {
     { icon:'type', label:'Schrift vergrößern', onClick: () => changeFont(1) },
     { icon:'type', label:'Schrift verkleinern', onClick: () => changeFont(-1) },
   ];
+  if (epData && epData.status === 'done') {
+    items.push({ icon:'newspaper', label:'Artikel in Redaktion erstellen', onClick: createArticleFromEpisode });
+  }
   if (epData && epData.language && epData.language.toLowerCase() !== 'de') {
     items.push({ icon:'languages', label:'Ins Deutsche übersetzen', onClick: requestTranslation });
   }
   openMenu(anchor, items);
+}
+
+// Turn this single episode's transcript into a Redaktion article (Magazin format).
+async function createArticleFromEpisode() {
+  if (!(await confirmModal(
+        'Artikel aus dieser Folge erstellen?',
+        'Aus dem Transkript dieser Folge wird in der Redaktion ein journalistischer Artikel generiert (verbraucht API-Tokens).',
+        'Artikel erstellen'))) return;
+  try {
+    const r = await API.post('/api/digests', {
+      title: (epData && epData.title) ? epData.title : '',
+      mode: 'manual', format: 'magazin', length: 3, style: 3,
+      episode_ids: [episodeId],
+    });
+    toast('Artikel wird erstellt…', 'info');
+    location.href = `/digest/${r.id}`;
+  } catch(e) { toast(e.message || 'Konnte Artikel nicht erstellen', 'error'); }
 }
 
 function _resetRegenBtn() {

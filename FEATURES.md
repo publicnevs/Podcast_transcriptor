@@ -55,6 +55,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Deutsche Übersetzung** — fremdsprachige Transkripte per Klick ins Deutsche übersetzen.
 - **„Für KI kopieren"** — Transkript + Metadaten optimal formatiert für Claude / Gemini / ChatGPT.
 - **Zusammenfassung neu erzeugen** — auf Wunsch neu generieren lassen.
+- **Artikel in der Redaktion erstellen** — direkt aus einer Folge (von der Zusammenfassung aus) einen journalistischen Artikel aus dem Transkript generieren lassen.
 
 ## ▶️ Audio-Player mit synchronem Mitlesen
 
