@@ -108,6 +108,57 @@ def _extract_body(msg) -> str:
     return ""
 
 
+def _extract_html(msg) -> str:
+    """Return the raw text/html part of a mail (empty if none)."""
+    parts = msg.walk() if msg.is_multipart() else [msg]
+    for part in parts:
+        if part.get_content_type() != "text/html":
+            continue
+        if part.get_content_disposition() == "attachment":
+            continue
+        payload = part.get_payload(decode=True)
+        if not payload:
+            continue
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            return payload.decode(charset, errors="replace")
+        except (LookupError, ValueError):
+            return payload.decode("utf-8", errors="replace")
+    return ""
+
+
+def _extract_logo_from_html(html: str) -> str:
+    """Pick a plausible logo image URL from an email's HTML body: the first
+    http(s) <img> that isn't an obvious tracking pixel. Best-effort → '' ."""
+    if not html:
+        return ""
+    try:
+        from lxml import html as lxml_html
+
+        def _num(v):
+            try:
+                return int(re.sub(r"[^0-9]", "", v or ""))
+            except Exception:
+                return 0
+
+        tree = lxml_html.fromstring(html)
+        for img in tree.xpath("//img"):
+            src = (img.get("src") or "").strip()
+            if not src.startswith("http"):
+                continue
+            w, h = _num(img.get("width")), _num(img.get("height"))
+            if (w and w < 32) or (h and h < 32):
+                continue  # tracking pixel / spacer
+            low = src.lower()
+            if any(k in low for k in
+                   ("pixel", "track", "beacon", "spacer", "1x1", "open.gif")):
+                continue
+            return src
+        return ""
+    except Exception:
+        return ""
+
+
 def _fetch_emails_sync(host: str, port: int, user: str, password: str,
                        since: datetime) -> list:
     conn = imaplib.IMAP4_SSL(host, port)
@@ -146,6 +197,7 @@ def _fetch_emails_sync(host: str, port: int, user: str, password: str,
                 "message_id": message_id,
                 "pub_date": pub_date,
                 "body": body,
+                "logo": _extract_logo_from_html(_extract_html(msg)),
             })
         return out
     finally:
@@ -233,11 +285,33 @@ async def check_inbox() -> int:
                 (title, rss_url),
             )
             async with db.execute(
-                "SELECT id FROM podcasts WHERE rss_url=?", (rss_url,)) as cur:
+                "SELECT id, artwork_url FROM podcasts WHERE rss_url=?",
+                (rss_url,)) as cur:
                 row = await cur.fetchone()
             if not row:
                 continue
             podcast_id = row["id"]
+
+            # Best-effort logo (once, while artwork is still empty): try the
+            # sender domain's og:image/favicon, else a logo from the mail HTML.
+            if not row["artwork_url"]:
+                artwork = ""
+                domain = sender_email.split("@")[-1] if "@" in sender_email else ""
+                if domain:
+                    try:
+                        artwork = await processor._fetch_site_image("https://" + domain)
+                    except Exception:
+                        artwork = ""
+                if not artwork:
+                    for m in items:
+                        if m.get("logo"):
+                            artwork = m["logo"]
+                            break
+                if artwork:
+                    await db.execute(
+                        "UPDATE podcasts SET artwork_url=? WHERE id=? "
+                        "AND (artwork_url IS NULL OR artwork_url='')",
+                        (artwork, podcast_id))
             eps = [{
                 "title": m["subject"],
                 "audio_url": "",

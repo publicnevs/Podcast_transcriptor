@@ -39,29 +39,122 @@ async def _get_feed_type(episode_id: int) -> str:
     return row[0] or "podcast", bool(row[1]), row[2] or ""
 
 
-async def _fetch_article_text(url: str) -> str:
-    """Fetch and extract readable text from a web page."""
+async def _fetch_html(url: str) -> str:
+    """GET a web page and return its HTML text (empty on any failure)."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+            r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        return r.text if r.status_code == 200 else ""
+    except Exception as e:
+        logger.warning(f"Fetch failed for {url}: {e}")
+        return ""
+
+
+def _extract_main_text(html: str, url: str = "") -> str:
+    """Extract the main readable article text from HTML.
+
+    Prefers trafilatura (strips nav/ads/boilerplate, keeps the real body);
+    falls back to a simple lxml grab of <article>/<main>/<body> when trafilatura
+    is unavailable or returns nothing. Best-effort: returns '' on any failure."""
     import re
     try:
+        import trafilatura
+        extracted = trafilatura.extract(
+            html, url=url or None, include_comments=False,
+            include_tables=False, favor_precision=True)
+        if extracted and extracted.strip():
+            return re.sub(r'[ \t]+', ' ', extracted).strip()[:16000]
+    except Exception as e:
+        logger.debug(f"trafilatura extraction failed for {url}: {e}")
+    try:
         from lxml import html as lxml_html
-        async with __import__('httpx').AsyncClient(follow_redirects=True, timeout=15) as client:
-            r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        if r.status_code != 200:
-            return ""
-        tree = lxml_html.fromstring(r.text)
-        # Remove noise elements
+        tree = lxml_html.fromstring(html)
         for tag in tree.iter('script', 'style', 'nav', 'footer', 'header', 'aside'):
             tag.clear()
-        # Prefer article/main over body
         for xpath in ('//article', '//main', '//body'):
             nodes = tree.xpath(xpath)
             if nodes:
-                text = nodes[0].text_content()
-                text = re.sub(r'\s+', ' ', text).strip()
-                return text[:8000]
+                text = re.sub(r'\s+', ' ', nodes[0].text_content()).strip()
+                if text:
+                    return text[:16000]
     except Exception as e:
-        logger.warning(f"Full-text extraction failed for {url}: {e}")
+        logger.warning(f"lxml extraction failed for {url}: {e}")
     return ""
+
+
+async def _fetch_article_text(url: str) -> str:
+    """Fetch a web page and extract its main article text. Best-effort: any
+    failure returns '' so ingestion never breaks."""
+    html = await _fetch_html(url)
+    if not html:
+        return ""
+    return _extract_main_text(html, url)
+
+
+async def _url_ok(url: str) -> bool:
+    """True if the URL responds 200 (HEAD, falling back to GET)."""
+    try:
+        import httpx
+        async with httpx.AsyncClient(follow_redirects=True, timeout=10) as client:
+            r = await client.head(url, headers={"User-Agent": "Mozilla/5.0"})
+            if r.status_code >= 400:
+                r = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+async def _favicon_service(url: str) -> str:
+    """Optional third-party favicon (DuckDuckGo). Off by default — only used
+    when 'favicon_service_enabled' is set, since it leaks the domain name."""
+    try:
+        from .database import get_setting
+        if (await get_setting("favicon_service_enabled")) != "1":
+            return ""
+        from urllib.parse import urlparse
+        parsed = urlparse(url if "//" in url else "https://" + url)
+        domain = parsed.netloc or parsed.path.split("/")[0]
+        return f"https://icons.duckduckgo.com/ip3/{domain}.ico" if domain else ""
+    except Exception:
+        return ""
+
+
+async def _fetch_site_image(url: str, html: str | None = None) -> str:
+    """Best-effort logo/preview image for a site (for newsletters & websites).
+
+    Order: og:image → twitter:image → apple-touch-icon → icon → /favicon.ico,
+    then an optional (settings-gated) favicon service. Returns '' if nothing
+    usable is found. Pass `html` to avoid a second fetch when the page is in hand."""
+    from urllib.parse import urljoin, urlparse
+    try:
+        if html is None:
+            html = await _fetch_html(url)
+        if html:
+            from lxml import html as lxml_html
+            tree = lxml_html.fromstring(html)
+            for xp in (
+                "//meta[@property='og:image']/@content",
+                "//meta[@property='og:image:url']/@content",
+                "//meta[@name='twitter:image']/@content",
+                "//meta[@name='twitter:image:src']/@content",
+                "//link[contains(@rel,'apple-touch-icon')]/@href",
+                "//link[@rel='icon']/@href",
+                "//link[contains(@rel,'shortcut')]/@href",
+            ):
+                hits = [h.strip() for h in tree.xpath(xp) if h and h.strip()]
+                if hits:
+                    return urljoin(url, hits[0])
+        # No embedded image → try the conventional /favicon.ico.
+        parsed = urlparse(url if "//" in url else "https://" + url)
+        if parsed.scheme and parsed.netloc:
+            fallback = f"{parsed.scheme}://{parsed.netloc}/favicon.ico"
+            if await _url_ok(fallback):
+                return fallback
+        return await _favicon_service(url)
+    except Exception as e:
+        logger.warning(f"Site image lookup failed for {url}: {e}")
+        return ""
 
 
 async def _index_chunks(episode_id: int, segments: list):
@@ -94,9 +187,12 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                     row = await cur.fetchone()
             content = (row[0] or "") if row else ""
             # Only newsfeed articles carry a real web URL worth scraping; a
-            # newsletter's episode_url is a Message-ID, never fetch it.
+            # newsletter's episode_url is a Message-ID, never fetch it. Fetch the
+            # full page whenever the feed text looks like a teaser (short, ends
+            # with a "Read more"-style marker, or is just a link).
+            from .feed_parser import is_truncated
             if (feed_type == "newsfeed" and full_text_extraction
-                    and episode_url and len(content) < 600):
+                    and episode_url and is_truncated(content)):
                 fetched = await _fetch_article_text(episode_url)
                 if len(fetched) > len(content):
                     content = fetched

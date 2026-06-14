@@ -68,6 +68,10 @@
         <input type="checkbox" id="set-fulltext" style="width:auto" onchange="markDirty()">
         <span data-icon="newspaper" data-icon-size="15">Volltext von der Artikelseite laden (Newsfeed)</span>
       </label>
+      <label style="display:block;font-size:.875rem">
+        <span style="display:block;margin-bottom:.25rem">Logo-URL (optional)</span>
+        <input type="text" id="set-artwork" placeholder="https://…  (leer = Standard-Symbol)" style="width:100%" oninput="markDirty()">
+      </label>
       <div>
         <button class="btn btn-primary btn-sm" id="set-save" onclick="savePodcastSettings()" disabled>Speichern</button>
       </div>
@@ -114,10 +118,10 @@ async function loadPodcast() {
     const h = document.getElementById('podcast-header');
     h.innerHTML = `
       <div class="page-header-art" style="padding:0;overflow:hidden">
-        ${podcastData.feed_type==='newsletter'
-          ? avatarFor(podcastData.title, {newsletter:true})
-          : podcastData.artwork_url
-            ? `<img src="${escHtml(podcastData.artwork_url)}" alt="${escHtml(podcastData.title)}" style="width:100%;height:100%;object-fit:cover" onerror="podcastImgFallback(this, ${JSON.stringify(escHtml(podcastData.title))})">`
+        ${podcastData.artwork_url
+          ? `<img src="${escHtml(podcastData.artwork_url)}" alt="${escHtml(podcastData.title)}" style="width:100%;height:100%;object-fit:cover" onerror="podcastImgFallback(this, ${JSON.stringify(escHtml(podcastData.title))})">`
+          : podcastData.feed_type==='newsletter'
+            ? avatarFor(podcastData.title, {newsletter:true})
             : avatarFor(podcastData.title)}
       </div>
       <div class="page-header-info">
@@ -266,6 +270,7 @@ function populateSettings() {
   } else {
     ftWrap.style.display = 'none';
   }
+  document.getElementById('set-artwork').value = podcastData.artwork_url || '';
   populateCategoryOptions();
   document.getElementById('set-save').disabled = true;
 }
@@ -291,6 +296,7 @@ async function savePodcastSettings() {
     max_transcripts: parseInt(document.getElementById('set-maxtr').value) || 0,
     check_interval_hours: parseInt(document.getElementById('set-interval').value) || 1,
     category_id: parseInt(document.getElementById('set-category').value) || 0,
+    artwork_url: document.getElementById('set-artwork').value.trim(),
   };
   if (podcastData.feed_type === 'newsfeed') {
     payload.full_text_extraction = document.getElementById('set-fulltext').checked;

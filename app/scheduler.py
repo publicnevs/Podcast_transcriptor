@@ -38,6 +38,22 @@ async def _check_website(db, podcast) -> int:
     text = await _fetch_article_text(podcast["rss_url"])
     if not text:
         return 0
+
+    # Best-effort: give the source a real logo the first time we scrape it
+    # (covers websites subscribed before logo capture existed).
+    try:
+        async with db.execute(
+            "SELECT artwork_url FROM podcasts WHERE id=?", (podcast["id"],)) as cur:
+            art = await cur.fetchone()
+        if not (art and art[0]):
+            from .processor import _fetch_site_image
+            img = await _fetch_site_image(podcast["rss_url"])
+            if img:
+                await db.execute("UPDATE podcasts SET artwork_url=? WHERE id=?",
+                                 (img, podcast["id"]))
+    except Exception:
+        pass
+
     digest = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
     marker = f"website-hash:{digest}"
     async with db.execute(

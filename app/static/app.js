@@ -59,14 +59,16 @@ function avatarFor(name, opts = {}) {
   const hue = hash % 360;
   const initials = (s.split(/\s+/).slice(0, 2).map(w => w[0] || '').join('') || '?').toUpperCase();
   const badge = opts.newsletter ? `<span class="gen-avatar-badge">${icon('mail', { size: 13 })}</span>` : '';
-  return `<div class="gen-avatar" style="--av-bg:hsl(${hue} 42% 42%)">`
+  // Lightness kept low enough for white initials to stay legible on the light theme.
+  return `<div class="gen-avatar" style="--av-bg:hsl(${hue} 48% 40%)">`
        + `<span class="gen-avatar-initials">${escHtml(initials)}</span>${badge}</div>`;
 }
 
-// Visual for a podcast/feed tile: newsletter → mail avatar; artwork → img; else initials.
+// Visual for a podcast/feed tile: real artwork wins (newsletters/websites now
+// get a logo too); newsletters without one fall back to a mail avatar; else initials.
 function tileVisual(p) {
-  if (p.feed_type === 'newsletter') return avatarFor(p.title, { newsletter: true });
   if (p.artwork_url) return `<img src="${escHtml(p.artwork_url)}" alt="${escHtml(p.title)}" loading="lazy" onerror="podcastImgFallback(this, ${JSON.stringify(escHtml(p.title))})">`;
+  if (p.feed_type === 'newsletter') return avatarFor(p.title, { newsletter: true });
   return avatarFor(p.title);
 }
 
