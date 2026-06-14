@@ -114,7 +114,8 @@ class PodcastCreate(BaseModel):
     rss_url: str
     auto_transcribe: bool = False
     max_episodes: int = 0
-    full_text_extraction: bool = False
+    # Default ON: article feeds that only ship a teaser get the full page fetched.
+    full_text_extraction: bool = True
 
 
 class PodcastUpdate(BaseModel):
@@ -125,6 +126,7 @@ class PodcastUpdate(BaseModel):
     max_transcripts: Optional[int] = None
     category_id: Optional[int] = None
     position: Optional[int] = None
+    artwork_url: Optional[str] = None
 
 
 class CategoryCreate(BaseModel):
@@ -593,6 +595,9 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
         fields["check_interval_hours"] = data.check_interval_hours
     if data.full_text_extraction is not None:
         fields["full_text_extraction"] = 1 if data.full_text_extraction else 0
+    if data.artwork_url is not None:
+        # Empty string clears the override → fall back to the generated avatar.
+        fields["artwork_url"] = data.artwork_url.strip() or None
     if data.max_transcripts is not None:
         fields["max_transcripts"] = data.max_transcripts
     if data.category_id is not None:
@@ -794,21 +799,25 @@ async def add_website_source(data: WebsiteSource, background_tasks: BackgroundTa
     """Subscribe a web page as a recurring 'website' source — the scheduler
     re-scrapes it and adds a new episode whenever the page content changes."""
     import hashlib
-    from .processor import _fetch_article_text
+    from .processor import _fetch_html, _extract_main_text, _fetch_site_image
     url = data.url.strip()
     if not url:
         raise HTTPException(400, "URL fehlt.")
-    text = await _fetch_article_text(url)
+    html = await _fetch_html(url)
+    text = _extract_main_text(html, url) if html else ""
     if not text:
         raise HTTPException(400, "Konnte keinen Text von der Seite extrahieren.")
     title = data.title.strip() or url.split("//")[-1][:120]
+    # Best-effort logo from the same page we already fetched (og:image/favicon).
+    artwork = await _fetch_site_image(url, html=html)
     digest = hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             cur = await db.execute(
-                """INSERT INTO podcasts (title, rss_url, website_url, feed_type, auto_transcribe)
-                   VALUES (?, ?, ?, 'website', 1)""",
-                (title, url, url))
+                """INSERT INTO podcasts (title, rss_url, website_url, feed_type,
+                       auto_transcribe, artwork_url)
+                   VALUES (?, ?, ?, 'website', 1, ?)""",
+                (title, url, url, artwork or None))
             await db.commit()
         except Exception as e:
             if "UNIQUE" in str(e):

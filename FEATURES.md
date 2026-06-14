@@ -17,12 +17,13 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **RSS-Feeds abonnieren** — per RSS-URL, YouTube-Kanal oder direkter Audio-URL.
 - **Newsletter-Abos** — E-Mail-Newsletter landen als „Podcast" in der Bibliothek (per IMAP-Postfach); jeder Absender wird zu einem eigenen Feed gruppiert.
 - **Websites abonnieren & aufbereiten** — eine beliebige Webseite eingeben: entweder **einmalig aufbereiten** (Text wird gescraped und als Artikel mit Zusammenfassung abgelegt) oder **dauerhaft überwachen** (PodScribe prüft die Seite regelmäßig und legt bei Änderungen automatisch einen neuen Eintrag an).
+- **Volltext statt nur Überschrift** — bei Artikel-Feeds, die nur einen Anriss („… weiterlesen") liefern, holt PodScribe automatisch den **vollständigen Artikeltext** von der Originalseite (sauber von Menü/Werbung befreit). Für neue Artikel-Feeds standardmäßig aktiv, pro Feed abschaltbar.
 - **OPML-Import** — alle Abos auf einmal aus Apple Podcasts, Pocket Casts & Co. übernehmen.
 - **Automatische Folgen-Erkennung** — neue Folgen werden stündlich im Hintergrund gefunden.
 - **Auto-Transkription pro Podcast** — pro Feed festlegen, ob neue Folgen automatisch transkribiert werden.
 - **Flexible Abo-Optionen** — maximale Folgenzahl begrenzen, Prüf-Intervall einstellen, gezielt einzelne Folgen transkribieren.
 - **„Neue Folgen suchen"-Button** — einen Feed jederzeit manuell auf neue Folgen prüfen.
-- **Newsletter-Avatare** — Feeds ohne Bild bekommen ein automatisch generiertes Icon (Farbe + Initialen + Mail-Symbol).
+- **Echte Logos für Newsletter & Websites** — PodScribe holt automatisch das Logo der Quelle (og:image bzw. Favicon der Absender-/Webseite, oder ein Logo aus der Newsletter-Mail). Klappt das nicht, gibt es weiterhin ein generiertes Icon (Farbe + Initialen, bei Newslettern mit Mail-Symbol). Das Logo lässt sich pro Quelle auch **manuell überschreiben** (Logo-URL in den Feed-Einstellungen).
 
 ## 🗂️ Kategorien & Startseite
 

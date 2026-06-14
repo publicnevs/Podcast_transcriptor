@@ -199,6 +199,34 @@ def _clean(text: str, cap: int = 2000) -> str:
     return text.strip()[:cap]
 
 
+_TRUNCATION_MARKERS = (
+    "read more", "continue reading", "weiterlesen", "mehr lesen",
+    "appeared first on", "the post", "view in browser", "read in app",
+)
+
+
+def is_truncated(text: str) -> bool:
+    """Heuristic: does this feed text look like a teaser rather than the full
+    article? True when it's very short, ends with an ellipsis / 'Read more'-style
+    marker, or is essentially just a single link. Used to decide whether to
+    fetch the full web page."""
+    if not text:
+        return True
+    t = text.strip()
+    if len(t) < 600:
+        return True
+    tail = t[-120:].lower()
+    if tail.rstrip().endswith(("…", "[…]", "...", "[...]", "(...)", "[…]")):
+        return True
+    if any(m in tail for m in _TRUNCATION_MARKERS):
+        return True
+    # "Mostly a single link": one URL and barely any other text.
+    urls = re.findall(r"https?://\S+", t)
+    if len(urls) == 1 and len(t) - len(urls[0]) < 200:
+        return True
+    return False
+
+
 def _entry_content(entry) -> str:
     """Return the richest article text from a feed entry: <content:encoded>
     (entry.content) if longer than <summary>, else the summary."""
