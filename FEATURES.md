@@ -108,7 +108,10 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 - **Als App installierbar** — auf den Homescreen (Android/iOS), ohne App Store.
 - **Offline-Lesen** — bereits geladene Transkripte sind auch ohne Internet verfügbar.
-- **Mobile-first** — Bottom-Navigation, große Touch-Flächen, Schriftgrößen-Regler, Dark Mode.
+- **Mobile-first** — Bottom-Navigation, große Touch-Flächen, Schriftgrößen-Regler.
+- **„Mehr"-Menü** — über die Bottom-Navigation sind auch am Handy (und für Gäste) Fragen, Radar, Tags, Über und der **Design-Umschalter** erreichbar.
+- **Helles & dunkles Design** — die App startet im **hellen Design**; per Umschalter (auch für Gäste, am PC oben und mobil im „Mehr"-Menü) jederzeit auf dunkel wechselbar, die Wahl bleibt gespeichert.
+- **Wischbare Highlights** — der News-Streifen auf der Startseite lässt sich am Handy wischen und am PC per Maus ziehen/scrollen.
 - **Push-Benachrichtigungen** — via ntfy.sh aufs Handy, sobald ein Transkript fertig ist (mit tippbarem Direktlink).
 
 ---

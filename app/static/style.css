@@ -686,7 +686,8 @@ details[open] summary::before { transform: rotate(90deg); }
   justify-content: space-around;
 }
 
-.bottom-nav a {
+.bottom-nav a,
+.bottom-nav .bn-more {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -700,7 +701,10 @@ details[open] summary::before { transform: rotate(90deg); }
   min-width: 56px;
 }
 
-.bottom-nav a .bn-icon { font-size: 1.35rem; line-height: 1; }
+.bottom-nav .bn-more { background: none; border: none; cursor: pointer; font-family: inherit; }
+
+.bottom-nav a .bn-icon,
+.bottom-nav .bn-more .bn-icon { font-size: 1.35rem; line-height: 1; }
 .bottom-nav a.active { color: var(--accent); }
 .bottom-nav a.active .bn-icon { transform: translateY(-1px); filter: drop-shadow(0 2px 6px rgba(124,111,247,0.5)); }
 
@@ -1214,6 +1218,13 @@ body.role-guest [data-guest-only] { display: flex; }
   scrollbar-width: none;
 }
 .ticker::-webkit-scrollbar { display: none; }
+/* Desktop: no touch swipe — show a thin scrollbar + grab cursor (JS adds drag-to-scroll). */
+@media (min-width: 769px) {
+  .ticker { scrollbar-width: thin; cursor: grab; }
+  .ticker::-webkit-scrollbar { display: block; height: 8px; }
+  .ticker.dragging { cursor: grabbing; scroll-snap-type: none; user-select: none; }
+  .ticker.dragging .ticker-card { pointer-events: none; }
+}
 .ticker-card {
   flex: 0 0 clamp(220px, 72vw, 290px); scroll-snap-align: start;
   background: var(--bg-card); border: 1px solid var(--border);

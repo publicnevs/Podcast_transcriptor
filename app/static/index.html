@@ -358,6 +358,7 @@ async function loadTakeaways() {
         <div class="ticker-takeaway">${escHtml(it.takeaway)}</div>
         <div class="ticker-episode">${escHtml(it.title)}</div>
       </div>`).join('');
+    enableDragScroll(row);   // mouse drag + wheel on desktop (touch swipes natively)
   } catch(e) { sec.style.display = 'none'; }
 }
 

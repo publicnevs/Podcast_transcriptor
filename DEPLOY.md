@@ -69,13 +69,28 @@ http://192.168.1.100:7878
 ```
 (IP deiner Synology anpassen)
 
-**Von außen (Synology QuickConnect):**
-1. DSM → Systemsteuerung → Anwendungsportal → Reverse Proxy
-2. Neue Regel:
-   - Protokoll: HTTPS
-   - Hostname: `podscribe.DEIN-QUICKCONNECT.synology.me`
-   - Port: 443
-   - Weiterleitung: `localhost:7878`
+**Von außen über HTTPS (eigene DDNS-Domain, z. B. `datenbutler2.synology.me`):**
+
+So wird die App sicher per `https://podscribe.datenbutler2.synology.me` erreichbar. Voraussetzung:
+ein gültiges (Wildcard-)Zertifikat für die Domain.
+
+1. **Zertifikat** — für `*.datenbutler2.synology.me` ist bei aktiver Synology-DDNS i. d. R.
+   **bereits ein Let's-Encrypt-Zertifikat vorhanden**. Das DDNS-Häkchen „Zertifikat anfordern"
+   ist dann ausgegraut, weil nichts Neues anzufordern ist — das ist korrekt. Vorhandensein nur
+   prüfen unter **Systemsteuerung → Sicherheit → Zertifikat**.
+2. **Reverse Proxy** — DSM → **Systemsteuerung → Anmeldeportal → Erweitert → Reverse Proxy → Erstellen**:
+   - Quelle: Protokoll **HTTPS**, Hostname `podscribe.datenbutler2.synology.me`, Port **443**
+   - Ziel: Protokoll **HTTP**, Hostname `localhost`, Port **7878**
+3. **Zertifikat zuweisen** — **Sicherheit → Zertifikat → Einstellungen**: dem neuen Dienst
+   `podscribe.datenbutler2.synology.me` das `*.datenbutler2.synology.me`-Zertifikat zuordnen.
+4. **Router** — Portweiterleitung **TCP 443 → NAS-IP:443** ergänzen. Sperrt der Provider 443,
+   extern z. B. **8443 → NAS 443** weiterleiten und die App unter `…:8443` aufrufen.
+5. **DSM-Firewall** (falls aktiv) — eingehend **TCP 443** erlauben.
+6. **App absichern** — in den PodScribe-Einstellungen **vor** der Freigabe ein Eigentümer-Passwort
+   setzen und `public_base_url=https://podscribe.datenbutler2.synology.me` eintragen (für korrekte
+   Push-Deep-Links).
+7. **PWA neu installieren** — am Handy die **HTTPS-URL** öffnen, den alten HTTP-Eintrag vom
+   Startbildschirm löschen und neu „Zum Startbildschirm hinzufügen".
 
 ---
 

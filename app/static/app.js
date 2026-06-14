@@ -245,12 +245,30 @@ function renderNav(activePath) {
     </nav>
     <nav class="bottom-nav">
       <a href="/" ${isLib?'class="active"':''}><span class="bn-icon">${icon('library', {size:22})}</span>Bibliothek</a>
-      <a href="/?add=1" data-owner-only><span class="bn-icon">${icon('plus', {size:22})}</span>Abonnieren</a>
       <a href="/inbox" ${activePath==='/inbox'?'class="active"':''}><span class="bn-icon">${icon('inbox', {size:22})}</span>Neuzugänge</a>
       <a href="/digests" ${activePath==='/digests'?'class="active"':''}><span class="bn-icon">${icon('newspaper', {size:22})}</span>Redaktion</a>
-      <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}><span class="bn-icon">${icon('settings', {size:22})}</span>Mehr</a>
-      <a href="/login" data-guest-only><span class="bn-icon">${icon('lock', {size:22})}</span>Anmelden</a>
+      <button type="button" class="bn-more" onclick="openMoreSheet()"><span class="bn-icon">${icon('list', {size:22})}</span>Mehr</button>
     </nav>`;
+}
+
+// Mobile "Mehr" sheet: makes Radar/Tags/Fragen/Über + theme toggle reachable on
+// the phone and for guests (the bottom nav only has room for a few fixed items).
+function openMoreSheet() {
+  const light = document.documentElement.getAttribute('data-theme') === 'light';
+  const items = [
+    { icon: 'sparkles', label: 'Fragen', onClick: () => location.href = '/search' },
+    { icon: 'radar',    label: 'Radar',  onClick: () => location.href = '/radar' },
+    { icon: 'tag',      label: 'Tags',   onClick: () => location.href = '/tags' },
+    { icon: 'info',     label: 'Über',   onClick: () => location.href = '/about' },
+    { icon: light ? 'moon' : 'sun', label: light ? 'Dunkles Design' : 'Helles Design', onClick: toggleTheme },
+  ];
+  if (isOwner()) {
+    items.splice(3, 0, { icon: 'plus', label: 'Abonnieren', onClick: () => location.href = '/?add=1' });
+    items.push({ icon: 'settings', label: 'Einstellungen', onClick: () => location.href = '/settings' });
+  } else {
+    items.push({ icon: 'lock', label: 'Anmelden', onClick: () => location.href = '/login' });
+  }
+  openSheet('Mehr', items);
 }
 
 // ── Service worker (PWA + offline) ─────────────────────────────────────────
@@ -475,8 +493,8 @@ function fmtClock(s) {
 // ── Theme management (CR 8) ─────────────────────────────────────────────────
 function initTheme() {
   const saved = localStorage.getItem('ps-theme');
-  const preferred = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  _applyTheme(saved || preferred);
+  // Default to the light design; users who pick dark keep it via localStorage.
+  _applyTheme(saved || 'light');
 }
 
 function _applyTheme(theme) {
@@ -496,6 +514,37 @@ function toggleTheme() {
   const next = isLight ? 'dark' : 'light';
   localStorage.setItem('ps-theme', next);
   _applyTheme(next);
+}
+
+// ── Drag-to-scroll for horizontal strips (desktop "swipe") ───────────────────
+// Touch devices scroll these natively; on desktop there's no swipe, so wire up
+// click-drag + vertical-wheel → horizontal scroll. Used by the start-screen ticker.
+function enableDragScroll(el) {
+  if (!el || el.dataset.dragScroll) return;
+  el.dataset.dragScroll = '1';
+  let down = false, moved = false, startX = 0, startLeft = 0;
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch') return;   // native touch scroll already works
+    down = true; moved = false; startX = e.clientX; startLeft = el.scrollLeft;
+    el.classList.add('dragging');
+  });
+  el.addEventListener('pointermove', e => {
+    if (!down) return;
+    const dx = e.clientX - startX;
+    if (Math.abs(dx) > 4) moved = true;
+    el.scrollLeft = startLeft - dx;
+  });
+  const end = () => { down = false; el.classList.remove('dragging'); };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointerleave', end);
+  el.addEventListener('pointercancel', end);
+  // Swallow the card click that follows a real drag.
+  el.addEventListener('click', e => {
+    if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; }
+  }, true);
+  el.addEventListener('wheel', e => {
+    if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { el.scrollLeft += e.deltaY; e.preventDefault(); }
+  }, { passive: false });
 }
 
 // Call early so there's no flash of wrong theme
