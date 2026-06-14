@@ -262,6 +262,36 @@ async def run_auto_digest():
         logger.error(f"Auto digest failed: {e}")
 
 
+async def run_daily_paper():
+    """Build the daily 'Tageszeitung' once per day at the configured hour. Opt-in
+    via tageszeitung_enabled; gated like run_auto_digest (hour + last_run)."""
+    from datetime import datetime
+    from .database import get_setting, set_setting
+
+    if (await get_setting("tageszeitung_enabled")) != "1":
+        return
+    now = datetime.now()
+    hour = int((await get_setting("tageszeitung_hour")) or "7")
+    if now.hour != hour:
+        return
+    today = now.strftime("%Y-%m-%d")
+    if (await get_setting("tageszeitung_last_run")).startswith(today):
+        return  # already ran today
+    # Mark the run first so a slow/failed build can't trigger duplicates this hour.
+    await set_setting("tageszeitung_last_run", now.strftime("%Y-%m-%d %H:%M:%S"))
+    try:
+        from .main import build_daily_paper
+        digest_id = await build_daily_paper()
+        if digest_id:
+            await send_notification(
+                "📰 Deine Tageszeitung ist fertig",
+                "Die Ausgabe mit den Beiträgen von gestern wurde erstellt.",
+                click_path=f"/digest/{digest_id}",
+            )
+    except Exception as e:
+        logger.error(f"Tageszeitung job failed: {e}")
+
+
 async def check_newsletter_inbox():
     """Hourly tick; actually polls the IMAP inbox only when its own interval is
     due (default daily). Gated like _feed_due but via settings."""
@@ -312,6 +342,13 @@ def start_scheduler():
         run_auto_digest,
         trigger=IntervalTrigger(minutes=30),
         id="auto_digest",
+        replace_existing=True,
+        max_instances=1,
+    )
+    _scheduler.add_job(
+        run_daily_paper,
+        trigger=IntervalTrigger(minutes=30),
+        id="daily_paper",
         replace_existing=True,
         max_instances=1,
     )

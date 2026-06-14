@@ -358,6 +358,17 @@
         <input type="password" id="guest-pass" placeholder="leer = Gäste ohne Passwort lesen" autocomplete="new-password">
         <span id="guest-status" style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem"></span>
       </div>
+      <div class="form-group">
+        <label class="form-label">Wer darf lesen?</label>
+        <select id="access-mode" style="width:100%">
+          <option value="friends_only">Nur angemeldete Nutzer (Eigentümer + Freunde)</option>
+          <option value="open">Offen lesbar (jeder ohne Login)</option>
+          <option value="guest_password">Gemeinsames Gast-Passwort</option>
+        </select>
+        <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">
+          Wirkt erst mit gesetztem Eigentümer-Passwort. „Nur angemeldete Nutzer" = sinnvoll, wenn die App im Internet erreichbar ist.
+        </span>
+      </div>
       <label style="display:flex;align-items:center;gap:.5rem;font-size:.9rem">
         <input type="checkbox" id="guest-rag" style="width:auto">
         Gästen die KI-Suche/Chat erlauben (verursacht Kosten, mit Limit)
@@ -374,6 +385,69 @@
     </div>
   </div>
 
+  <!-- Friends (named read-only logins) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="user" data-icon-size="18">Freunde (Lesezugriff)</h2>
+    <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem">
+      Bis zu 10 Freunde mit eigenem Namen + Passwort. Jeder hat nur <strong>Lesezugriff</strong>.
+      Vorhandenen Namen erneut anlegen = Passwort zurücksetzen. (Erfordert ein Eigentümer-Passwort oben.)
+    </p>
+    <div id="friend-list" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.75rem"></div>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:center">
+      <input type="text" id="friend-name" placeholder="Name (2–32, Buchstaben/Ziffern/_/-)" style="flex:1;min-width:160px">
+      <input type="password" id="friend-pass" placeholder="Passwort" autocomplete="new-password" style="flex:1;min-width:140px">
+      <button class="btn btn-primary" data-icon="plus" data-icon-size="16" onclick="addFriend()">Hinzufügen</button>
+    </div>
+  </div>
+
+  <!-- Tageszeitung (daily AI newspaper) -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="newspaper" data-icon-size="18">Tageszeitung (täglich)</h2>
+    <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
+      Erstellt täglich automatisch einen KI-Artikel aus den <strong>am Vortag verarbeiteten</strong>
+      Beiträgen der gewählten Kategorien/Quellen — sichtbar in der Redaktion und per E-Mail.
+      Versand nutzt die SMTP-Einstellungen oben.
+    </p>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.9rem">
+        <input type="checkbox" id="tz-enabled" style="width:auto">
+        Tageszeitung aktivieren
+      </label>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <div class="form-group">
+          <label class="form-label">Uhrzeit</label>
+          <select id="tz-hour" style="width:100px"></select>
+        </div>
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label class="form-label">E-Mail-Empfänger (optional)</label>
+          <input type="text" id="tz-email" placeholder="leer = Redaktions-Adresse">
+        </div>
+      </div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <div class="form-group">
+          <label class="form-label">Länge (1–5)</label>
+          <input type="number" id="tz-length" min="1" max="5" value="4" style="width:90px">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Stil (1–5)</label>
+          <input type="number" id="tz-style" min="1" max="5" value="3" style="width:90px">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Redaktioneller Fokus (optional)</label>
+        <input type="text" id="tz-focus" placeholder="z.B. Schwerpunkt auf KI & Technik">
+      </div>
+      <div>
+        <label class="form-label" style="margin-bottom:.4rem">Quellen-Auswahl (leer = alle)</label>
+        <div id="tz-scope" style="display:flex;flex-direction:column;gap:.4rem;max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:.6rem"></div>
+      </div>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        <button class="btn btn-primary" data-icon="save" data-icon-size="16" onclick="saveTageszeitung()">Speichern</button>
+        <button class="btn btn-secondary" data-icon="newspaper" data-icon-size="16" onclick="runTageszeitung()">Jetzt erzeugen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- PWA Install hint -->
   <div class="card" style="margin-top:1rem;background:var(--accent-dim);border-color:var(--accent)">
     <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="smartphone" data-icon-size="18">App auf Handy installieren</h2>
@@ -385,7 +459,7 @@
 
 </div>
 
-<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a></footer>
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a> · <a href="/terms">Nutzungsbedingungen</a></footer>
 <div id="toast-container"></div>
 <script src="/static/icons.js"></script>
 <script src="/static/app.js"></script>
@@ -442,11 +516,26 @@ async function loadSettings() {
     document.getElementById('guest-status').innerHTML = s.guest_password_set
       ? 'Gast-Passwort gesetzt.' : 'Kein Gast-Passwort (Gäste lesen ohne Passwort).';
     document.getElementById('guest-rag').checked = s.guest_rag_enabled === true;
+    document.getElementById('access-mode').value = s.access_mode || 'open';
+
+    // Tageszeitung
+    document.getElementById('tz-enabled').checked = s.tageszeitung_enabled === '1';
+    document.getElementById('tz-hour').value = s.tageszeitung_hour || '7';
+    document.getElementById('tz-email').value = s.tageszeitung_email_to || '';
+    document.getElementById('tz-length').value = s.tageszeitung_length || '4';
+    document.getElementById('tz-style').value = s.tageszeitung_style || '3';
+    document.getElementById('tz-focus').value = s.tageszeitung_focus || '';
+    _tzCats = JSON.parse(s.tageszeitung_category_ids_json || '[]');
+    _tzPods = JSON.parse(s.tageszeitung_podcast_ids_json || '[]');
+    loadTzScope();
   } catch {}
 }
 
 async function saveAccess() {
-  const payload = { guest_rag_enabled: document.getElementById('guest-rag').checked };
+  const payload = {
+    guest_rag_enabled: document.getElementById('guest-rag').checked,
+    access_mode: document.getElementById('access-mode').value,
+  };
   const op = document.getElementById('owner-pass').value;
   const gp = document.getElementById('guest-pass').value;
   // Only send password fields when the user typed something (empty owner field
@@ -462,9 +551,10 @@ async function saveAccess() {
   } catch(e) { toast(e.message, 'error'); }
 }
 
-// Populate hour dropdown (0–23) before loadSettings sets the value.
-document.getElementById('autodig-hour').innerHTML =
-  Array.from({length:24}, (_,h) => `<option value="${h}">${String(h).padStart(2,'0')}:00</option>`).join('');
+// Populate hour dropdowns (0–23) before loadSettings sets the value.
+const _hourOpts = Array.from({length:24}, (_,h) => `<option value="${h}">${String(h).padStart(2,'0')}:00</option>`).join('');
+document.getElementById('autodig-hour').innerHTML = _hourOpts;
+document.getElementById('tz-hour').innerHTML = _hourOpts;
 
 async function saveAutoDigest() {
   try {
@@ -748,10 +838,92 @@ async function delCategory(id) {
   catch(e) { toast(e.message, 'error'); }
 }
 
+// ── Friends (named read-only logins) ──────────────────────────────────────
+async function loadFriends() {
+  const wrap = document.getElementById('friend-list');
+  try {
+    const users = await API.get('/api/users');
+    if (!users.length) { wrap.innerHTML = '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Freunde angelegt.</span>'; return; }
+    wrap.innerHTML = users.map(u => `
+      <div style="display:flex;align-items:center;gap:.5rem">
+        <span style="flex:1">${icon('user',{size:15})} ${escHtml(u.username)}</span>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="delFriend(${u.id}, ${JSON.stringify(escHtml(u.username))})">${icon('trash-2',{size:16})}</button>
+      </div>`).join('');
+  } catch(e) { wrap.innerHTML = `<span style="color:var(--error)">${escHtml(e.message)}</span>`; }
+}
+async function addFriend() {
+  const name = document.getElementById('friend-name').value.trim();
+  const pass = document.getElementById('friend-pass').value;
+  if (!name || !pass) { toast('Name und Passwort nötig', 'error'); return; }
+  try {
+    await API.post('/api/users', { username: name, password: pass });
+    document.getElementById('friend-name').value = '';
+    document.getElementById('friend-pass').value = '';
+    toast('✅ Freund gespeichert', 'success');
+    await loadFriends();
+  } catch(e) { toast(e.message, 'error'); }
+}
+async function delFriend(id, name) {
+  if (!await confirmModal(`Freund „${name}" entfernen?`)) return;
+  try { await API.del(`/api/users/${id}`); await loadFriends(); }
+  catch(e) { toast(e.message, 'error'); }
+}
+
+// ── Tageszeitung scope (categories + sources) ──────────────────────────────
+let _tzCats = [], _tzPods = [];
+async function loadTzScope() {
+  const wrap = document.getElementById('tz-scope');
+  try {
+    const [cats, pods] = await Promise.all([API.get('/api/categories'), API.get('/api/podcasts')]);
+    const byCat = {}; pods.forEach(p => { (byCat[p.category_id || 0] = byCat[p.category_id || 0] || []).push(p); });
+    let html = '';
+    const renderPod = p => `<label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;padding-left:1rem">
+        <input type="checkbox" class="tz-pod" value="${p.id}" style="width:auto" ${_tzPods.includes(p.id)?'checked':''}>
+        ${escHtml(p.title)}</label>`;
+    cats.forEach(c => {
+      html += `<label style="display:flex;align-items:center;gap:.4rem;font-size:.88rem;font-weight:600">
+          <input type="checkbox" class="tz-cat" value="${c.id}" style="width:auto" ${_tzCats.includes(c.id)?'checked':''}>
+          ${icon('folder',{size:14})} ${escHtml(c.name)} <span style="color:var(--text-muted);font-weight:400">(${c.podcast_count})</span></label>`;
+      html += (byCat[c.id]||[]).map(renderPod).join('');
+    });
+    if (byCat[0] && byCat[0].length) {
+      html += `<div style="font-size:.85rem;font-weight:600;margin-top:.3rem">Ohne Kategorie</div>`;
+      html += byCat[0].map(renderPod).join('');
+    }
+    wrap.innerHTML = html || '<span style="color:var(--text-muted);font-size:.85rem">Keine Quellen vorhanden.</span>';
+  } catch(e) { wrap.innerHTML = `<span style="color:var(--error)">${escHtml(e.message)}</span>`; }
+}
+function _collectIds(cls) {
+  return Array.from(document.querySelectorAll('.' + cls + ':checked')).map(el => parseInt(el.value));
+}
+async function saveTageszeitung() {
+  try {
+    await API.put('/api/settings', {
+      tageszeitung_enabled: document.getElementById('tz-enabled').checked,
+      tageszeitung_hour: parseInt(document.getElementById('tz-hour').value),
+      tageszeitung_email_to: document.getElementById('tz-email').value.trim(),
+      tageszeitung_length: parseInt(document.getElementById('tz-length').value) || 4,
+      tageszeitung_style: parseInt(document.getElementById('tz-style').value) || 3,
+      tageszeitung_focus: document.getElementById('tz-focus').value.trim(),
+      tageszeitung_category_ids_json: JSON.stringify(_collectIds('tz-cat')),
+      tageszeitung_podcast_ids_json: JSON.stringify(_collectIds('tz-pod')),
+    });
+    toast('✅ Tageszeitung gespeichert', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+async function runTageszeitung() {
+  try {
+    const r = await API.post('/api/tageszeitung/run', {});
+    toast('📰 Tageszeitung wird erstellt …', 'success');
+    if (r.id) location.href = `/digest/${r.id}`;
+  } catch(e) { toast(e.message, 'error'); }
+}
+
 loadSettings();
 loadQueue();
 loadWhisperStatus();
 loadCategories();
+loadFriends();
 setInterval(loadQueue, 8000);
 </script>
 </body>

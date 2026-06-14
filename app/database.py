@@ -157,6 +157,15 @@ CREATE TABLE IF NOT EXISTS episode_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_episode_chunks_ep ON episode_chunks(episode_id);
 
+-- Named read-only "friend" logins (up to 10). Owner stays in the settings table.
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'guest',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_topic', '');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_url', 'https://ntfy.sh');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('check_interval_hours', '24');
@@ -179,6 +188,18 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('smtp_user', '');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('smtp_password', '');
 -- Deep links in push notifications
 INSERT OR IGNORE INTO settings (key, value) VALUES ('public_base_url', '');
+-- Access mode: open (read-by-default once owner set) | guest_password | friends_only
+INSERT OR IGNORE INTO settings (key, value) VALUES ('access_mode', 'open');
+-- Tageszeitung (daily AI newspaper)
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_enabled', '0');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_hour', '7');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_email_to', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_length', '4');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_style', '3');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_focus', '');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_category_ids_json', '[]');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_podcast_ids_json', '[]');
+INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_last_run', '');
 """
 
 # Additive migrations for existing databases (CREATE TABLE IF NOT EXISTS

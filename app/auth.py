@@ -10,7 +10,9 @@ import hmac
 import secrets
 import time
 
-from .database import get_setting
+import aiosqlite
+
+from .database import DB_PATH, get_setting
 
 COOKIE_NAME = "ps_session"
 COOKIE_TTL = 60 * 60 * 24 * 30  # 30 days
@@ -42,33 +44,45 @@ def _sign(secret: str, payload: str) -> str:
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
-def make_cookie(role: str, secret: str) -> str:
+def make_cookie(role: str, secret: str, username: str = "") -> str:
     ts = str(int(time.time()))
-    payload = f"{role}.{ts}"
+    # username is restricted to [A-Za-z0-9_-] at creation, so '.' never appears.
+    payload = f"{role}.{username}.{ts}"
     return f"{payload}.{_sign(secret, payload)}"
 
 
-def read_cookie(value: str, secret: str) -> str | None:
-    """Return the role if the cookie is valid and unexpired, else None."""
+def read_cookie(value: str, secret: str):
+    """Return (role, username) if the cookie is valid and unexpired, else None.
+
+    Accepts the new 4-segment format `role.username.ts.sig` and the legacy
+    3-segment `role.ts.sig` (username → '')."""
     if not value or not secret:
         return None
-    try:
-        role, ts, sig = value.split(".", 2)
-    except ValueError:
+    parts = value.split(".")
+    if len(parts) == 4:
+        role, username, ts, sig = parts
+        payload = f"{role}.{username}.{ts}"
+    elif len(parts) == 3:
+        role, ts, sig = parts
+        username, payload = "", f"{role}.{ts}"
+    else:
         return None
-    if not hmac.compare_digest(sig, _sign(secret, f"{role}.{ts}")):
+    if not hmac.compare_digest(sig, _sign(secret, payload)):
         return None
     try:
         if int(ts) + COOKIE_TTL < time.time():
             return None
     except ValueError:
         return None
-    return role if role in ("owner", "guest") else None
+    if role not in ("owner", "guest"):
+        return None
+    return role, username
 
 
 # ── cached auth config (refreshed on settings change) ───────────────────────
 
-_cache = {"loaded": False, "owner_hash": "", "guest_hash": "", "secret": "", "guest_rag": False}
+_cache = {"loaded": False, "owner_hash": "", "guest_hash": "", "secret": "",
+          "guest_rag": False, "access_mode": "open"}
 
 
 async def _load() -> dict:
@@ -77,8 +91,23 @@ async def _load() -> dict:
         _cache["guest_hash"] = await get_setting("guest_password_hash")
         _cache["secret"] = await get_setting("session_secret")
         _cache["guest_rag"] = (await get_setting("guest_rag_enabled")) == "1"
+        _cache["access_mode"] = (await get_setting("access_mode")) or "open"
         _cache["loaded"] = True
     return _cache
+
+
+async def access_mode() -> str:
+    return (await _load())["access_mode"]
+
+
+async def _get_user(username: str) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT username, password_hash, role FROM users WHERE username=?",
+            (username,)) as cur:
+            row = await cur.fetchone()
+    return dict(row) if row else None
 
 
 def invalidate():
@@ -94,22 +123,54 @@ async def guest_rag_enabled() -> bool:
     return bool((await _load())["guest_rag"])
 
 
-async def current_role(request) -> str:
-    """Resolve the role for a request. Open-by-default: no owner password → owner."""
+async def current_user(request):
+    """Resolve (role, username) for a request.
+
+    Open-by-default: no owner password → owner for everyone. Once an owner
+    password is set, an invalid/missing cookie is a read-only 'guest' — except
+    in access_mode='friends_only', where it becomes 'anon' (no read access)."""
     cfg = await _load()
     if not cfg["owner_hash"]:
-        return "owner"  # back-compat: fully open single-user mode
-    role = read_cookie(request.cookies.get(COOKIE_NAME, ""), cfg["secret"])
-    return role or "guest"
+        return "owner", ""  # back-compat: fully open single-user mode
+    parsed = read_cookie(request.cookies.get(COOKIE_NAME, ""), cfg["secret"])
+    if parsed:
+        return parsed
+    if cfg["access_mode"] == "friends_only":
+        return "anon", ""
+    return "guest", ""
+
+
+async def current_role(request) -> str:
+    role, _ = await current_user(request)
+    return role
 
 
 async def login_role(password: str) -> str | None:
-    """Return 'owner'/'guest' if the password matches, else None."""
+    """Return 'owner'/'guest' if the password matches, else None (legacy)."""
     cfg = await _load()
     if cfg["owner_hash"] and verify_password(password, cfg["owner_hash"]):
         return "owner"
     if cfg["guest_hash"] and verify_password(password, cfg["guest_hash"]):
         return "guest"
+    return None
+
+
+async def login_user(username: str, password: str):
+    """Return (role, username) on success, else None.
+
+    Empty username → owner / shared-guest password (legacy single-field login).
+    A username → look up the named friend account and verify its password."""
+    cfg = await _load()
+    username = (username or "").strip()
+    if not username:
+        if cfg["owner_hash"] and verify_password(password, cfg["owner_hash"]):
+            return "owner", ""
+        if cfg["guest_hash"] and verify_password(password, cfg["guest_hash"]):
+            return "guest", ""
+        return None
+    row = await _get_user(username)
+    if row and verify_password(password, row["password_hash"]):
+        return (row["role"] or "guest"), username
     return None
 
 

@@ -68,7 +68,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # read paths below; everything else (writes + cost actions) is owner-only.
 _GUEST_PAGE_RE = re.compile(
     r"^/(?:$|podcast/\d+$|episode/\d+$|digests$|digest/\d+$|tags$|tags/\d+$"
-    r"|topic/\d+$|about$|discover$|radar$|search$|login$|inbox$|category/\d+$)"
+    r"|topic/\d+$|about$|terms$|discover$|radar$|search$|login$|inbox$|category/\d+$)"
 )
 _GUEST_STATIC_RE = re.compile(r"^/(?:static/|sw\.js$|manifest\.json$|health$|s/|favicon)")
 _GUEST_API_RE = re.compile(
@@ -88,11 +88,24 @@ def _guest_get_ok(path: str) -> bool:
 
 @app.middleware("http")
 async def role_guard(request: Request, call_next):
-    role = await auth.current_role(request)
+    role, username = await auth.current_user(request)
     request.state.role = role
+    request.state.username = username
     if role == "owner":
         return await call_next(request)
     path, method = request.url.path, request.method
+    # Anonymous (access_mode='friends_only', not logged in): only the public
+    # minimum — login + terms + static shell — everything else needs a login.
+    if role == "anon":
+        if method in ("GET", "HEAD") and (_GUEST_STATIC_RE.match(path)
+                or path in ("/login", "/terms", "/api/me")):
+            return await call_next(request)
+        if method == "POST" and path in ("/api/login", "/api/logout"):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"detail": "Anmeldung erforderlich"}, status_code=401)
+        return RedirectResponse("/login")
+    # Read-only guest (incl. named friends)
     if method in ("GET", "HEAD") and _guest_get_ok(path):
         return await call_next(request)
     if method == "POST" and path in ("/api/login", "/api/logout"):
@@ -185,13 +198,29 @@ class SettingsUpdate(BaseModel):
     owner_password: Optional[str] = None
     guest_password: Optional[str] = None
     guest_rag_enabled: Optional[bool] = None
+    access_mode: Optional[str] = None
     # Weekly auto digest from trending tags
     auto_digest_enabled: Optional[bool] = None
     auto_digest_dow: Optional[int] = None
     auto_digest_hour: Optional[int] = None
+    # Tageszeitung (daily AI newspaper)
+    tageszeitung_enabled: Optional[bool] = None
+    tageszeitung_hour: Optional[int] = None
+    tageszeitung_email_to: Optional[str] = None
+    tageszeitung_length: Optional[int] = None
+    tageszeitung_style: Optional[int] = None
+    tageszeitung_focus: Optional[str] = None
+    tageszeitung_category_ids_json: Optional[str] = None
+    tageszeitung_podcast_ids_json: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
+    username: str = ""
+    password: str
+
+
+class UserCreate(BaseModel):
+    username: str
     password: str
 
 
@@ -356,6 +385,11 @@ async def manifest():
 @app.get("/about", response_class=HTMLResponse)
 async def page_about():
     return FileResponse(STATIC_DIR / "about.html")
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def page_terms():
+    return FileResponse(STATIC_DIR / "terms.html")
 
 
 @app.get("/discover", response_class=HTMLResponse)
@@ -1325,6 +1359,15 @@ async def get_watchlist():
 
 # ── Settings ───────────────────────────────────────────────────────────────────
 
+def _sanitize_id_json(raw: str) -> str:
+    """Normalise a JSON array of ints (settings store selected category/source ids)."""
+    try:
+        arr = json.loads(raw or "[]")
+        return json.dumps([int(x) for x in arr if str(x).strip()])
+    except Exception:
+        return "[]"
+
+
 @app.get("/api/settings")
 async def get_settings():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1407,6 +1450,11 @@ async def update_settings(data: SettingsUpdate):
     if data.guest_rag_enabled is not None:
         await set_setting("guest_rag_enabled", "1" if data.guest_rag_enabled else "0")
         auth.invalidate()
+    if data.access_mode is not None:
+        mode = data.access_mode if data.access_mode in (
+            "open", "guest_password", "friends_only") else "open"
+        await set_setting("access_mode", mode)
+        auth.invalidate()
     # Auto digest
     if data.auto_digest_enabled is not None:
         await set_setting("auto_digest_enabled", "1" if data.auto_digest_enabled else "0")
@@ -1414,6 +1462,25 @@ async def update_settings(data: SettingsUpdate):
         await set_setting("auto_digest_dow", str(max(0, min(6, data.auto_digest_dow))))
     if data.auto_digest_hour is not None:
         await set_setting("auto_digest_hour", str(max(0, min(23, data.auto_digest_hour))))
+    # Tageszeitung (daily AI newspaper)
+    if data.tageszeitung_enabled is not None:
+        await set_setting("tageszeitung_enabled", "1" if data.tageszeitung_enabled else "0")
+    if data.tageszeitung_hour is not None:
+        await set_setting("tageszeitung_hour", str(max(0, min(23, data.tageszeitung_hour))))
+    if data.tageszeitung_email_to is not None:
+        await set_setting("tageszeitung_email_to", data.tageszeitung_email_to.strip())
+    if data.tageszeitung_length is not None:
+        await set_setting("tageszeitung_length", str(max(1, min(5, data.tageszeitung_length))))
+    if data.tageszeitung_style is not None:
+        await set_setting("tageszeitung_style", str(max(1, min(5, data.tageszeitung_style))))
+    if data.tageszeitung_focus is not None:
+        await set_setting("tageszeitung_focus", data.tageszeitung_focus.strip())
+    if data.tageszeitung_category_ids_json is not None:
+        await set_setting("tageszeitung_category_ids_json",
+                          _sanitize_id_json(data.tageszeitung_category_ids_json))
+    if data.tageszeitung_podcast_ids_json is not None:
+        await set_setting("tageszeitung_podcast_ids_json",
+                          _sanitize_id_json(data.tageszeitung_podcast_ids_json))
     await _apply_runtime_config()
     # When enabling protection from open mode, keep THIS browser signed in as owner
     # so the user doesn't lock themselves out (they had no cookie before).
@@ -1432,13 +1499,14 @@ async def update_settings(data: SettingsUpdate):
 
 @app.post("/api/login")
 async def api_login(data: LoginRequest):
-    role = await auth.login_role(data.password)
-    if not role:
-        raise HTTPException(401, "Falsches Passwort")
-    resp = JSONResponse({"role": role})
+    result = await auth.login_user(data.username, data.password)
+    if not result:
+        raise HTTPException(401, "Falscher Name oder falsches Passwort")
+    role, username = result
+    resp = JSONResponse({"role": role, "username": username})
     resp.set_cookie(
         auth.COOKIE_NAME,
-        auth.make_cookie(role, await auth.session_secret()),
+        auth.make_cookie(role, await auth.session_secret(), username),
         max_age=auth.COOKIE_TTL, httponly=True, samesite="lax",
     )
     return resp
@@ -1455,9 +1523,64 @@ async def api_logout():
 async def api_me(request: Request):
     return {
         "role": getattr(request.state, "role", "owner"),
+        "username": getattr(request.state, "username", ""),
         "owner_configured": await auth.owner_configured(),
         "guest_rag_enabled": await auth.guest_rag_enabled(),
+        "access_mode": await auth.access_mode(),
     }
+
+
+# ── Friend logins (up to 10 named read-only users) ──────────────────────────────
+
+_USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{2,32}$")
+_MAX_FRIENDS = 10
+
+
+@app.get("/api/users")
+async def list_users():
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, username, created_at FROM users ORDER BY username COLLATE NOCASE"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/users", status_code=201)
+async def create_user(data: UserCreate):
+    username = (data.username or "").strip()
+    if not _USERNAME_RE.match(username):
+        raise HTTPException(400, "Name: 2–32 Zeichen, nur Buchstaben/Ziffern/_/-")
+    if not (data.password or "").strip():
+        raise HTTPException(400, "Passwort fehlt.")
+    pw_hash = auth.hash_password(data.password)
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM users WHERE username=?", (username,)) as cur:
+            existing = await cur.fetchone()
+        if existing:
+            # Re-adding a known name just resets that friend's password.
+            await db.execute("UPDATE users SET password_hash=? WHERE username=?",
+                             (pw_hash, username))
+            await db.commit()
+            return {"ok": True, "updated": True, "username": username}
+        async with db.execute("SELECT COUNT(*) FROM users") as cur:
+            count = (await cur.fetchone())[0]
+        if count >= _MAX_FRIENDS:
+            raise HTTPException(400, f"Maximal {_MAX_FRIENDS} Freunde möglich.")
+        await db.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'guest')",
+            (username, pw_hash))
+        await db.commit()
+    return {"ok": True, "username": username}
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM users WHERE id=?", (user_id,))
+        await db.commit()
+    return {"ok": True}
 
 
 # ── Recent takeaways (start-screen ticker) ─────────────────────────────────────
@@ -1892,7 +2015,7 @@ def _sections_to_md(result: dict) -> str:
 async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                        style: int, title: str, model: str = "",
                        custom_style: str = "", focus: str = "", prompt: str = "",
-                       selection_mode: str = "manual"):
+                       selection_mode: str = "manual", email_to: str = ""):
     try:
         episode_ids = list(episode_ids)
         # Free-article AI episode selection runs HERE (background task), not in the
@@ -1967,7 +2090,7 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
         # Email delivery (no-op unless enabled in settings)
         from .mailer import maybe_email_digest
         await maybe_email_digest(digest_id, title, content_html,
-                                 result.get("tldr_md", ""))
+                                 result.get("tldr_md", ""), to=email_to)
     except (asyncio.TimeoutError, TimeoutError):
         logger.error(f"Issue {digest_id} timed out")
         async with aiosqlite.connect(DB_PATH) as db:
@@ -2364,6 +2487,78 @@ async def run_recipe(recipe_id: int, background_tasks: BackgroundTasks = None):
         import asyncio
         asyncio.create_task(_build_issue(*coro_args))
     return digest_id
+
+
+# ── Tageszeitung (daily AI newspaper) ──────────────────────────────────────────
+
+async def _select_daily_episode_ids(db, category_ids, podcast_ids):
+    """Episodes *processed yesterday* (transcripts.created_at within the previous
+    local calendar day) from the selected categories ∪ sources. Empty scope = all."""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    y_start = today_start - timedelta(days=1)
+    where = ["e.status='done'", "t.created_at >= ?", "t.created_at < ?"]
+    params = [y_start.strftime("%Y-%m-%d %H:%M:%S"),
+              today_start.strftime("%Y-%m-%d %H:%M:%S")]
+    scope = []
+    if category_ids:
+        scope.append(f"p.category_id IN ({','.join('?'*len(category_ids))})")
+        params += list(category_ids)
+    if podcast_ids:
+        scope.append(f"e.podcast_id IN ({','.join('?'*len(podcast_ids))})")
+        params += list(podcast_ids)
+    if scope:
+        where.append("(" + " OR ".join(scope) + ")")
+    sql = f"""
+        SELECT e.id FROM episodes e
+        JOIN transcripts t ON t.episode_id = e.id
+        LEFT JOIN podcasts p ON p.id = e.podcast_id
+        WHERE {' AND '.join(where)}
+        GROUP BY e.id
+        ORDER BY p.category_id, datetime(e.pub_date) DESC, e.id DESC
+    """
+    db.row_factory = aiosqlite.Row
+    async with db.execute(sql, params) as cur:
+        return [r["id"] for r in await cur.fetchall()]
+
+
+async def build_daily_paper(manual: bool = False):
+    """Assemble the Tageszeitung: a full AI magazine article from yesterday's
+    processed items in the configured categories/sources. Returns digest_id or None."""
+    import asyncio
+    cats = json.loads((await get_setting("tageszeitung_category_ids_json")) or "[]")
+    pods = json.loads((await get_setting("tageszeitung_podcast_ids_json")) or "[]")
+    length = int((await get_setting("tageszeitung_length")) or "4")
+    style = int((await get_setting("tageszeitung_style")) or "3")
+    user_focus = (await get_setting("tageszeitung_focus")) or ""
+    email_to = (await get_setting("tageszeitung_email_to")) or ""
+    async with aiosqlite.connect(DB_PATH) as db:
+        episode_ids = await _select_daily_episode_ids(db, cats, pods)
+        if not episode_ids:
+            return None
+        title = f"Tageszeitung — {datetime.now():%d.%m.%Y}"
+        cur = await db.execute(
+            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, status)
+               VALUES (?, 'tageszeitung', 'magazin', ?, ?, ?, 'generating')""",
+            (title, length, style, json.dumps(episode_ids)))
+        await db.commit()
+        digest_id = cur.lastrowid
+    focus = ("Schreibe eine Tageszeitung aus den Beiträgen des Vortags, klar nach "
+             "Themen/Ressorts gegliedert, mit einem kurzen Aufmacher zu Beginn. "
+             + user_focus).strip()
+    asyncio.create_task(_build_issue(
+        digest_id, episode_ids, "magazin", length, style, title,
+        "", "", focus, "", "manual", email_to))
+    return digest_id
+
+
+@app.post("/api/tageszeitung/run", status_code=201)
+async def tageszeitung_run():
+    """Owner-triggered immediate build (also used by the settings 'Jetzt erzeugen' button)."""
+    digest_id = await build_daily_paper(manual=True)
+    if digest_id is None:
+        raise HTTPException(
+            400, "Keine am Vortag verarbeiteten Beiträge im gewählten Umfang gefunden.")
+    return {"id": digest_id, "status": "generating"}
 
 
 @app.post("/api/scheduled-issues")

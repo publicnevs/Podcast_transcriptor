@@ -20,14 +20,19 @@
       Bitte melde dich an, um fortzufahren.
     </p>
     <form id="login-form">
+      <input type="text" id="username" placeholder="Name (für Freunde) — leer lassen als Eigentümer"
+             autocomplete="username" style="width:100%;margin-bottom:.75rem">
       <input type="password" id="password" placeholder="Passwort" autocomplete="current-password"
              style="width:100%;margin-bottom:.75rem" autofocus required>
       <button class="btn btn-primary" type="submit" style="width:100%">Anmelden</button>
     </form>
     <div id="login-error" style="color:var(--error);font-size:.85rem;margin-top:.75rem;display:none"></div>
     <p style="color:var(--text-muted);font-size:.78rem;margin-top:1.25rem">
-      Gäste haben Lesezugriff. Volle Kontrolle (Transkribieren, Einstellungen,
-      Redaktion) hat nur der Eigentümer.
+      Freunde melden sich mit ihrem <strong>Namen + Passwort</strong> an (Lesezugriff). Volle Kontrolle
+      (Transkribieren, Einstellungen, Redaktion) hat nur der Eigentümer (Name leer lassen).
+    </p>
+    <p style="color:var(--text-muted);font-size:.75rem;margin-top:.75rem">
+      <a href="/terms" style="color:var(--accent);text-decoration:none">Nutzungsbedingungen</a>
     </p>
   </div>
 </div>
@@ -38,11 +43,12 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const err = document.getElementById('login-error');
   err.style.display = 'none';
   const password = document.getElementById('password').value;
+  const username = document.getElementById('username').value.trim();
   try {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ username, password }),
     });
     if (res.ok) {
       location.href = '/';
