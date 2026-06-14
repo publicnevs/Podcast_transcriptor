@@ -433,7 +433,11 @@ async def extract_tags(summary: str, takeaways: list, chapters: list) -> list:
 
 def _embed_sync(texts: list) -> list:
     client = _client()
-    resp = client.models.embed_content(model=EMBED_MODEL, contents=texts)
+    resp = client.models.embed_content(
+        model=EMBED_MODEL, contents=texts,
+        config=types.EmbedContentConfig(
+            http_options=types.HttpOptions(timeout=_ISSUE_TIMEOUT_MS)),
+    )
     return [list(e.values) for e in resp.embeddings]
 
 

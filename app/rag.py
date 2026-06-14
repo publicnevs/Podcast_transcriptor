@@ -12,6 +12,7 @@ dependency-free (no numpy, no vector extension).
 import json
 import logging
 import math
+import asyncio
 from array import array
 
 import aiosqlite
@@ -81,6 +82,47 @@ def _cosine(a, b) -> float:
     return dot / (na * nb)
 
 
+def _rank(qv, rows, k: int):
+    """Cosine-rank all chunk rows against the query vector and return the top-k.
+    CPU-bound pure Python — run via asyncio.to_thread so it never blocks the
+    event loop (a large library would otherwise freeze all concurrent requests)."""
+    scored = [(_cosine(qv, _unpack(r["vector"])), r) for r in rows]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored[:k]
+
+
+def _rank_related(chunk_rows, episode_id: int, tag_overlap: dict, limit: int):
+    """Mean chunk-vector per episode, then cosine similarity to `episode_id`,
+    combined with shared-tag overlap. CPU-bound — run via asyncio.to_thread."""
+    sums: dict = {}
+    counts: dict = {}
+    for r in chunk_rows:
+        eid, v = r["episode_id"], _unpack(r["vector"])
+        if eid not in sums:
+            sums[eid] = array("f", v)
+        else:
+            s = sums[eid]
+            for i in range(len(s)):
+                s[i] += v[i]
+        counts[eid] = counts.get(eid, 0) + 1
+    means = {eid: array("f", [x / counts[eid] for x in s]) for eid, s in sums.items()}
+
+    sim: dict = {}
+    if episode_id in means:
+        mv = means[episode_id]
+        for eid, vec in means.items():
+            if eid != episode_id:
+                sim[eid] = _cosine(mv, vec)
+
+    cand = set(tag_overlap) | set(sim)
+    if not cand:
+        return []
+    return sorted(
+        ((tag_overlap.get(eid, 0) + 2.0 * sim.get(eid, 0.0), eid) for eid in cand),
+        reverse=True,
+    )[:limit]
+
+
 async def _retrieve(query: str, k: int):
     """Embed the query and rank all chunks. Returns (context, sources, error)."""
     q_vecs = await embed_texts([query])
@@ -102,9 +144,7 @@ async def _retrieve(query: str, k: int):
     if not rows:
         return None, None, "Noch keine durchsuchbaren Inhalte. Bitte zuerst Index aufbauen."
 
-    scored = [(_cosine(qv, _unpack(r["vector"])), r) for r in rows]
-    scored.sort(key=lambda x: x[0], reverse=True)
-    top = scored[:k]
+    top = await asyncio.to_thread(_rank, qv, rows, k)
 
     context_parts, sources = [], []
     for i, (score, r) in enumerate(top, start=1):
@@ -178,34 +218,10 @@ async def related(episode_id: int, limit: int = 6) -> list:
         async with db.execute("SELECT episode_id, vector FROM episode_chunks") as cur:
             chunk_rows = await cur.fetchall()
 
-    # Mean chunk vector per episode (componentwise average).
-    sums: dict = {}
-    counts: dict = {}
-    for r in chunk_rows:
-        eid, v = r["episode_id"], _unpack(r["vector"])
-        if eid not in sums:
-            sums[eid] = array("f", v)
-        else:
-            s = sums[eid]
-            for i in range(len(s)):
-                s[i] += v[i]
-        counts[eid] = counts.get(eid, 0) + 1
-    means = {eid: array("f", [x / counts[eid] for x in s]) for eid, s in sums.items()}
-
-    sim: dict = {}
-    if episode_id in means:
-        mv = means[episode_id]
-        for eid, vec in means.items():
-            if eid != episode_id:
-                sim[eid] = _cosine(mv, vec)
-
-    cand = set(tag_overlap) | set(sim)
-    if not cand:
-        return []
-    scored = sorted(
-        ((tag_overlap.get(eid, 0) + 2.0 * sim.get(eid, 0.0), eid) for eid in cand),
-        reverse=True,
-    )[:limit]
+    # CPU-bound vector averaging + cosine over all episodes — offload so the
+    # event loop stays responsive (same rationale as _rank in _retrieve).
+    scored = await asyncio.to_thread(
+        _rank_related, chunk_rows, episode_id, tag_overlap, limit)
     ids = [eid for _, eid in scored]
     if not ids:
         return []
