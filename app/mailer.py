@@ -61,13 +61,18 @@ async def test_connection(host: str, port: int, user: str, password: str) -> dic
     return {"ok": True}
 
 
-async def maybe_email_digest(digest_id: int, title: str, html: str, tldr: str = ""):
-    """Send a finished digest if email delivery is enabled. Best-effort."""
+async def maybe_email_digest(digest_id: int, title: str, html: str, tldr: str = "",
+                             to: str = ""):
+    """Send a finished digest if email delivery is enabled. Best-effort.
+
+    `to` overrides the configured recipient (used by the Tageszeitung, which may
+    have its own address); falls back to the digest email recipient otherwise."""
     cfg = await _smtp_settings()
-    if not cfg["enabled"] or not cfg["to"]:
+    recipient = (to or cfg["to"]).strip()
+    if not cfg["enabled"] or not recipient:
         return
     try:
-        await send_email(cfg["to"], title or "PodScribe Redaktion", html, tldr)
-        logger.info(f"Digest {digest_id} emailed to {cfg['to']}")
+        await send_email(recipient, title or "PodScribe Redaktion", html, tldr)
+        logger.info(f"Digest {digest_id} emailed to {recipient}")
     except Exception as e:
         logger.error(f"Digest {digest_id} email failed: {e}")

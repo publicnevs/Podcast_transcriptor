@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Nutzungsbedingungen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+</head>
+<body>
+<div id="nav-mount"></div>
+<div id="read-progress"></div>
+
+<div class="main-content" style="max-width:780px">
+
+  <!-- Hero -->
+  <div style="text-align:center;padding:2.5rem 1rem 1.5rem">
+    <div style="margin-bottom:1rem" data-icon="file-text" data-icon-size="48"></div>
+    <h1 style="font-size:1.8rem;font-weight:700">Nutzungsbedingungen</h1>
+    <p style="color:var(--text-muted);margin-top:.5rem">PodScribe · privates, kostenloses Self-Hosting-Projekt</p>
+  </div>
+
+  <div class="card" style="margin-bottom:1.25rem">
+    <h2 style="font-size:1.05rem;margin-bottom:.5rem" data-icon="user" data-icon-size="18">Privatnutzung &amp; Privatkopie</h2>
+    <p style="font-size:.9rem;color:var(--text-muted);line-height:1.7">
+      PodScribe ist ausschließlich für die <strong>private, persönliche Nutzung</strong> bestimmt.
+      Die erstellten Transkripte, Zusammenfassungen, Artikel und Tageszeitungen dienen der
+      eigenen Information und Recherche im Sinne einer <strong>Privatkopie</strong>. Inhalte werden
+      lokal auf dem eigenen Server (Self-Hosting) gespeichert und verarbeitet.
+    </p>
+  </div>
+
+  <div class="card" style="margin-bottom:1.25rem">
+    <h2 style="font-size:1.05rem;margin-bottom:.5rem" data-icon="alert-triangle" data-icon-size="18">Keine Weitergabe ohne Urheberrechtsprüfung</h2>
+    <p style="font-size:.9rem;color:var(--text-muted);line-height:1.7">
+      Eine <strong>Weitergabe oder Veröffentlichung</strong> der erzeugten Inhalte (Transkripte,
+      Zusammenfassungen, Digests, Tageszeitungen, Exporte) an Dritte ist <strong>nicht gestattet</strong>,
+      ohne zuvor die <strong>Urheberrechte</strong> der jeweiligen Originalquellen (Podcasts, Webseiten,
+      Newsletter) zu prüfen und die erforderlichen Rechte einzuholen. Die Verantwortung für die
+      Einhaltung des Urheberrechts liegt bei der nutzenden Person. Der Lesezugriff für eingeladene
+      Freunde dient ausschließlich dem privaten Austausch und stellt keine öffentliche Verbreitung dar.
+    </p>
+  </div>
+
+  <div class="card" style="margin-bottom:1.25rem">
+    <h2 style="font-size:1.05rem;margin-bottom:.5rem" data-icon="shield" data-icon-size="18">Kostenloses Privatprojekt</h2>
+    <p style="font-size:.9rem;color:var(--text-muted);line-height:1.7">
+      PodScribe ist ein <strong>kostenloses, nicht-kommerzielles Privatprojekt</strong>. Es wird ohne
+      Gewinnabsicht betrieben, „wie besehen" und ohne Gewähr bereitgestellt. Es besteht kein Anspruch
+      auf Verfügbarkeit, Support oder Fehlerfreiheit. Für die über externe Dienste (z. B. Google Gemini)
+      verarbeiteten Inhalte gelten zusätzlich deren jeweilige Bedingungen.
+    </p>
+  </div>
+
+  <p style="text-align:center;color:var(--text-muted);font-size:.8rem;margin:1rem 0 2rem">
+    © 2026 Sven Kompe · <a href="/about" style="color:var(--accent);text-decoration:none">Über die App</a>
+  </p>
+
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a> · <a href="/terms">Nutzungsbedingungen</a></footer>
+
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/terms');
+initReadProgress();
+</script>
+</body>
+</html>

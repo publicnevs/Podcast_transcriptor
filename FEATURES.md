@@ -89,6 +89,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **TL;DR oben** — jeder Artikel startet mit dem Wichtigsten in Kürze.
 - **Rezepte & Zeitplan** — wiederkehrende Ausgaben speichern und automatisch zu festen Zeiten erzeugen lassen.
 - **Automatische Trending-Ausgabe** — wöchentlich automatisch eine Ausgabe aus den aktuell meistdiskutierten Themen (an-/abschaltbar, Wochentag & Uhrzeit wählbar).
+- **Tageszeitung (täglich)** — erzeugt jeden Tag automatisch einen KI-Artikel aus den **am Vortag verarbeiteten** Beiträgen. In den Einstellungen wählst du **Kategorien & Quellen**, Uhrzeit, Länge/Stil und optionalen Fokus; die Ausgabe erscheint in der Redaktion und kommt per E-Mail. „Jetzt erzeugen" baut sie sofort. Bereits verarbeitete Beiträge werden nicht wiederholt.
 - **Per E-Mail zustellen** — Ausgaben automatisch oder manuell per Mail verschicken.
 - **Teilen** — Ausgabe über einen Link teilen.
 
@@ -102,8 +103,11 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 - **Standardmäßig offen** — solange kein Eigentümer-Passwort gesetzt ist, funktioniert alles wie gewohnt (Einzelnutzer).
 - **Eigentümer-Login** — mit gesetztem Passwort hat nur der Eigentümer Vollzugriff (transkribieren, Einstellungen, Redaktion/Ausgaben erstellen usw.).
-- **Gast-/Lesezugriff** — Gäste können die Bibliothek, Folgen und die Suche lesen, aber nichts ändern oder kostenpflichtige KI-Aktionen auslösen.
+- **Freunde-Logins (bis zu 10)** — lege in den Einstellungen Freunde mit eigenem **Namen + Passwort** an (reiner Lesezugriff). Anmeldung auf der Login-Seite mit Name + Passwort.
+- **Zugriffsmodus wählbar** — „Nur angemeldete Nutzer" (Eigentümer + Freunde, kein anonymer Zugriff — ideal, wenn die App im Internet steht), „Offen lesbar" oder „Gemeinsames Gast-Passwort".
+- **Gast-/Lesezugriff** — Gäste/Freunde können die Bibliothek, Folgen und die Suche lesen, aber nichts ändern oder kostenpflichtige KI-Aktionen auslösen.
 - **Gast-KI optional** — KI-Chat für Gäste freischaltbar, mit Limit pro Stunde zum Kostenschutz.
+- **Nutzungsbedingungen** — eigene Seite (`/terms`): Privatnutzung & Privatkopie, keine Weitergabe ohne Urheberrechtsprüfung, kostenloses Privatprojekt.
 
 ## 📱 App & Mobile (PWA)
 

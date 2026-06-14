@@ -36,7 +36,7 @@ const API = {
 // ── Role gate (owner vs read-only guest) ───────────────────────────────────
 // window.ME is populated once from /api/me; body.role-guest drives CSS hiding
 // of [data-owner-only] controls. Open-by-default → role is "owner" for everyone.
-window.ME = { role: 'owner', owner_configured: false, guest_rag_enabled: false };
+window.ME = { role: 'owner', username: '', owner_configured: false, guest_rag_enabled: false, access_mode: 'open' };
 async function initRole() {
   try {
     window.ME = await API.get('/api/me');
@@ -262,13 +262,16 @@ function openMoreSheet() {
     { icon: 'radar',    label: 'Radar',  onClick: () => location.href = '/radar' },
     { icon: 'tag',      label: 'Tags',   onClick: () => location.href = '/tags' },
     { icon: 'info',     label: 'Über',   onClick: () => location.href = '/about' },
+    { icon: 'file-text', label: 'Nutzungsbedingungen', onClick: () => location.href = '/terms' },
     { icon: light ? 'moon' : 'sun', label: light ? 'Dunkles Design' : 'Helles Design', onClick: toggleTheme },
   ];
   if (isOwner()) {
     items.splice(3, 0, { icon: 'plus', label: 'Abonnieren', onClick: () => location.href = '/?add=1' });
     items.push({ icon: 'settings', label: 'Einstellungen', onClick: () => location.href = '/settings' });
   } else {
-    items.push({ icon: 'lock', label: 'Anmelden', onClick: () => location.href = '/login' });
+    const who = (window.ME && window.ME.username) ? `Abmelden (${window.ME.username})` : 'Anmelden';
+    items.push({ icon: 'lock', label: who,
+      onClick: () => (window.ME && window.ME.username) ? logout() : (location.href = '/login') });
   }
   openSheet('Mehr', items);
 }
