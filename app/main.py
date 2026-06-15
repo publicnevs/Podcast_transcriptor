@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -34,6 +35,15 @@ from . import tagging
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+# Generated AI cover art. Defaults under /app/data (the persisted volume) so
+# covers survive container rebuilds/deploys. Served at /covers. Falls back to a
+# local ./covers dir when the configured path isn't writable (e.g. local dev).
+COVERS_DIR = Path(os.getenv("COVERS_DIR", "/app/data/covers"))
+try:
+    COVERS_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    COVERS_DIR = Path(__file__).parent.parent / "covers"
+    COVERS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def _apply_runtime_config():
@@ -60,6 +70,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="PodScribe", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/covers", StaticFiles(directory=str(COVERS_DIR)), name="covers")
 
 
 # ── Role guard (owner vs read-only guest) ───────────────────────────────────────
@@ -70,7 +81,7 @@ _GUEST_PAGE_RE = re.compile(
     r"^/(?:$|podcast/\d+$|episode/\d+$|digests$|digest/\d+$|tags$|tags/\d+$"
     r"|topic/\d+$|about$|terms$|discover$|radar$|search$|login$|inbox$|category/\d+$)"
 )
-_GUEST_STATIC_RE = re.compile(r"^/(?:static/|sw\.js$|manifest\.json$|health$|s/|favicon)")
+_GUEST_STATIC_RE = re.compile(r"^/(?:static/|covers/|sw\.js$|manifest\.json$|health$|s/|favicon)")
 _GUEST_API_RE = re.compile(
     r"^/api/(?:me$|podcasts$|podcasts/\d+$|podcasts/\d+/episodes$|podcasts/\d+/export$"
     r"|episodes/\d+$|episodes/\d+/audio$|episodes/\d+/tags$|episodes/\d+/related$"
@@ -649,6 +660,31 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
     return {"ok": True}
 
 
+class CoverRequest(BaseModel):
+    prompt: str
+
+
+@app.post("/api/podcasts/{podcast_id}/generate-cover")
+async def generate_cover(podcast_id: int, data: CoverRequest):
+    """Generate AI cover art from a free-text prompt and set it as the feed's
+    artwork (owner-only — gated by the auth middleware as a write action)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT id FROM podcasts WHERE id=?", (podcast_id,)) as cur:
+            if not await cur.fetchone():
+                raise HTTPException(404, "Feed nicht gefunden")
+    try:
+        png = await transcriber.generate_cover_image(data.prompt)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    (COVERS_DIR / f"{podcast_id}.png").write_bytes(png)
+    # Cache-bust so the browser/PWA picks up the new image immediately.
+    url = f"/covers/{podcast_id}.png?v={int(time.time())}"
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE podcasts SET artwork_url=? WHERE id=?", (url, podcast_id))
+        await db.commit()
+    return {"ok": True, "artwork_url": url}
+
+
 @app.delete("/api/podcasts/{podcast_id}")
 async def delete_podcast(podcast_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -1026,7 +1062,7 @@ async def get_episode(episode_id: int):
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute("""
-            SELECT e.*, p.title AS podcast_title, p.artwork_url,
+            SELECT e.*, p.title AS podcast_title, p.artwork_url, p.feed_type,
                 t.content AS transcript, t.segments_json, t.language,
                 t.word_count, t.translation_de,
                 s.summary, s.takeaways_json, s.chapters_json,
@@ -1248,6 +1284,21 @@ async def _do_regenerate_summary(episode_id: int, content: str):
                  json.dumps(data.get("chapters", []))),
             )
             await db.commit()
+        # On-demand summarising is also the moment a text article earns its place
+        # in semantic search — index embeddings now (best-effort). Reuse the
+        # stored segments so audio episodes keep their timestamped chunks.
+        try:
+            from .processor import _index_chunks
+            async with aiosqlite.connect(DB_PATH) as db:
+                async with db.execute(
+                    "SELECT segments_json FROM transcripts WHERE episode_id=?", (episode_id,)
+                ) as cur:
+                    srow = await cur.fetchone()
+            segments = json.loads(srow[0]) if srow and srow[0] else \
+                [{"time": "00:00:00", "speaker": "", "text": content}]
+            await _index_chunks(episode_id, segments)
+        except Exception as e:
+            logger.warning(f"Episode {episode_id}: on-demand embedding skipped: {e}")
     except Exception as e:
         logger.error(f"Summary regeneration failed for episode {episode_id}: {e}")
 
@@ -2116,7 +2167,14 @@ async def get_digest(digest_id: int):
             row = await cur.fetchone()
     if not row:
         raise HTTPException(404)
-    return dict(row)
+    d = dict(row)
+    # Render the TL;DR Markdown to HTML server-side (same pipeline as content_html)
+    # so bold/links/bullets display correctly. Done at read time → fixes existing
+    # digests too, no migration needed.
+    tldr_md = (d.get("tldr_md") or "").strip()
+    d["tldr_html"] = markdown2.markdown(
+        tldr_md, extras=["fenced-code-blocks", "tables", "header-ids"]) if tldr_md else ""
+    return d
 
 
 @app.post("/api/digests/{digest_id}/retry")

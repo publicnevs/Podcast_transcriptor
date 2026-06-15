@@ -37,7 +37,7 @@ There is no test suite — manual testing via the browser UI is the primary veri
 The Synology NAS does **not** use `git pull`. Deployment is done by downloading a
 tarball of the branch with `wget`, extracting it with `tar`, and all commands run
 with `sudo` (the deploy user is not in the docker group / lacks write perms on the
-app dir). The current development branch is `claude/hopeful-curie-l0thft`.
+app dir). The current development branch is `claude/lucid-gates-2d18xm`.
 
 ```bash
 # 1. Go to the app directory
@@ -45,7 +45,7 @@ cd /volume1/docker/Podcast_transcriptor
 
 # 2. Download the branch tarball from GitHub
 sudo wget -O podscribe.tar.gz \
-  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/hopeful-curie-l0thft.tar.gz
+  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/lucid-gates-2d18xm.tar.gz
 
 # 3. Extract, stripping the top-level folder so files land in the current dir
 sudo tar -xzf podscribe.tar.gz --strip-components=1
@@ -64,7 +64,7 @@ curl http://localhost:7878/health
 
 Notes:
 - DB schema changes apply automatically via `init_db()` on startup — no manual migration.
-- The service-worker cache bumps with each shell change (currently `v11`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
+- The service-worker cache bumps with each shell change (currently `v12`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
 - Keep `.env` (with `GEMINI_API_KEY`) in the app dir — `--strip-components=1` only overwrites files present in the tarball, so `.env` is preserved.
 
 **ALWAYS provide these Synology deploy commands at the end of every work block** (each
@@ -82,12 +82,13 @@ same work block.
 
 ### Backend (`app/`)
 
-- **`main.py`** — FastAPI app (~2700 lines). All API routes (`/api/*`), lifespan hooks (DB init + scheduler start), the auth ASGI middleware, and static SPA mount. This is the single backend file for routes.
-- **`processor.py`** — Orchestrates the full episode pipeline: download audio → transcribe → enrich → auto-tag → update DB. Status transitions: `pending → downloading → transcribing → done` (or `error`). For non-audio (`newsfeed`/`website`/`newsletter`) episodes it skips audio and enriches the article text; when an article feed only shipped a teaser (`feed_parser.is_truncated`), it fetches the full page. Shared best-effort web helpers live here: `_fetch_html`, `_extract_main_text` (trafilatura with an lxml fallback), `_fetch_article_text`, and `_fetch_site_image` (og:image/twitter:image/apple-touch-icon/favicon, optional settings-gated DuckDuckGo favicon service `favicon_service_enabled`).
+- **`main.py`** — FastAPI app (~2700 lines). All API routes (`/api/*`), lifespan hooks (DB init + scheduler start), the auth ASGI middleware, and static SPA mount. This is the single backend file for routes. Two static mounts: `/static` (app bundle) and `/covers` (generated AI cover art, dir `COVERS_DIR` env, default `/app/covers`; both are in the guest allowlist). `POST /api/podcasts/{id}/generate-cover` (owner-only) writes `<id>.png` there and points `artwork_url` at it with a cache-bust query.
+- **`processor.py`** — Orchestrates the full episode pipeline: download audio → transcribe → enrich → auto-tag → update DB. Status transitions: `pending → downloading → transcribing → done` (or `error`). For non-audio (`newsfeed`/`website`/`newsletter`) episodes it skips audio. **Token policy** (`process_episode` newsfeed branch + `_episode_status`): `newsletter` keeps full AI enrich (summary/takeaways/chapters); plain text feeds (`newsfeed`/`website`) are ingested **raw** (full text fetched without AI; teasers completed via `feed_parser.is_truncated` → full page) and **auto-tagged from the raw text only** — **no** auto-summary and **no** auto-embeddings, so a 100-article feed costs ~100 cheap tag calls, not 100 enrich calls. Summaries for text feeds are produced **on demand** via `POST /api/episodes/{id}/regenerate-summary` (`_do_regenerate_summary` also runs RAG embedding at that point). Shared best-effort web helpers live here: `_fetch_html`, `_extract_main_text` (trafilatura with an lxml fallback), `_fetch_article_text`, and `_fetch_site_image` (og:image/twitter:image/apple-touch-icon/favicon, optional settings-gated DuckDuckGo favicon service `favicon_service_enabled`).
 - **`transcriber.py`** — Gemini API calls. Models are env-overridable (`GEMINI_FLASH_MODEL`, `GEMINI_PRO_MODEL`, `GEMINI_LITE_MODEL`, plus `GEMINI_DIGEST_MODEL` which defaults to the Pro model), defaulting to `gemini-2.5-flash` / `gemini-2.5-pro` / `gemini-2.5-flash-lite`. Three paths:
   - Audio upload → `transcribe_audio()` → returns structured JSON (segments with timestamps, speakers, summary, takeaways, chapters)
   - Text-only → `enrich_text()` → used after Whisper transcription or when feed provides a transcript
   - Digest generation → `generate_digest()` → Gemini Pro writes 1200–2000 word articles
+  - Cover art → `generate_cover_image(prompt)` → Gemini image model (`GEMINI_IMAGE_MODEL`, default `gemini-2.5-flash-image`) returns PNG bytes for on-demand AI feed covers
 - **`whisper_backend.py`** — Optional faster-whisper local inference. Returns transcript only; `transcriber.enrich_text()` handles enrichment.
 - **`downloader.py`** — yt-dlp wrapper. Downloads audio and re-encodes via ffmpeg to 32kbps mono 16kHz MP3 (keeps a 60-min episode ≈14 MB, under Gemini's 20 MB inline limit).
 - **`transcript_fetch.py`** — Fetches and parses pre-existing feed transcripts (`<podcast:transcript>`): VTT / SRT / JSON / plain-text → normalized `{time, speaker, text}` segments. Used by the fast path to skip audio download + audio transcription.
@@ -110,7 +111,7 @@ Vanilla JS SPA — no build step, no framework. Pages share `app.js` utilities. 
 - **`app.js`** — Shared utilities: `API` (fetch wrappers), `toast()`, `confirmModal()`, `renderNav()`, `statusBadge()`, plus reusable UI helpers `openSheet(title, items)` (bottom-sheet on mobile / dialog on desktop), `openMenu(anchorEl, items)` (⋮ context popover), `downloadFile(url, filename)` (blob download that works in the installed PWA), and `enableDragScroll(el)` (mouse drag + vertical-wheel→horizontal for ticker-style strips on desktop). Theme: `initTheme()` **defaults to light** (`saved || 'light'`), `toggleTheme()` persists the choice in `localStorage('ps-theme')`. The mobile bottom-nav exposes Radar/Tags/Fragen/Über + the theme toggle (and owner-only Abonnieren/Einstellungen) via `openMoreSheet()` — reachable for guests too.
 - **`episode.html`** — The most complex page. Audio player syncs with transcript: clicking a paragraph seeks audio; during playback, current paragraph highlights and auto-scrolls (uses `segments_json` for timestamp mapping). Action bar uses the export bottom-sheet + ⋮ menu; the summary card always shows Zusammenfassung + Themenübersicht + Key Takeaways and offers a regenerate button (`POST /api/episodes/{id}/regenerate-summary`) plus an "Artikel in Redaktion erstellen" action (and ⋮-menu item) that `POST`s a single-episode Magazin digest to `/api/digests` and opens `/digest/{id}`.
 - Other pages: `index.html` (library, grouped by category with drag-&-drop reordering via `POST /api/podcasts/reorder`), `podcast.html` (single feed; includes a category dropdown), `inbox.html` ("Neuzugänge" — pending/queued items across all feeds via `GET /api/inbox`, with on-demand transcribe + `POST /api/feeds/check-all`; replaces "Entdecken" in the nav), `category.html` (one category's bundled podcasts/episodes/tags via `GET /api/categories/{id}`), `digest.html` (digest/"Redaktion" builder + recipes/scheduling — UI label is "Redaktion", routes/tables stay `digest`/`digests`; includes the "Freier Artikel" format with a free prompt + "KI wählt Folgen ↔ manuell" toggle), `digest-reader.html` (renders a generated digest article), `discover.html` (recommended feeds — still routed, linked from Abonnieren/Neuzugänge), `tags.html` (browse by topic tag), `topic.html` (single tag's episodes), `radar.html` ("Themen-Radar" topic overview), `search.html` ("Frag deine Bibliothek" — RAG Q&A / chat UI over `/api/ask` + `/api/chat`, with Markdown export + print via `POST /api/chat/export`), `login.html` (owner/guest/friend login — optional name + password), `settings.html` (API key, backend, intervals, access control + **friends** + **Tageszeitung**, category management), `about.html`, `terms.html` (Nutzungsbedingungen, public at `/terms`).
-- **`sw.js`** — Service Worker (cache `podscribe-v11`); caches the app shell incl. `icons.js` for offline reading, and **skips** `/audio` and `/export` so streaming and downloads always hit the network. Bump the cache name when shipping shell changes to force-refresh clients.
+- **`sw.js`** — Service Worker (cache `podscribe-v12`); caches the app shell incl. `icons.js` for offline reading, and **skips** `/audio`, `/export` and `/covers` so streaming, downloads and freshly-generated cover art always hit the network. Bump the cache name when shipping shell changes to force-refresh clients.
 - **`style.css`** — CSS variables design system, dark mode, mobile-first (bottom nav) + desktop (top nav) responsive layout. Reusable components: `.sheet`, `.menu-popover`, `.fab`, `.icon`. `.action-bar` and `.meta-line` are single-line, horizontally scrollable (hidden scrollbar) on mobile.
 
 ### Data Flow

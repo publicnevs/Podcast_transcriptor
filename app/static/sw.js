@@ -1,5 +1,5 @@
 /* PodScribe Service Worker — app shell cache + offline transcript reading */
-const CACHE = 'podscribe-v11';
+const CACHE = 'podscribe-v12';
 const SHELL = [
   '/static/style.css',
   '/static/icons.js',
@@ -24,9 +24,11 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET') return;
 
-  // Never cache audio streams, file exports, or the SW itself.
-  // Exports must reach the network untouched so downloads work in the installed PWA.
-  if (url.pathname.includes('/audio') || url.pathname.includes('/export') || url.pathname === '/sw.js') return;
+  // Never cache audio streams, file exports, generated covers, or the SW itself.
+  // Exports must reach the network untouched so downloads work in the installed PWA;
+  // covers carry a cache-bust query so re-generated art shows up immediately.
+  if (url.pathname.includes('/audio') || url.pathname.includes('/export')
+      || url.pathname.startsWith('/covers/') || url.pathname === '/sw.js') return;
 
   // Static assets: cache-first
   if (url.pathname.startsWith('/static/') || url.pathname === '/manifest.json') {

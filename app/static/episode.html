@@ -72,6 +72,7 @@ async function load() {
 function render(ep) {
   document.title = `PodScribe — ${ep.title}`;
 
+  const T = srcTerms(ep.feed_type);  // source-type-aware wording (audio vs text/mail)
   const segments = (() => { try { return JSON.parse(ep.segments_json||'[]'); } catch { return []; } })();
   const takeaways = (() => { try { return JSON.parse(ep.takeaways_json||'[]'); } catch { return []; } })();
   const chapters = (() => { try { return JSON.parse(ep.chapters_json||'[]'); } catch { return []; } })();
@@ -116,7 +117,7 @@ function render(ep) {
     <!-- Action Bar -->
     <div class="action-bar">
       ${ep.status==='done' ? `
-        <button class="btn btn-primary" id="listen-btn" onclick="toggleListen()">${icon('headphones')} Anhören</button>
+        ${T.canListen ? `<button class="btn btn-primary" id="listen-btn" onclick="toggleListen()">${icon('headphones')} Anhören</button>` : ''}
         <button class="btn btn-secondary btn-sm" onclick="copyForAI()">${icon('sparkles',{size:16})} Für KI kopieren</button>
         <button class="btn btn-secondary btn-sm" onclick="openExportSheet()">${icon('download',{size:16})} Exportieren</button>
         <button class="btn btn-secondary btn-sm" id="regen-summary-btn" onclick="regenerateSummary()">${icon('refresh-cw',{size:16})} Zusammenfassung neu</button>
@@ -124,8 +125,8 @@ function render(ep) {
         <button class="btn btn-ghost btn-icon" title="Teilen" onclick="shareEpisode()">${icon('share-2')}</button>
         <button class="btn btn-ghost btn-icon" title="Mehr" onclick="openEpMenu(this)">${icon('more-vertical')}</button>
       ` : ''}
-      ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">${icon('refresh-cw',{size:16})} Erneut transkribieren</button>` : ''}
-      ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">${icon('headphones',{size:16})} Jetzt transkribieren</button>` : ''}
+      ${ep.status==='error' ? `<button class="btn btn-primary btn-sm" onclick="retranscribe()">${icon('refresh-cw',{size:16})} ${T.canListen?'Erneut transkribieren':'Erneut versuchen'}</button>` : ''}
+      ${ep.status==='pending' ? `<button class="btn btn-primary btn-sm" onclick="startTranscribe()">${icon(T.canListen?'headphones':'sparkles',{size:16})} ${T.verbProcessNow}</button>` : ''}
     </div>
 
     <!-- Tag chips -->
@@ -182,8 +183,8 @@ function renderDoneContent(ep, segments, takeaways, chapters) {
         </div>
       </div>` : `
       <div class="summary-card" style="text-align:center">
-        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem">Noch keine Zusammenfassung für diese Folge.</p>
-        <button class="btn btn-primary btn-sm" onclick="regenerateSummary()">${icon('sparkles',{size:16})} Zusammenfassung erstellen</button>
+        <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem">Noch keine KI-Zusammenfassung für ${srcTerms(ep.feed_type).kind==='audio'?'diese Folge':'diesen Artikel'}.</p>
+        <button class="btn btn-primary btn-sm" onclick="regenerateSummary()">${icon('sparkles',{size:16})} ${srcTerms(ep.feed_type).kind==='audio'?'Zusammenfassung erstellen':'Mit KI zusammenfassen'}</button>
       </div>`}
 
     <!-- Notes -->
@@ -487,6 +488,8 @@ async function pollSummary(prev) {
 }
 
 async function startTranscribe() {
+  // Text sources (no audio) can't be transcribed — summarise their text instead.
+  if (!epData.audio_url) { return regenerateSummary(); }
   try {
     await API.post('/api/episodes/transcribe', { urls: [epData.audio_url] });
     toast('🎙️ Transkription gestartet','success');

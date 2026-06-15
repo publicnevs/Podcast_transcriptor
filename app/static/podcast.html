@@ -72,6 +72,12 @@
         <span style="display:block;margin-bottom:.25rem">Logo-URL (optional)</span>
         <input type="text" id="set-artwork" placeholder="https://…  (leer = Standard-Symbol)" style="width:100%" oninput="markDirty()">
       </label>
+      <div data-owner-only style="border-top:1px dashed var(--border);padding-top:.85rem">
+        <span style="display:block;margin-bottom:.25rem;font-size:.875rem" data-icon="sparkles" data-icon-size="15">KI-Cover erzeugen</span>
+        <span style="display:block;margin-bottom:.4rem;font-size:.75rem;color:var(--text-muted)">Kein oder unpassendes Bild? Beschreibe ein Motiv — die KI erstellt ein quadratisches Cover (verbraucht API-Tokens).</span>
+        <textarea id="cover-prompt" placeholder="z. B. minimalistisches Mikrofon, dunkelblau, Retro-Stil" style="width:100%;min-height:56px"></textarea>
+        <button class="btn btn-secondary btn-sm" id="cover-btn" data-icon="sparkles" data-icon-size="15" style="margin-top:.4rem" onclick="generateCover()">Cover generieren</button>
+      </div>
       <div>
         <button class="btn btn-primary btn-sm" id="set-save" onclick="savePodcastSettings()" disabled>Speichern</button>
       </div>
@@ -140,7 +146,26 @@ async function loadPodcast() {
     document.title = `PodScribe — ${podcastData.title}`;
     document.getElementById('breadcrumb').textContent = podcastData.title;
     document.getElementById('podcast-actions').style.display = '';
+    applySourceWording();
   } catch(e) { toast(e.message,'error'); }
+}
+
+// Relabel the static action bar + settings panel for non-audio sources so we
+// don't tell the user to "transcribe Folgen" of a text/mail feed. Each target's
+// trailing text node (after the hydrated icon) gets the source-aware wording.
+function applySourceWording() {
+  const T = srcTerms(podcastData?.feed_type);
+  if (T.kind === 'audio') return;
+  const setBtn = (sel, txt) => { const el = document.querySelector(sel); if (el) el.lastChild.textContent = ' ' + txt; };
+  setBtn('#podcast-actions button[onclick="triggerCheck()"]', 'Auf neue Beiträge prüfen');
+  setBtn('#podcast-actions button[onclick="generateArticle()"]', 'Artikel erstellen');
+  setBtn('#podcast-actions button[onclick="bulkExport()"]', `Alle ${T.itemPlural} exportieren`);
+  const autoInput = document.getElementById('set-auto');
+  if (autoInput) autoInput.parentNode.lastChild.textContent = ` Automatisch aufbereiten (neue ${T.itemPlural})`;
+  const maxepSpan = document.getElementById('set-maxep')?.parentNode?.querySelector('span');
+  if (maxepSpan) maxepSpan.childNodes[0].textContent = `Max. ${T.itemPlural} abrufen `;
+  const maxtrSpan = document.getElementById('set-maxtr')?.parentNode?.querySelector('span');
+  if (maxtrSpan) maxtrSpan.childNodes[0].textContent = 'Aufbewahrung: max. Beiträge ';
 }
 
 async function loadEpisodes(append=false) {
@@ -197,7 +222,7 @@ function renderEpisode(e) {
       </div>
       <div class="episode-actions" onclick="event.stopPropagation()">
         ${e.status==='pending'
-          ? `<button class="btn btn-primary btn-icon btn-sm" title="Transkribieren" onclick="transcribeOne(${e.id},'${escHtml(e.audio_url)}', this)">${icon('sparkles',{size:16})}</button>`
+          ? `<button class="btn btn-primary btn-icon btn-sm" title="${srcTerms(podcastData?.feed_type).verbProcessNow}" onclick="transcribeOne(${e.id},'${escHtml(e.audio_url)}', this)">${icon('sparkles',{size:16})}</button>`
           : ''}
         ${e.status==='error'
           ? `<button class="btn btn-primary btn-icon btn-sm" title="Erneut versuchen" onclick="retryEpisode(${e.id}, this)">${icon('refresh-cw',{size:16})}</button>`
@@ -311,11 +336,35 @@ async function savePodcastSettings() {
 }
 
 async function triggerCheck() {
+  const T = srcTerms(podcastData?.feed_type);
   try {
     const r = await API.post(`/api/podcasts/${podcastId}/check`, {});
-    toast(r.new > 0 ? `${r.new} neue Folge(n) gefunden` : 'Keine neuen Folgen', r.new > 0 ? 'success' : 'info');
+    toast(r.new > 0 ? `${r.new} neue ${r.new === 1 ? T.itemSingular : T.itemPlural} gefunden`
+                    : `Keine neuen ${T.itemPlural}`, r.new > 0 ? 'success' : 'info');
     if (r.new > 0) loadEpisodes();
   } catch(e) { toast(e.message,'error'); }
+}
+
+async function generateCover() {
+  const prompt = document.getElementById('cover-prompt').value.trim();
+  if (!prompt) { toast('Bitte ein Motiv beschreiben', 'info'); return; }
+  const ok = await confirmModal(
+    'KI-Cover erzeugen?',
+    'Es wird ein neues Cover-Bild generiert und als Logo dieses Feeds gesetzt (verbraucht API-Tokens).',
+    'Generieren');
+  if (!ok) return;
+  const btn = document.getElementById('cover-btn');
+  btn.disabled = true; const old = btn.innerHTML; btn.innerHTML = 'Generiere…';
+  try {
+    const r = await API.post(`/api/podcasts/${podcastId}/generate-cover`, { prompt });
+    toast('Cover erstellt', 'success');
+    if (r.artwork_url) { podcastData.artwork_url = r.artwork_url; document.getElementById('set-artwork').value = ''; }
+    loadPodcast();
+  } catch(e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = old;
+  }
 }
 
 async function bulkExport() {

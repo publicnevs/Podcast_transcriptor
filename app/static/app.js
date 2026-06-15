@@ -77,6 +77,27 @@ function podcastImgFallback(img, title) {
   if (img && img.parentNode) img.parentNode.innerHTML = avatarFor(title || img.alt || '?');
 }
 
+// Source-type-aware wording. One place that maps feed_type → the right verbs/nouns
+// so the UI stops calling text articles "Folgen" or offering to "transkribieren" a
+// newsletter. `kind` ∈ {'audio','text','ai'} also gates audio-only actions (player).
+function srcTerms(feedType) {
+  const ft = feedType || 'podcast';
+  if (ft === 'newsletter') {
+    return { kind: 'text', verbProcess: 'Aufbereiten', verbProcessNow: 'Jetzt aufbereiten',
+             verbProcessAgain: 'Neu aufbereiten', itemSingular: 'Mail', itemPlural: 'Mails',
+             canListen: false };
+  }
+  if (ft === 'newsfeed' || ft === 'website') {
+    return { kind: 'text', verbProcess: 'Zusammenfassen', verbProcessNow: 'Mit KI zusammenfassen',
+             verbProcessAgain: 'Neu zusammenfassen', itemSingular: 'Artikel', itemPlural: 'Artikel',
+             canListen: false };
+  }
+  // podcast (audio) — the original behaviour
+  return { kind: 'audio', verbProcess: 'Transkribieren', verbProcessNow: 'Jetzt transkribieren',
+           verbProcessAgain: 'Neu transkribieren', itemSingular: 'Folge', itemPlural: 'Folgen',
+           canListen: true };
+}
+
 function toast(msg, type='info') {
   const c = document.getElementById('toast-container') || (() => {
     const el = document.createElement('div');

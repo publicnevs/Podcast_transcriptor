@@ -91,8 +91,13 @@ function render() {
   }
 
   // One document, inverted pyramid: TL;DR box first, full article below.
-  const tldrHtml = (digest.tldr_md || '').trim()
-    ? `<div class="tldr-box"><h3>TL;DR — das Wichtigste</h3>${renderTldr(digest.tldr_md)}</div>`
+  // tldr_html is rendered server-side via markdown2 (same as content_html), so
+  // **bold**, links and bullets display correctly. Fallback to the legacy
+  // client parser for very old digests that predate tldr_html.
+  const tldrInner = (digest.tldr_html || '').trim()
+    || ((digest.tldr_md || '').trim() ? renderTldr(digest.tldr_md) : '');
+  const tldrHtml = tldrInner
+    ? `<div class="tldr-box"><h3>TL;DR — das Wichtigste</h3>${tldrInner}</div>`
     : '';
 
   page.innerHTML = `

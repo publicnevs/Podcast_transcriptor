@@ -29,6 +29,8 @@ LITE_MODEL = os.getenv("GEMINI_LITE_MODEL", "gemini-2.5-flash-lite")
 DIGEST_MODEL = os.getenv("GEMINI_DIGEST_MODEL", PRO_MODEL)
 # Embedding model for semantic search (RAG)
 EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
+# Image generation model for AI cover art (on-demand, owner-only)
+IMAGE_MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash-image")
 
 
 # ── Format registry ──────────────────────────────────────────────────────────
@@ -429,6 +431,39 @@ async def extract_tags(summary: str, takeaways: list, chapters: list) -> list:
         return []
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _extract_tags_sync, summary, takeaways, chapters)
+
+
+def _generate_cover_sync(prompt: str) -> bytes:
+    client = _client()
+    # Wrap the user's prompt so we reliably get a square, cover-style artwork.
+    full_prompt = (
+        "Erzeuge ein quadratisches Cover-Artwork (1:1) für einen Podcast/Feed. "
+        "Klar, modern, hoher Kontrast, gut als kleines App-Icon erkennbar, "
+        "kein Text/Wasserzeichen. Motiv: " + prompt.strip()
+    )
+    response = client.models.generate_content(
+        model=IMAGE_MODEL,
+        contents=full_prompt,
+        # TEXT+IMAGE is the broadly-accepted modality combo; we keep only the
+        # image part below, so any incidental text response is ignored.
+        config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+    )
+    for cand in (response.candidates or []):
+        for part in (cand.content.parts or []):
+            inline = getattr(part, "inline_data", None)
+            if inline and getattr(inline, "data", None):
+                return inline.data
+    raise RuntimeError("Kein Bild von der Bild-KI erhalten")
+
+
+async def generate_cover_image(prompt: str) -> bytes:
+    """Generate cover art (PNG bytes) from a free-text prompt. Owner-only, on-demand."""
+    if not _configure_gemini():
+        raise RuntimeError("Kein Gemini API Key konfiguriert")
+    if not (prompt or "").strip():
+        raise RuntimeError("Prompt fehlt")
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _generate_cover_sync, prompt)
 
 
 def _embed_sync(texts: list) -> list:

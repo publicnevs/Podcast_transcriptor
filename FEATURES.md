@@ -24,6 +24,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Flexible Abo-Optionen** — maximale Folgenzahl begrenzen, Prüf-Intervall einstellen, gezielt einzelne Folgen transkribieren.
 - **„Neue Folgen suchen"-Button** — einen Feed jederzeit manuell auf neue Folgen prüfen.
 - **Echte Logos für Newsletter & Websites** — PodScribe holt automatisch das Logo der Quelle (og:image bzw. Favicon der Absender-/Webseite, oder ein Logo aus der Newsletter-Mail). Klappt das nicht, gibt es weiterhin ein generiertes Icon (Farbe + Initialen, bei Newslettern mit Mail-Symbol). Das Logo lässt sich pro Quelle auch **manuell überschreiben** (Logo-URL in den Feed-Einstellungen).
+- **KI-Cover erzeugen** — hat eine Quelle kein oder ein unpassendes Bild, beschreibst du in den Feed-Einstellungen einfach ein Motiv und lässt die KI ein quadratisches Cover generieren (auf Knopfdruck, nur für die Eigentümer-Rolle).
 
 ## 🗂️ Kategorien & Startseite
 
@@ -48,7 +49,8 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 🤖 KI-Aufbereitung jeder Folge
 
-- **Auto-Zusammenfassung** — kompakte Zusammenfassung direkt nach der Transkription.
+- **Auto-Zusammenfassung** — kompakte Zusammenfassung direkt nach der Transkription (Podcasts & Newsletter).
+- **Text-Feeds: KI nur auf Knopfdruck** — reine Text-/RSS-Feeds und Webseiten werden **sofort lesbar** eingelesen (Volltext) und automatisch **verschlagwortet**, aber **nicht automatisch zusammengefasst**. So lösen 100 neue Artikel nicht 100 KI-Läufe aus. Die KI-Zusammenfassung (inkl. Aufnahme in die semantische Suche) startest du gezielt pro Artikel über **„Mit KI zusammenfassen"**.
 - **Key Takeaways** — die wichtigsten Erkenntnisse als Stichpunkte.
 - **Themenübersicht** — worum es in der Folge geht, auf einen Blick.
 - **Automatische Kapitel** — Themenblöcke mit Zeitstempeln zum Anspringen.

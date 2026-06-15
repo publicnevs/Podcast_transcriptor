@@ -197,7 +197,16 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                 if len(fetched) > len(content):
                     content = fetched
             if content:
-                data = await enrich_text(content)
+                # Token policy: newsletters get the full AI enrichment (summary,
+                # takeaways, chapters); plain text feeds (newsfeed/website) are
+                # ingested raw + auto-tagged only — the summary is produced on
+                # demand per article (POST /regenerate-summary). This avoids
+                # 100 expensive enrich calls when a feed dumps 100 articles.
+                auto_summarise = feed_type == "newsletter"
+                if auto_summarise:
+                    data = await enrich_text(content)
+                else:
+                    data = {"language": "", "summary": "", "takeaways": [], "chapters": []}
                 segments = [{"time": "00:00:00", "speaker": "", "text": content}]
                 data["segments"] = segments
                 word_count = len(content.split())
@@ -217,30 +226,42 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
                         "INSERT INTO transcripts_fts (episode_id, content) VALUES (?, ?)",
                         (episode_id, content),
                     )
-                    await db.execute(
-                        """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
-                           VALUES (?, ?, ?, ?, 'de')
-                           ON CONFLICT(episode_id) DO UPDATE SET
-                               summary=excluded.summary, takeaways_json=excluded.takeaways_json,
-                               chapters_json=excluded.chapters_json,
-                               summary_lang='de'""",
-                        (episode_id, data.get("summary", ""),
-                         json.dumps(data.get("takeaways", [])),
-                         json.dumps(data.get("chapters", []))),
-                    )
+                    # Only store a summary row when we actually summarised. Text
+                    # feeds stay summary-less until the user asks → episode page
+                    # shows the "Mit KI zusammenfassen" empty state.
+                    if auto_summarise:
+                        await db.execute(
+                            """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
+                               VALUES (?, ?, ?, ?, 'de')
+                               ON CONFLICT(episode_id) DO UPDATE SET
+                                   summary=excluded.summary, takeaways_json=excluded.takeaways_json,
+                                   chapters_json=excluded.chapters_json,
+                                   summary_lang='de'""",
+                            (episode_id, data.get("summary", ""),
+                             json.dumps(data.get("takeaways", [])),
+                             json.dumps(data.get("chapters", []))),
+                        )
                     await db.execute("UPDATE episodes SET status='done' WHERE id=?", (episode_id,))
                     await db.commit()
-                # Tag + index for search/radar so news & newsletters are
-                # first-class alongside podcasts (best-effort, never fatal).
+                # Auto-tagging stays on for all sources so news & newsletters are
+                # first-class in search/radar (cheap LITE call, best-effort). For
+                # summary-less text feeds we tag from the raw article text instead
+                # of an (absent) summary.
                 try:
-                    raw_tags = await extract_tags(
-                        data.get("summary", ""), data.get("takeaways", []),
-                        data.get("chapters", []))
+                    if auto_summarise:
+                        raw_tags = await extract_tags(
+                            data.get("summary", ""), data.get("takeaways", []),
+                            data.get("chapters", []))
+                    else:
+                        raw_tags = await extract_tags(content[:6000], [], [])
                     if raw_tags:
                         await upsert_tags(episode_id, raw_tags)
                 except Exception as e:
                     logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
-                await _index_chunks(episode_id, segments)
+                # Embeddings only when we have a real summary path; text feeds get
+                # indexed for semantic search on demand (when summarised).
+                if auto_summarise:
+                    await _index_chunks(episode_id, segments)
             else:
                 await _set_status(episode_id, "done")
             await enforce_retention(episode_id)
@@ -390,11 +411,18 @@ async def _set_status(episode_id: int, status: str, error_msg: str = None):
 
 def _episode_status(feed_type: str, full_text_extraction: bool,
                     auto_transcribe: bool, has_episode_url: bool) -> str:
-    """Initial status for a freshly imported episode."""
+    """Initial status for a freshly imported episode.
+
+    Text feeds (newsfeed/website) are always queued so the lightweight ingest
+    runs — full text fetched (no AI) + auto-tagging — but process_episode's
+    `auto_summarise` gate keeps them from being summarised automatically. This
+    keeps a 100-article feed at ~100 cheap tag calls and 0 expensive summary
+    calls; summaries are produced on demand per article. Newsletters keep full
+    auto-enrich (low volume, opted into via IMAP)."""
     if feed_type == "newsletter":
         return "queued"  # emails always get auto-summarised
-    if feed_type == "newsfeed":
-        return "queued" if (full_text_extraction and has_episode_url) else "done"
+    if feed_type in ("newsfeed", "website"):
+        return "queued"  # raw ingest + auto-tag, summary on demand
     return "queued" if auto_transcribe else "pending"
 
 
