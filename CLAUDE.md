@@ -82,7 +82,7 @@ same work block.
 
 ### Backend (`app/`)
 
-- **`main.py`** — FastAPI app (~1500 lines). All API routes (`/api/*`), lifespan hooks (DB init + scheduler start), and static SPA mount. This is the single backend file for routes.
+- **`main.py`** — FastAPI app (~2700 lines). All API routes (`/api/*`), lifespan hooks (DB init + scheduler start), the auth ASGI middleware, and static SPA mount. This is the single backend file for routes.
 - **`processor.py`** — Orchestrates the full episode pipeline: download audio → transcribe → enrich → auto-tag → update DB. Status transitions: `pending → downloading → transcribing → done` (or `error`). For non-audio (`newsfeed`/`website`/`newsletter`) episodes it skips audio and enriches the article text; when an article feed only shipped a teaser (`feed_parser.is_truncated`), it fetches the full page. Shared best-effort web helpers live here: `_fetch_html`, `_extract_main_text` (trafilatura with an lxml fallback), `_fetch_article_text`, and `_fetch_site_image` (og:image/twitter:image/apple-touch-icon/favicon, optional settings-gated DuckDuckGo favicon service `favicon_service_enabled`).
 - **`transcriber.py`** — Gemini API calls. Models are env-overridable (`GEMINI_FLASH_MODEL`, `GEMINI_PRO_MODEL`, `GEMINI_LITE_MODEL`, plus `GEMINI_DIGEST_MODEL` which defaults to the Pro model), defaulting to `gemini-2.5-flash` / `gemini-2.5-pro` / `gemini-2.5-flash-lite`. Three paths:
   - Audio upload → `transcribe_audio()` → returns structured JSON (segments with timestamps, speakers, summary, takeaways, chapters)
