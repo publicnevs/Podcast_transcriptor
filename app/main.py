@@ -357,29 +357,47 @@ async def health_whisper():
 
 # ── Frontend pages ─────────────────────────────────────────────────────────────
 
+# Bump together with the sw.js cache name whenever shell JS/CSS changes. Stamps a
+# cache-bust query onto the shared assets so freshly-served HTML never pairs with a
+# stale service-worker-cached app.js/icons.js/style.css after a deploy.
+ASSET_VERSION = "13"
+
+
+def _html_page(filename: str) -> HTMLResponse:
+    """Serve a static HTML page with version-stamped shell asset URLs.
+
+    HTMLResponse (unlike FileResponse) sends no ETag/Last-Modified, so the page is
+    always fetched fresh and references the latest ?v=, keeping HTML and JS/CSS in
+    version-lockstep across deploys without a build step."""
+    html = (STATIC_DIR / filename).read_text(encoding="utf-8")
+    for asset in ("app.js", "icons.js", "style.css"):
+        html = html.replace(f'/static/{asset}"', f'/static/{asset}?v={ASSET_VERSION}"')
+    return HTMLResponse(html)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def page_index():
-    return FileResponse(STATIC_DIR / "index.html")
+    return _html_page("index.html")
 
 
 @app.get("/podcast/{podcast_id}", response_class=HTMLResponse)
 async def page_podcast(podcast_id: int):
-    return FileResponse(STATIC_DIR / "podcast.html")
+    return _html_page("podcast.html")
 
 
 @app.get("/episode/{episode_id}", response_class=HTMLResponse)
 async def page_episode(episode_id: int):
-    return FileResponse(STATIC_DIR / "episode.html")
+    return _html_page("episode.html")
 
 
 @app.get("/settings", response_class=HTMLResponse)
 async def page_settings():
-    return FileResponse(STATIC_DIR / "settings.html")
+    return _html_page("settings.html")
 
 
 @app.get("/digests", response_class=HTMLResponse)
 async def page_digests():
-    return FileResponse(STATIC_DIR / "digest.html")
+    return _html_page("digest.html")
 
 
 @app.get("/sw.js")
@@ -395,62 +413,62 @@ async def manifest():
 
 @app.get("/about", response_class=HTMLResponse)
 async def page_about():
-    return FileResponse(STATIC_DIR / "about.html")
+    return _html_page("about.html")
 
 
 @app.get("/terms", response_class=HTMLResponse)
 async def page_terms():
-    return FileResponse(STATIC_DIR / "terms.html")
+    return _html_page("terms.html")
 
 
 @app.get("/discover", response_class=HTMLResponse)
 async def page_discover():
-    return FileResponse(STATIC_DIR / "discover.html")
+    return _html_page("discover.html")
 
 
 @app.get("/tags", response_class=HTMLResponse)
 async def page_tags():
-    return FileResponse(STATIC_DIR / "tags.html")
+    return _html_page("tags.html")
 
 
 @app.get("/tags/{tag_id}", response_class=HTMLResponse)
 async def page_tag_detail(tag_id: int):
-    return FileResponse(STATIC_DIR / "tags.html")
+    return _html_page("tags.html")
 
 
 @app.get("/digest/{digest_id}", response_class=HTMLResponse)
 async def page_digest_reader(digest_id: int):
-    return FileResponse(STATIC_DIR / "digest-reader.html")
+    return _html_page("digest-reader.html")
 
 
 @app.get("/search", response_class=HTMLResponse)
 async def page_search():
-    return FileResponse(STATIC_DIR / "search.html")
+    return _html_page("search.html")
 
 
 @app.get("/radar", response_class=HTMLResponse)
 async def page_radar():
-    return FileResponse(STATIC_DIR / "radar.html")
+    return _html_page("radar.html")
 
 
 @app.get("/topic/{tag_id}", response_class=HTMLResponse)
 async def page_topic(tag_id: int):
-    return FileResponse(STATIC_DIR / "topic.html")
+    return _html_page("topic.html")
 
 
 @app.get("/login", response_class=HTMLResponse)
 async def page_login():
-    return FileResponse(STATIC_DIR / "login.html")
+    return _html_page("login.html")
 
 
 @app.get("/inbox", response_class=HTMLResponse)
 async def page_inbox():
-    return FileResponse(STATIC_DIR / "inbox.html")
+    return _html_page("inbox.html")
 
 
 @app.get("/category/{category_id}", response_class=HTMLResponse)
 async def page_category(category_id: int):
-    return FileResponse(STATIC_DIR / "category.html")
+    return _html_page("category.html")
 
 
 # ── Podcasts ───────────────────────────────────────────────────────────────────

@@ -1,9 +1,9 @@
 /* PodScribe Service Worker — app shell cache + offline transcript reading */
-const CACHE = 'podscribe-v12';
+const CACHE = 'podscribe-v13';
 const SHELL = [
-  '/static/style.css',
-  '/static/icons.js',
-  '/static/app.js',
+  '/static/style.css?v=13',
+  '/static/icons.js?v=13',
+  '/static/app.js?v=13',
   '/static/icon.svg',
   '/manifest.json',
 ];
