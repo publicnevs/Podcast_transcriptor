@@ -5,8 +5,8 @@ from pathlib import Path
 
 import aiosqlite
 
-from .database import DB_PATH
-from .downloader import download_audio
+from .database import DB_PATH, get_setting
+from .downloader import download_audio, AudioTooLongError
 from .notifier import send_notification
 from .transcriber import transcribe_audio, enrich_text, extract_tags
 from .transcript_fetch import fetch_transcript
@@ -25,10 +25,13 @@ async def _get_transcript_source(episode_id: int):
     return (row[0] or "", row[1] or "") if row else ("", "")
 
 
-async def _get_feed_type(episode_id: int) -> str:
+async def _get_routing(episode_id: int):
+    """Return (feed_type, full_text_extraction, episode_url, audio_url) for routing.
+    Routing is decided per-EPISODE (does it actually have audio?), not just by the
+    feed's type — a mixed feed flagged 'podcast' can still carry article entries."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            """SELECT p.feed_type, p.full_text_extraction, e.episode_url
+            """SELECT p.feed_type, p.full_text_extraction, e.episode_url, e.audio_url
                FROM episodes e
                LEFT JOIN podcasts p ON p.id = e.podcast_id
                WHERE e.id=?""",
@@ -36,8 +39,55 @@ async def _get_feed_type(episode_id: int) -> str:
         ) as cur:
             row = await cur.fetchone()
     if not row:
-        return "podcast"
-    return row[0] or "podcast", bool(row[1]), row[2] or ""
+        return "podcast", False, "", ""
+    return row[0] or "podcast", bool(row[1]), row[2] or "", row[3] or ""
+
+
+# Markers that indicate a login wall / paywall / consent gate rather than real
+# article content — used so we surface a clear error instead of storing junk.
+_PAYWALL_MARKERS = (
+    "subscribe to continue", "subscribe to read", "create a free account",
+    "create an account to", "register to read", "sign in to read",
+    "please sign in", "please log in", "log in to continue", "members only",
+    "this content is for subscribers", "to continue reading", "enable javascript",
+    "please enable javascript", "verify you are a human", "are you a robot",
+)
+
+
+def _looks_paywalled(text: str) -> bool:
+    """Heuristic: does this extracted text look like a login/paywall/JS gate rather
+    than a real article? True for empty or very short text dominated by such markers."""
+    if not text:
+        return True
+    t = text.strip()
+    low = t.lower()
+    if any(m in low for m in _PAYWALL_MARKERS) and len(t) < 1200:
+        return True
+    return False
+
+
+async def _log_processing(episode_id: int, action: str, ok: bool, detail: str = ""):
+    """Append a row to processing_log (what was loaded/transcribed, success or not).
+    Best-effort: never let logging break the pipeline. Trims old rows opportunistically."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            async with db.execute(
+                "SELECT podcast_id FROM episodes WHERE id=?", (episode_id,)
+            ) as cur:
+                row = await cur.fetchone()
+            podcast_id = row[0] if row else None
+            await db.execute(
+                """INSERT INTO processing_log (episode_id, podcast_id, action, ok, detail)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (episode_id, podcast_id, action, 1 if ok else 0, (detail or "")[:500]),
+            )
+            # Keep the table bounded (retain newest ~2000 rows).
+            await db.execute(
+                """DELETE FROM processing_log WHERE id < (
+                       SELECT MAX(id) - 2000 FROM processing_log)""")
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"processing_log insert failed: {e}")
 
 
 async def _fetch_html(url: str) -> str:
@@ -84,13 +134,47 @@ def _extract_main_text(html: str, url: str = "") -> str:
     return ""
 
 
+def _render_sync(url: str) -> str:
+    """Render a page in headless Chromium (Playwright). Returns '' when Playwright
+    isn't installed — the feature is opt-in via the INSTALL_BROWSER build arg."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        return ""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--no-sandbox"])
+        try:
+            page = browser.new_page(user_agent="Mozilla/5.0")
+            page.goto(url, wait_until="networkidle", timeout=20000)
+            return page.content()
+        finally:
+            browser.close()
+
+
+async def _render_html(url: str) -> str:
+    """Async wrapper around the headless-browser render (best-effort, '' on error)."""
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, _render_sync, url)
+    except Exception as e:
+        logger.warning(f"JS render failed for {url}: {e}")
+        return ""
+
+
 async def _fetch_article_text(url: str) -> str:
     """Fetch a web page and extract its main article text. Best-effort: any
-    failure returns '' so ingestion never breaks."""
+    failure returns '' so ingestion never breaks. When the plain fetch yields
+    nothing usable (JS-only page / paywall) and JS rendering is enabled, retry
+    with a headless browser."""
     html = await _fetch_html(url)
-    if not html:
-        return ""
-    return _extract_main_text(html, url)
+    text = _extract_main_text(html, url) if html else ""
+    if (not text or _looks_paywalled(text)) and (await get_setting("js_render_enabled")) == "1":
+        rendered = await _render_html(url)
+        if rendered:
+            rtext = _extract_main_text(rendered, url)
+            if rtext and not _looks_paywalled(rtext) and len(rtext) > len(text):
+                return rtext
+    return text
 
 
 async def _url_ok(url: str) -> bool:
@@ -168,83 +252,111 @@ async def _index_chunks(episode_id: int, segments: list):
         logger.warning(f"Episode {episode_id}: embedding index skipped: {e}")
 
 
+async def _process_as_article(episode_id: int, feed_type: str,
+                              full_text_extraction: bool, episode_url: str,
+                              force_fetch: bool = False):
+    """Process an episode as text/article: prefer feed/email text, fetch the web
+    page when it's a teaser (or when forced for a mis-typed podcast entry), then
+    enrich → store transcript+summary → tag+index. Surfaces a clear error when a
+    forced web fetch yields nothing but a paywall/JS gate."""
+    await _set_status(episode_id, "transcribing")
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT description FROM episodes WHERE id=?", (episode_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    content = (row[0] or "") if row else ""
+
+    # Only real web URLs are worth scraping (a newsletter's episode_url is a
+    # Message-ID; a website snapshot's is a hash). Fetch when the feed text looks
+    # like a teaser, or when forced (a podcast-typed entry that has no audio).
+    from .feed_parser import is_truncated
+    web_url = episode_url if (episode_url or "").startswith(("http://", "https://")) else ""
+    should_fetch = bool(web_url) and is_truncated(content) and (
+        force_fetch or (feed_type == "newsfeed" and full_text_extraction))
+    if should_fetch:
+        fetched = await _fetch_article_text(web_url)
+        if fetched and not _looks_paywalled(fetched) and len(fetched) > len(content):
+            content = fetched
+
+    # A forced fetch with no usable result means there's genuinely nothing to
+    # read (mis-tagged audio entry, paywall, or JS-only page) — fail clearly.
+    if force_fetch and (not content or _looks_paywalled(content)):
+        await _log_processing(episode_id, "article", False,
+                              "Kein Artikeltext (evtl. Paywall/JavaScript-Seite).")
+        raise ValueError(
+            "Artikeltext konnte nicht geladen werden (evtl. Paywall oder JavaScript-Seite).")
+
+    if content:
+        data = await enrich_text(content)
+        segments = [{"time": "00:00:00", "speaker": "", "text": content}]
+        data["segments"] = segments
+        word_count = len(content.split())
+        model_used = "email" if feed_type == "newsletter" else "article"
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """INSERT INTO transcripts (episode_id, content, segments_json, language, word_count, model_used)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(episode_id) DO UPDATE SET
+                       content=excluded.content, segments_json=excluded.segments_json,
+                       language=excluded.language, word_count=excluded.word_count,
+                       model_used=excluded.model_used""",
+                (episode_id, content, json.dumps(segments),
+                 data.get("language", ""), word_count, model_used),
+            )
+            await db.execute(
+                "INSERT INTO transcripts_fts (episode_id, content) VALUES (?, ?)",
+                (episode_id, content),
+            )
+            await db.execute(
+                """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
+                   VALUES (?, ?, ?, ?, 'de')
+                   ON CONFLICT(episode_id) DO UPDATE SET
+                       summary=excluded.summary, takeaways_json=excluded.takeaways_json,
+                       chapters_json=excluded.chapters_json,
+                       summary_lang='de'""",
+                (episode_id, data.get("summary", ""),
+                 json.dumps(data.get("takeaways", [])),
+                 json.dumps(data.get("chapters", []))),
+            )
+            await db.execute("UPDATE episodes SET status='done' WHERE id=?", (episode_id,))
+            await db.commit()
+        # Tag + index for search/radar so news & newsletters are first-class
+        # alongside podcasts (best-effort, never fatal).
+        try:
+            raw_tags = await extract_tags(
+                data.get("summary", ""), data.get("takeaways", []),
+                data.get("chapters", []))
+            if raw_tags:
+                await upsert_tags(episode_id, raw_tags)
+        except Exception as e:
+            logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
+        await _index_chunks(episode_id, segments)
+        await _log_processing(episode_id, "article", True, f"{word_count} Wörter ({model_used})")
+    else:
+        await _set_status(episode_id, "done")
+        await _log_processing(episode_id, "article", True, "Kein Textinhalt")
+    await enforce_retention(episode_id)
+
+
 async def process_episode(episode_id: int, audio_url: str, title: str, podcast_title: str):
     audio_path: Path | None = None
     try:
-        feed_info = await _get_feed_type(episode_id)
-        feed_type, full_text_extraction, episode_url = (
-            feed_info if isinstance(feed_info, tuple) else (feed_info, False, "")
-        )
+        feed_type, full_text_extraction, episode_url, real_audio_url = (
+            await _get_routing(episode_id))
+        has_audio = real_audio_url.startswith(("http://", "https://"))
+        text_like = feed_type in ("newsfeed", "newsletter", "website")
 
-        # Newsfeed path: no audio download. Strategy: feed content first
-        # (often already full text via content:encoded), fetch the web page
-        # only as a fallback when the feed text is too short.
-        if feed_type in ("newsfeed", "newsletter", "website"):
-            await _set_status(episode_id, "transcribing")
-            async with aiosqlite.connect(DB_PATH) as db:
-                async with db.execute(
-                    "SELECT description FROM episodes WHERE id=?", (episode_id,)
-                ) as cur:
-                    row = await cur.fetchone()
-            content = (row[0] or "") if row else ""
-            # Only newsfeed articles carry a real web URL worth scraping; a
-            # newsletter's episode_url is a Message-ID, never fetch it. Fetch the
-            # full page whenever the feed text looks like a teaser (short, ends
-            # with a "Read more"-style marker, or is just a link).
-            from .feed_parser import is_truncated
-            if (feed_type == "newsfeed" and full_text_extraction
-                    and episode_url and is_truncated(content)):
-                fetched = await _fetch_article_text(episode_url)
-                if len(fetched) > len(content):
-                    content = fetched
-            if content:
-                data = await enrich_text(content)
-                segments = [{"time": "00:00:00", "speaker": "", "text": content}]
-                data["segments"] = segments
-                word_count = len(content.split())
-                model_used = "email" if feed_type == "newsletter" else "article"
-                async with aiosqlite.connect(DB_PATH) as db:
-                    await db.execute(
-                        """INSERT INTO transcripts (episode_id, content, segments_json, language, word_count, model_used)
-                           VALUES (?, ?, ?, ?, ?, ?)
-                           ON CONFLICT(episode_id) DO UPDATE SET
-                               content=excluded.content, segments_json=excluded.segments_json,
-                               language=excluded.language, word_count=excluded.word_count,
-                               model_used=excluded.model_used""",
-                        (episode_id, content, json.dumps(segments),
-                         data.get("language", ""), word_count, model_used),
-                    )
-                    await db.execute(
-                        "INSERT INTO transcripts_fts (episode_id, content) VALUES (?, ?)",
-                        (episode_id, content),
-                    )
-                    await db.execute(
-                        """INSERT INTO summaries (episode_id, summary, takeaways_json, chapters_json, summary_lang)
-                           VALUES (?, ?, ?, ?, 'de')
-                           ON CONFLICT(episode_id) DO UPDATE SET
-                               summary=excluded.summary, takeaways_json=excluded.takeaways_json,
-                               chapters_json=excluded.chapters_json,
-                               summary_lang='de'""",
-                        (episode_id, data.get("summary", ""),
-                         json.dumps(data.get("takeaways", [])),
-                         json.dumps(data.get("chapters", []))),
-                    )
-                    await db.execute("UPDATE episodes SET status='done' WHERE id=?", (episode_id,))
-                    await db.commit()
-                # Tag + index for search/radar so news & newsletters are
-                # first-class alongside podcasts (best-effort, never fatal).
-                try:
-                    raw_tags = await extract_tags(
-                        data.get("summary", ""), data.get("takeaways", []),
-                        data.get("chapters", []))
-                    if raw_tags:
-                        await upsert_tags(episode_id, raw_tags)
-                except Exception as e:
-                    logger.warning(f"Episode {episode_id}: tagging skipped: {e}")
-                await _index_chunks(episode_id, segments)
-            else:
-                await _set_status(episode_id, "done")
-            await enforce_retention(episode_id)
+        # Route per-EPISODE: only items with a real audio URL go to the audio
+        # pipeline. A 'podcast'-typed feed can still carry article entries (mixed
+        # feeds where one item has an enclosure) — those have no audio_url and must
+        # be handled as text, never handed to yt-dlp ("Unsupported URL").
+        if text_like or not has_audio:
+            if not text_like and not (episode_url or "").startswith(("http://", "https://")):
+                raise ValueError("Keine Audio- oder Artikel-URL für diese Episode.")
+            await _process_as_article(
+                episode_id, feed_type, full_text_extraction, episode_url,
+                force_fetch=(not text_like))
             return
 
         transcript_url, transcript_type = await _get_transcript_source(episode_id)
@@ -278,7 +390,25 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
         # Standard path: download audio + transcribe (Gemini or Whisper)
         if data is None:
             await _set_status(episode_id, "downloading")
-            audio_path = await download_audio(audio_url)
+            try:
+                max_min = int((await get_setting("max_audio_minutes")) or "0")
+                audio_path = await download_audio(real_audio_url or audio_url, max_minutes=max_min)
+            except AudioTooLongError:
+                raise  # deliberate skip — surface the clear message, don't scrape
+            except Exception as dl_err:
+                # yt-dlp rejected the URL (e.g. an article link that slipped into
+                # the audio path). If we have a real web URL, fall back to reading
+                # it as an article instead of failing outright.
+                if (episode_url or "").startswith(("http://", "https://")):
+                    logger.warning(
+                        f"Episode {episode_id}: audio download failed ({dl_err}); "
+                        f"falling back to article extraction")
+                    await _log_processing(episode_id, "download", False, str(dl_err)[:200])
+                    await _process_as_article(
+                        episode_id, feed_type, full_text_extraction, episode_url,
+                        force_fetch=True)
+                    return
+                raise
             await _set_status(episode_id, "transcribing")
             data = await transcribe_audio(audio_path)
 
@@ -333,6 +463,8 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
         await _index_chunks(episode_id, segments)
 
         await enforce_retention(episode_id)
+        await _log_processing(episode_id, "transcribe", True,
+                              f"{word_count} Wörter ({model_used})")
 
         await send_notification(
             f"Transkript fertig: {title[:50]}",
@@ -344,6 +476,7 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
     except Exception as e:
         logger.error(f"Episode {episode_id} failed: {e}", exc_info=True)
         await _set_status(episode_id, "error", str(e)[:500])
+        await _log_processing(episode_id, "error", False, str(e)[:300])
     finally:
         if audio_path and audio_path.exists():
             audio_path.unlink(missing_ok=True)

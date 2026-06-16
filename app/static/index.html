@@ -54,8 +54,9 @@
           <summary style="color:var(--text-muted);font-size:.875rem" data-icon="download" data-icon-size="15">OPML-Import (alle Podcasts auf einmal)</summary>
           <div style="margin-top:.75rem;display:flex;gap:.5rem;align-items:center">
             <input type="file" id="opml-file" accept=".opml,.xml" style="flex:1">
-            <button class="btn btn-secondary" onclick="importOpml()">Importieren</button>
+            <button class="btn btn-secondary" id="opml-btn" onclick="importOpml()">Alle abonnieren</button>
           </div>
+          <div id="opml-result" style="margin-top:.6rem;font-size:.82rem"></div>
         </details>
 
         <details style="margin-top:.25rem">
@@ -286,15 +287,25 @@ async function addPodcast() {
 async function importOpml() {
   const file = document.getElementById('opml-file').files[0];
   if (!file) return toast('Bitte eine OPML-Datei wählen', 'error');
+  const btn = document.getElementById('opml-btn');
+  const out = document.getElementById('opml-result');
   const fd = new FormData();
   fd.append('file', file);
+  btn.disabled = true; btn.textContent = 'Lese OPML…'; out.innerHTML = '';
   try {
-    const r = await fetch('/api/podcasts/opml', { method:'POST', body: fd });
-    const data = await r.json();
-    toast(`${data.found} RSS-URLs gefunden. Bitte einzeln abonnieren.`, 'info');
-    // Show URLs
-    document.getElementById('rss-url').value = data.urls[0]||'';
+    const parsed = await fetch('/api/podcasts/opml', { method:'POST', body: fd }).then(r=>r.json());
+    const urls = parsed.urls || [];
+    if (!urls.length) { toast('Keine RSS-URLs in der Datei gefunden.', 'error'); return; }
+    btn.textContent = `Abonniere ${urls.length}…`;
+    const res = await API.post('/api/podcasts/bulk', { urls });
+    toast(`${res.subscribed}/${res.total} Feeds abonniert`, 'success');
+    const fails = (res.results || []).filter(r => !r.ok && !r.duplicate);
+    out.innerHTML = `<div style="color:var(--success)">✓ ${res.subscribed} abonniert</div>` +
+      (fails.length ? `<div style="color:var(--text-muted);margin-top:.3rem">${fails.length} fehlgeschlagen:</div>` +
+        fails.slice(0,8).map(f=>`<div style="color:var(--error);font-size:.78rem">• ${escHtml(f.url)} — ${escHtml(f.error||'Fehler')}</div>`).join('') : '');
+    loadPodcasts();
   } catch(e) { toast(e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Alle abonnieren'; }
 }
 
 async function directTranscribe() {
@@ -370,7 +381,7 @@ async function loadTakeaways() {
       <div class="ticker-card" onclick="location.href='/episode/${it.episode_id}'">
         <div class="ticker-source">
           ${it.feed_type==='newsletter' ? icon('mail',{size:13}) : (it.feed_type==='newsfeed' ? icon('newspaper',{size:13}) : (it.feed_type==='website' ? icon('link',{size:13}) : icon('headphones',{size:13})))}
-          <span>${escHtml(it.podcast_title)}</span>
+          <span class="ticker-feed" onclick="event.stopPropagation();location.href='/podcast/${it.podcast_id}'" title="Zur Quelle">${escHtml(it.podcast_title)}</span>
           <span class="ticker-date">${escHtml(tickerDate(it.pub_date))}</span>
         </div>
         <div class="ticker-takeaway">${escHtml(it.takeaway)}</div>

@@ -1197,6 +1197,10 @@ details[open] summary::before { transform: rotate(90deg); }
 [data-guest-only] { display: none; }
 body.role-guest [data-owner-only] { display: none !important; }
 body.role-guest [data-guest-only] { display: flex; }
+/* Bottom-nav links set display:flex themselves, which would beat the generic
+   [data-guest-only] hide — these higher-specificity rules keep them correct. */
+.bottom-nav [data-guest-only] { display: none; }
+body.role-guest .bottom-nav [data-guest-only] { display: flex; }
 
 /* ── Generated avatar (newsletters / missing artwork) ─────────────────────── */
 .gen-avatar {
@@ -1253,6 +1257,8 @@ body.role-guest [data-guest-only] { display: flex; }
 }
 .ticker-source .icon { width: 13px; height: 13px; }
 .ticker-source span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticker-feed { cursor: pointer; }
+.ticker-feed:hover { color: var(--accent); text-decoration: underline; }
 .ticker-date {
   margin-left: auto; flex: none; text-transform: none; letter-spacing: 0;
   font-size: .7rem; color: var(--text-muted); opacity: .85;

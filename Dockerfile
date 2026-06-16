@@ -18,6 +18,16 @@ RUN if [ "$INSTALL_WHISPER" = "true" ]; then \
         pip install --no-cache-dir -r requirements-whisper.txt; \
     fi
 
+# Optional headless browser for JS-rendered/paywalled page scraping (heavy —
+# pulls in Chromium + system libs). Enable the "Scraping & Audio → JavaScript-
+# Seiten rendern" setting after building with:
+#   docker-compose build --build-arg INSTALL_BROWSER=true
+ARG INSTALL_BROWSER=false
+RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
+        pip install --no-cache-dir playwright && \
+        playwright install --with-deps chromium; \
+    fi
+
 COPY app/ ./app/
 
 RUN mkdir -p /app/data /app/downloads

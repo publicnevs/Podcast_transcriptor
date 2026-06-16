@@ -169,6 +169,19 @@ CREATE TABLE IF NOT EXISTS feed_check_log (
 );
 CREATE INDEX IF NOT EXISTS idx_feed_check_log ON feed_check_log(podcast_id, checked_at);
 
+-- Per-episode processing history: what was loaded/transcribed and whether it
+-- succeeded, so the statistics page can show a success/failure protocol.
+CREATE TABLE IF NOT EXISTS processing_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    episode_id INTEGER REFERENCES episodes(id) ON DELETE CASCADE,
+    podcast_id INTEGER REFERENCES podcasts(id) ON DELETE SET NULL,
+    action TEXT,
+    ok INTEGER DEFAULT 1,
+    detail TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_processing_log ON processing_log(created_at);
+
 -- Named read-only "friend" logins (up to 10). Owner stays in the settings table.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,6 +222,10 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_email_to', '')
 INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_length', '4');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_style', '3');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_focus', '');
+-- Scraping: optional headless-browser rendering for JS-only/paywalled pages
+INSERT OR IGNORE INTO settings (key, value) VALUES ('js_render_enabled', '0');
+-- Audio: skip downloads longer than this (minutes) — keeps under Gemini's limit
+INSERT OR IGNORE INTO settings (key, value) VALUES ('max_audio_minutes', '180');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_category_ids_json', '[]');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_podcast_ids_json', '[]');
 INSERT OR IGNORE INTO settings (key, value) VALUES ('tageszeitung_last_run', '');

@@ -28,9 +28,20 @@ async def _log_check(db, podcast_id: int, new_episodes: int, ok: bool = True,
 
 def _feed_due(podcast) -> bool:
     """True if a feed is due for a check based on its check_interval_hours.
-    The job runs hourly; feeds with a longer interval are skipped until due."""
+    The job runs hourly; feeds with a longer interval are skipped until due.
+
+    Repeatedly failing feeds get exponential backoff so we don't hammer a broken
+    server every hour: effective interval = base * 2^errors, capped at 24h."""
     interval = podcast["check_interval_hours"] or 0
     last = podcast["last_checked"]
+    # Backoff widens the interval after consecutive errors (reset to 0 on success).
+    try:
+        errors = int(podcast["consecutive_fetch_errors"] or 0)
+    except (KeyError, IndexError, TypeError):
+        errors = 0
+    if errors > 0:
+        base = interval if interval and interval > 1 else 1
+        interval = min(base * (2 ** min(errors, 5)), 24)
     if not interval or interval <= 1 or not last:
         return True
     from datetime import datetime, timedelta
@@ -48,10 +59,10 @@ async def _check_website(db, podcast) -> int:
     content changed (deduped via a sha1 hash stored in episode_url)."""
     import hashlib
     from datetime import datetime
-    from .processor import _fetch_article_text
+    from .processor import _fetch_article_text, _looks_paywalled
 
     text = await _fetch_article_text(podcast["rss_url"])
-    if not text:
+    if not text or _looks_paywalled(text):
         return 0
 
     # Best-effort: give the source a real logo the first time we scrape it
