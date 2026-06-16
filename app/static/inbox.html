@@ -20,7 +20,7 @@
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem">
     <div>
       <h1 style="font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:.5rem" data-icon="inbox" data-icon-size="22">Neuzugänge</h1>
-      <p style="color:var(--text-muted);margin-top:.375rem;font-size:.9rem">Zeitleiste aller neuen Folgen, Artikel & Mails — transkribiere sie bei Bedarf.</p>
+      <p style="color:var(--text-muted);margin-top:.375rem;font-size:.9rem">Neue, bereits aufbereitete Folgen, Artikel & Mails — plus was gerade verarbeitet wird.</p>
     </div>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" id="check-btn" data-icon="refresh-cw" data-icon-size="15" onclick="checkAll()">Auf neue Folgen prüfen</button>
@@ -29,7 +29,7 @@
     </div>
   </div>
 
-  <div id="inbox-list" class="episode-list">
+  <div id="inbox-view">
     <div class="empty-state"><div class="spinner"></div></div>
   </div>
 
@@ -50,43 +50,75 @@ function srcIcon(ft) {
   return icon('headphones',{size:14});
 }
 
+let _errors = {};   // episode_id → error_msg, for the click-to-view detail
+
 async function load() {
-  const list = document.getElementById('inbox-list');
+  const view = document.getElementById('inbox-view');
   try {
-    const items = await API.get('/api/inbox');
-    if (!items.length) {
-      list.innerHTML = `<div class="empty-state"><div class="icon">${icon('inbox',{size:44})}</div><p>Noch keine Neuzugänge.<br>Abonniere Quellen oder prüfe auf neue Folgen.</p></div>`;
+    const data = await API.get('/api/inbox');
+    const ready = data.ready || [];
+    const processing = data.processing || [];
+    _errors = {};
+    processing.forEach(e => { if (e.error_msg) _errors[e.id] = e.error_msg; });
+
+    if (!ready.length && !processing.length) {
+      view.innerHTML = `<div class="empty-state"><div class="icon">${icon('inbox',{size:44})}</div><p>Noch keine Neuzugänge.<br>Abonniere Quellen oder prüfe auf neue Folgen.</p></div>`;
       return;
     }
-    list.innerHTML = items.map(renderItem).join('');
+    let html = '';
+    if (ready.length) {
+      html += `<div class="section-title" data-icon="sparkles" data-icon-size="16">Neu &amp; fertig</div>`;
+      html += `<div class="episode-list" style="margin-bottom:1.5rem">${ready.map(renderItem).join('')}</div>`;
+    }
+    if (processing.length) {
+      const errs = processing.filter(e => e.status === 'error').length;
+      html += `<div class="section-title" data-icon="refresh-cw" data-icon-size="16">In Arbeit${errs?` / Fehler (${errs})`:''}</div>`;
+      html += `<div class="episode-list">${processing.map(renderItem).join('')}</div>`;
+    }
+    view.innerHTML = html;
     hydrateIcons();
   } catch(e) {
-    list.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
+    view.innerHTML = `<div class="empty-state" style="color:var(--error)">${escHtml(e.message)}</div>`;
   }
 }
 
 function actionFor(e) {
   // pending → opt-in transcribe; error → retry; running → spinner; done → none.
   if (e.status === 'pending')
-    return `<button class="btn btn-primary btn-sm" onclick="transcribe(this, ${e.id})">${icon('sparkles',{size:15})} Transkribieren</button>`;
+    return `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();transcribe(this, ${e.id})">${icon('sparkles',{size:15})} Transkribieren</button>`;
   if (e.status === 'error')
-    return `<button class="btn btn-secondary btn-sm" onclick="transcribe(this, ${e.id})">${icon('refresh-cw',{size:15})} Erneut</button>`;
+    return `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();transcribe(this, ${e.id})">${icon('refresh-cw',{size:15})} Erneut</button>`;
   if (e.status === 'queued' || e.status === 'downloading' || e.status === 'transcribing')
     return `<span class="spinner" style="width:18px;height:18px"></span>`;
   return '';  // done — row click opens the episode
 }
 
+// Clicking a failed item (or its "Fehler" badge) shows the full error message
+// with an option to retry.
+async function showError(id) {
+  const msg = _errors[id] || 'Keine Details verfügbar.';
+  const retry = await confirmModal('Fehlerdetails', msg, 'Erneut versuchen');
+  if (!retry) return;
+  try { await API.post(`/api/episodes/${id}/transcribe`, {}); toast('In die Warteschlange gestellt', 'success'); setTimeout(load, 800); }
+  catch(e) { toast(e.message, 'error'); }
+}
+
 function renderItem(e) {
+  const isError = e.status === 'error';
+  const onClick = isError ? `showError(${e.id})` : `location.href='/episode/${e.id}'`;
+  const badge = isError
+    ? `<span style="cursor:pointer">${statusBadge(e.status)}</span>`
+    : statusBadge(e.status);
   return `
     <div class="episode-item" style="align-items:flex-start;gap:1rem">
-      <div style="flex:1;min-width:0;cursor:pointer" onclick="location.href='/episode/${e.id}'">
+      <div style="flex:1;min-width:0;cursor:pointer" onclick="${onClick}">
         <div class="episode-title">${escHtml(e.title)}</div>
         <div class="episode-meta">
           <span style="display:inline-flex;align-items:center;gap:.25rem">${srcIcon(e.feed_type)} ${escHtml(e.podcast_title||'')}</span>
           <span>${fmtDate(e.pub_date||e.created_at)}</span>
-          ${statusBadge(e.status)}
+          ${badge}
         </div>
-        ${e.error_msg ? `<div class="episode-summary" style="color:var(--error);margin-top:.35rem">${escHtml(e.error_msg)}</div>` : ''}
+        ${isError && e.error_msg ? `<div class="episode-summary" style="color:var(--error);margin-top:.35rem;cursor:pointer;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden">${escHtml(e.error_msg)} · Details</div>` : ''}
       </div>
       <div style="flex-shrink:0;display:flex;align-items:center">${actionFor(e)}</div>
     </div>`;

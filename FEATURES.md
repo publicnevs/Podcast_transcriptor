@@ -18,10 +18,13 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Newsletter-Abos** — E-Mail-Newsletter landen als „Podcast" in der Bibliothek (per IMAP-Postfach); jeder Absender wird zu einem eigenen Feed gruppiert.
 - **Websites abonnieren & aufbereiten** — eine beliebige Webseite eingeben: entweder **einmalig aufbereiten** (Text wird gescraped und als Artikel mit Zusammenfassung abgelegt) oder **dauerhaft überwachen** (PodScribe prüft die Seite regelmäßig und legt bei Änderungen automatisch einen neuen Eintrag an).
 - **Volltext statt nur Überschrift** — bei Artikel-Feeds, die nur einen Anriss („… weiterlesen") liefern, holt PodScribe automatisch den **vollständigen Artikeltext** von der Originalseite (sauber von Menü/Werbung befreit). Für neue Artikel-Feeds standardmäßig aktiv, pro Feed abschaltbar.
-- **OPML-Import** — alle Abos auf einmal aus Apple Podcasts, Pocket Casts & Co. übernehmen.
-- **Automatische Folgen-Erkennung** — neue Folgen werden stündlich im Hintergrund gefunden.
+- **OPML-Import mit Massen-Abo** — alle Abos aus Apple Podcasts, Pocket Casts & Co. auf einmal übernehmen: eine Datei wählen, „Alle abonnieren" — PodScribe legt jeden Feed an und zeigt, welche geklappt haben und welche nicht.
+- **Quellen-Typ pro Feed umstellbar** — falsch erkannt? In den Feed-Einstellungen zwischen **Podcast (Audio)**, **Newsfeed (Artikel/Text)** und **Website** wechseln. Gemischte Feeds (Audio + Artikel) werten Artikel automatisch als Text aus, statt sie fälschlich als Audio zu laden.
+- **Automatische Folgen-Erkennung** — neue Folgen werden stündlich im Hintergrund gefunden; wiederholt nicht erreichbare Feeds werden seltener (mit wachsendem Abstand) geprüft, statt jede Stunde erneut zu scheitern.
 - **Auto-Transkription pro Podcast** — pro Feed festlegen, ob neue Folgen automatisch transkribiert werden.
 - **Flexible Abo-Optionen** — maximale Folgenzahl begrenzen, Prüf-Intervall einstellen, gezielt einzelne Folgen transkribieren.
+- **Sichere URL-Eingabe** — beim Abonnieren/Scrapen werden nur echte Web-Adressen akzeptiert (kein localhost/interne Adressen).
+- **Max. Audio-Länge** — sehr lange Folgen werden mit klarer Meldung übersprungen (Limit in den Einstellungen), statt erst spät am Größenlimit zu scheitern.
 - **„Neue Folgen suchen"-Button** — einen Feed jederzeit manuell auf neue Folgen prüfen.
 - **Echte Logos für Newsletter & Websites** — PodScribe holt automatisch das Logo der Quelle (og:image bzw. Favicon der Absender-/Webseite, oder ein Logo aus der Newsletter-Mail). Klappt das nicht, gibt es weiterhin ein generiertes Icon (Farbe + Initialen, bei Newslettern mit Mail-Symbol). Das Logo lässt sich pro Quelle auch **manuell überschreiben** (Logo-URL in den Feed-Einstellungen).
 
@@ -34,9 +37,11 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 📥 Neuzugänge
 
-- **Neuzugänge-Seite** — alle frisch eingetroffenen, noch nicht aufbereiteten Folgen, Artikel und Mails an einem Ort.
+- **Zwei Abschnitte** — oben **„Neu & fertig"** (neue, bereits transkribierte Folgen/News mit Text, die du sofort lesen/hören kannst), darunter **„In Arbeit / Fehler"** (was gerade verarbeitet wird oder fehlgeschlagen ist).
+- **Fehlerdetails auf Klick** — bei einem fehlgeschlagenen Eintrag die volle Fehlermeldung anzeigen und direkt „Erneut versuchen".
 - **Transkribieren auf Knopfdruck** — einzelne Neuzugänge gezielt transkribieren/aufbereiten lassen.
 - **Sofort aktualisieren** — „Auf neue Folgen prüfen" (alle Feeds) und „Postfach prüfen" (Newsletter) direkt von der Seite auslösen.
+- **Nur für Eigentümer** — die Neuzugänge-Seite (Verarbeitung/Betrieb) ist im Gast-/Lesezugang ausgeblendet.
 
 ## 🎙️ Transkription
 
@@ -73,7 +78,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Verwandte Folgen** — zu jeder Folge passende andere Folgen (über gemeinsame Themen & inhaltliche Ähnlichkeit).
 - **Themen-Explorer** — pro Schlagwort eine chronologische Zeitleiste aller Folgen plus optionale themenübergreifende Zusammenfassung.
 - **Ungelesen-Tracking** — Badge pro Podcast, gespeicherte Lese-/Scroll-Position, „als gelesen" markieren.
-- **Aktuelles-Ticker** — auf der Startseite eine wischbare Reihe der neuesten Beiträge, jeweils mit **Quelle und Datum** (heute/gestern/Datum); ein Klick springt direkt in die Folge bzw. den Artikel. Daneben ein **Tageszeitung-Shortcut**, der bei vorhandener heutiger Ausgabe direkt zu ihr führt (sonst zur Redaktion).
+- **Aktuelles-Ticker** — auf der Startseite eine wischbare Reihe der neuesten Beiträge, jeweils mit **Quelle und Datum** (heute/gestern/Datum); ein Klick auf die Kachel öffnet die Folge bzw. den Artikel, ein Klick auf den **Quellennamen** springt zur Podcast-/Feed-Detailseite. Daneben ein **Tageszeitung-Shortcut**, der bei vorhandener heutiger Ausgabe direkt zu ihr führt (sonst zur Redaktion).
 - **Filter & Sortierung** — nach Podcast, Zeitraum, Lese- und Transkriptions-Status.
 - **Notizen** — persönliche Notizen pro Folge.
 
@@ -114,6 +119,9 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Statistikseite** — eine eigene Übersichtsseite (in den Einstellungen oben und im „Mehr"-Menü verlinkt): wie viele **Quellen, Beiträge, Fertig/Ungelesen** und der **Verarbeitungsstatus** (Warteschlange, in Arbeit, Fehler) auf einen Blick.
 - **Aktivität je Quelle** — pro Podcast/Feed/Webseite: wie viele **neue Beiträge** im gewählten Zeitraum, wie viele **Prüfungen (Checks)**, wann **zuletzt geprüft** — sortierbar, mit **Fehler-Warnung** bei wiederholt nicht erreichbaren Feeds. Zeitraum wählbar (7 / 30 / 90 Tage), inkl. Mini-Diagramm „neue Beiträge pro Tag".
 - **Zuverlässige Warteschlange** — neue Folgen werden fortlaufend und vollständig abgearbeitet (nicht mehr nur ein paar pro Durchlauf); beim Einschalten der Auto-Transkription werden wartende Folgen sofort verarbeitet, und nach einem Neustart hängengebliebene Folgen laufen automatisch weiter.
+- **Verarbeitungs-Protokoll** — auf der Statistik-Seite ein Log, was erfolgreich bzw. erfolglos geladen/transkribiert wurde (Quelle, Aktion, Detail, Zeit).
+- **Feed-Gesundheit** — wiederholt fehlerhafte Feeds zeigen in den Feed-Einstellungen ein Warn-Badge mit der letzten Fehlermeldung.
+- **JS-Seiten & Paywalls** — beim Scrapen wird erkannt, wenn eine Seite nur eine Anmelde-/Paywall liefert (klare Meldung statt Müll-Text). Optional kann ein Headless-Browser JavaScript-Seiten rendern (Substack/Medium/SPAs) — in den Einstellungen aktivierbar, wenn das Image entsprechend gebaut wurde.
 
 ## 📱 App & Mobile (PWA)
 

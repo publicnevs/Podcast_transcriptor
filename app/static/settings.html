@@ -61,6 +61,28 @@
     </div>
   </div>
 
+  <!-- Scraping & Audio -->
+  <div class="card" style="margin-bottom:1rem">
+    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="globe" data-icon-size="18">Scraping &amp; Audio</h2>
+    <div style="display:flex;flex-direction:column;gap:.875rem">
+      <label style="display:flex;align-items:center;gap:.625rem;font-size:.9rem;cursor:pointer">
+        <input type="checkbox" id="js-render" style="width:auto">
+        JavaScript-Seiten rendern (Substack/Medium/SPAs &amp; Paywalls)
+      </label>
+      <span style="font-size:.78rem;color:var(--text-muted);margin-top:-.4rem">
+        Nutzt einen Headless-Browser als Fallback, wenn eine Seite ohne JavaScript leer bleibt.
+        Erfordert, dass das Image mit <code>--build-arg INSTALL_BROWSER=true</code> gebaut wurde.
+        Ohne diese Installation bleibt die Option wirkungslos.
+      </span>
+      <div class="form-group">
+        <label class="form-label">Max. Audio-Länge (Minuten, 0 = unbegrenzt)</label>
+        <input type="number" id="max-audio-min" value="180" min="0" max="1440" style="width:120px">
+        <span style="font-size:.78rem;color:var(--text-muted);margin-top:.25rem">Längere Folgen werden mit klarer Meldung übersprungen (statt am 20-MB-Limit zu scheitern).</span>
+      </div>
+      <button class="btn btn-primary" style="align-self:flex-start" data-icon="save" data-icon-size="16" onclick="saveScraping()">Speichern</button>
+    </div>
+  </div>
+
   <!-- Categories (user-managed) -->
   <div class="card" style="margin-bottom:1rem">
     <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="folder" data-icon-size="18">Kategorien</h2>
@@ -478,6 +500,8 @@ async function loadSettings() {
     document.getElementById('ntfy-url').value = s.ntfy_url || 'https://ntfy.sh';
     document.getElementById('ntfy-topic').value = s.ntfy_topic || '';
     document.getElementById('check-interval').value = s.check_interval_hours || '24';
+    document.getElementById('js-render').checked = s.js_render_enabled === '1';
+    document.getElementById('max-audio-min').value = s.max_audio_minutes || '180';
     currentBackend = s.transcription_backend || 'gemini';
     document.getElementById('whisper-model').value = s.whisper_model || 'base';
     document.getElementById('key-status').innerHTML = s.gemini_api_key_set
@@ -710,6 +734,17 @@ async function saveInterval() {
   try {
     await API.put('/api/settings', { check_interval_hours: hours });
     toast('✅ Intervall gespeichert', 'success');
+  } catch(e) { toast(e.message, 'error'); }
+}
+
+async function saveScraping() {
+  const payload = {
+    js_render_enabled: document.getElementById('js-render').checked ? '1' : '0',
+    max_audio_minutes: parseInt(document.getElementById('max-audio-min').value) || 0,
+  };
+  try {
+    await API.put('/api/settings', payload);
+    toast('✅ Scraping/Audio gespeichert', 'success');
   } catch(e) { toast(e.message, 'error'); }
 }
 

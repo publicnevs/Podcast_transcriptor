@@ -176,8 +176,33 @@ function render() {
         <th data-k="last_checked" onclick="sortBy('last_checked')">Letzter Check</th>
       </tr></thead>
       <tbody id="feed-tbody"></tbody>
-    </table></div>`;
+    </table></div>
+    <div class="card-h">${icon('list',{size:16})} Verarbeitungs-Protokoll</div>
+    <div id="proto"><div class="muted" style="font-size:.84rem">Lade…</div></div>`;
   renderTable();
+  loadProtocol();
+}
+
+async function loadProtocol() {
+  const el = document.getElementById('proto');
+  if (!el) return;
+  try {
+    const rows = await API.get('/api/processing-log?limit=60');
+    if (!rows.length) { el.innerHTML = '<div class="muted" style="font-size:.84rem">Noch keine Einträge.</div>'; return; }
+    el.innerHTML = `<div class="tbl-wrap"><table class="feed-table">
+      <thead><tr><th>Status</th><th>Quelle / Beitrag</th><th>Aktion</th><th>Detail</th><th>Zeit</th></tr></thead>
+      <tbody>${rows.map(r => `
+        <tr>
+          <td>${r.ok ? '<span style="color:var(--success)">✓</span>' : '<span style="color:var(--error)">✗</span>'}</td>
+          <td><div class="feed-name" style="font-weight:500">${escHtml(r.podcast_title||'—')}</div>
+              <div class="muted" style="font-size:.76rem;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.episode_title||'')}</div></td>
+          <td>${escHtml(r.action||'')}</td>
+          <td class="muted" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(r.detail||'')}</td>
+          <td class="muted" style="white-space:nowrap">${fmtDate(r.created_at)}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+  } catch(e) {
+    el.innerHTML = '<div class="muted" style="font-size:.84rem">Protokoll konnte nicht geladen werden.</div>';
+  }
 }
 
 async function load() {

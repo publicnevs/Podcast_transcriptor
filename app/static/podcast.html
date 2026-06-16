@@ -64,6 +64,15 @@
           <option value="0">— Ohne Kategorie —</option>
         </select>
       </label>
+      <label style="display:block;font-size:.875rem">
+        <span style="display:block;margin-bottom:.25rem">Quellen-Typ</span>
+        <select id="set-feedtype" style="width:100%" onchange="markDirty();updateFulltextVis()">
+          <option value="podcast">Podcast (Audio)</option>
+          <option value="newsfeed">Newsfeed (Artikel/Text)</option>
+          <option value="website">Website</option>
+        </select>
+        <span style="display:block;margin-top:.25rem;font-size:.75rem;color:var(--text-muted)">Falsch erkannt? Auf „Newsfeed" stellen, damit Artikel als Text statt als Audio verarbeitet werden.</span>
+      </label>
       <label id="set-fulltext-wrap" style="display:none;align-items:center;gap:.625rem;font-size:.875rem;cursor:pointer">
         <input type="checkbox" id="set-fulltext" style="width:auto" onchange="markDirty()">
         <span data-icon="newspaper" data-icon-size="15">Volltext von der Artikelseite laden (Newsfeed)</span>
@@ -263,16 +272,20 @@ function populateSettings() {
   document.getElementById('set-maxep').value = podcastData.max_episodes ?? 0;
   document.getElementById('set-maxtr').value = podcastData.max_transcripts ?? 0;
   document.getElementById('set-interval').value = podcastData.check_interval_hours ?? 24;
-  const ftWrap = document.getElementById('set-fulltext-wrap');
-  if (podcastData.feed_type === 'newsfeed') {
-    ftWrap.style.display = 'flex';
-    document.getElementById('set-fulltext').checked = !!podcastData.full_text_extraction;
-  } else {
-    ftWrap.style.display = 'none';
-  }
+  document.getElementById('set-feedtype').value = podcastData.feed_type || 'podcast';
+  document.getElementById('set-fulltext').checked = !!podcastData.full_text_extraction;
+  updateFulltextVis();
   document.getElementById('set-artwork').value = podcastData.artwork_url || '';
   populateCategoryOptions();
   document.getElementById('set-save').disabled = true;
+}
+
+// The "full text" toggle only makes sense for newsfeeds — show it accordingly,
+// driven by the live dropdown value (so it appears the moment you pick Newsfeed).
+function updateFulltextVis() {
+  const ft = document.getElementById('set-feedtype').value;
+  document.getElementById('set-fulltext-wrap').style.display =
+    ft === 'newsfeed' ? 'flex' : 'none';
 }
 
 async function populateCategoryOptions() {
@@ -297,8 +310,9 @@ async function savePodcastSettings() {
     check_interval_hours: parseInt(document.getElementById('set-interval').value) || 1,
     category_id: parseInt(document.getElementById('set-category').value) || 0,
     artwork_url: document.getElementById('set-artwork').value.trim(),
+    feed_type: document.getElementById('set-feedtype').value,
   };
-  if (podcastData.feed_type === 'newsfeed') {
+  if (payload.feed_type === 'newsfeed') {
     payload.full_text_extraction = document.getElementById('set-fulltext').checked;
   }
   try {

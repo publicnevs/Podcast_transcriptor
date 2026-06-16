@@ -74,7 +74,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # read paths below; everything else (writes + cost actions) is owner-only.
 _GUEST_PAGE_RE = re.compile(
     r"^/(?:$|podcast/\d+$|episode/\d+$|digests$|digest/\d+$|tags$|tags/\d+$"
-    r"|topic/\d+$|about$|terms$|discover$|radar$|search$|login$|inbox$|category/\d+$)"
+    r"|topic/\d+$|about$|terms$|discover$|radar$|search$|login$|category/\d+$)"
 )
 _GUEST_STATIC_RE = re.compile(r"^/(?:static/|sw\.js$|manifest\.json$|health$|s/|favicon)")
 _GUEST_API_RE = re.compile(
@@ -82,7 +82,7 @@ _GUEST_API_RE = re.compile(
     r"|episodes/\d+$|episodes/\d+/audio$|episodes/\d+/tags$|episodes/\d+/related$"
     r"|episodes/\d+/export$|search$|tags$|tags/\d+/episodes$|digests$|digests/\d+$"
     r"|radar$|overview/week$|recommended$|recipes$|issue-options$"
-    r"|recent-takeaways$|topics/\d+$|categories$|categories/\d+$|inbox$)$"
+    r"|recent-takeaways$|topics/\d+$|categories$|categories/\d+$)$"
 )
 
 
@@ -90,6 +90,28 @@ def _guest_get_ok(path: str) -> bool:
     return bool(_GUEST_PAGE_RE.match(path)
                 or _GUEST_STATIC_RE.match(path)
                 or _GUEST_API_RE.match(path))
+
+
+def _valid_source_url(url: str) -> str:
+    """Validate a user-supplied source URL: http(s) only, sane host, and not a
+    loopback / private / link-local address (basic SSRF guard). Returns the
+    cleaned URL or raises HTTPException(400)."""
+    from urllib.parse import urlparse
+    import ipaddress
+    u = (url or "").strip()
+    parsed = urlparse(u)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise HTTPException(400, "Ungültige URL — bitte mit http:// oder https:// angeben.")
+    host = parsed.hostname.lower()
+    if host == "localhost" or host.endswith(".localhost"):
+        raise HTTPException(400, "Lokale Adressen sind nicht erlaubt.")
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise HTTPException(400, "Private/lokale Adressen sind nicht erlaubt.")
+    except ValueError:
+        pass  # hostname, not a literal IP — fine
+    return u
 
 
 @app.middleware("http")
@@ -146,6 +168,12 @@ class PodcastUpdate(BaseModel):
     category_id: Optional[int] = None
     position: Optional[int] = None
     artwork_url: Optional[str] = None
+    feed_type: Optional[str] = None
+
+
+class BulkSubscribe(BaseModel):
+    urls: List[str]
+    auto_transcribe: bool = False
 
 
 class CategoryCreate(BaseModel):
@@ -218,6 +246,9 @@ class SettingsUpdate(BaseModel):
     tageszeitung_focus: Optional[str] = None
     tageszeitung_category_ids_json: Optional[str] = None
     tageszeitung_podcast_ids_json: Optional[str] = None
+    # Scraping & audio
+    js_render_enabled: Optional[bool] = None
+    max_audio_minutes: Optional[int] = None
 
 
 class LoginRequest(BaseModel):
@@ -556,19 +587,25 @@ async def recommended_podcasts():
     return [{**p, "subscribed": p["rss"] in subscribed} for p in RECOMMENDED_PODCASTS]
 
 
-@app.post("/api/podcasts", status_code=201)
-async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
+async def _subscribe_feed(url: str, auto_transcribe: bool, max_episodes: int = 0,
+                          full_text_extraction: bool = True) -> dict:
+    """Subscribe one RSS/feed URL. Returns a result dict and never raises for
+    feed/duplicate errors, so bulk import can keep going. 'needs_process' tells
+    the caller whether to kick the queue."""
     try:
-        feed_data = await parse_rss_feed(data.rss_url)
+        _valid_source_url(url)
+        feed_data = await parse_rss_feed(url)
+    except HTTPException as e:
+        return {"url": url, "ok": False, "error": e.detail}
     except Exception as e:
-        raise HTTPException(400, f"Feed konnte nicht gelesen werden: {e}")
+        return {"url": url, "ok": False, "error": f"Feed konnte nicht gelesen werden: {e}"}
 
     podcast = feed_data["podcast"]
     episodes = feed_data["episodes"]
     feed_type = feed_data.get("feed_type", "podcast")
     # When a web page URL was given, autodiscovery resolves the real feed URL —
     # persist that so future scheduler checks hit the feed directly.
-    feed_url = podcast.get("rss_url") or data.rss_url
+    feed_url = podcast.get("rss_url") or url
 
     async with aiosqlite.connect(DB_PATH) as db:
         try:
@@ -579,14 +616,15 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (podcast["title"], feed_url, podcast["artwork_url"],
                  podcast["description"], podcast["website_url"], podcast["language"],
-                 1 if data.auto_transcribe else 0, data.max_episodes,
-                 feed_type, 1 if data.full_text_extraction else 0),
+                 1 if auto_transcribe else 0, max_episodes,
+                 feed_type, 1 if full_text_extraction else 0),
             )
             await db.commit()
         except Exception as e:
             if "UNIQUE" in str(e):
-                raise HTTPException(400, "Podcast bereits abonniert")
-            raise
+                return {"url": url, "ok": False, "duplicate": True,
+                        "error": "Podcast bereits abonniert", "title": podcast["title"]}
+            return {"url": url, "ok": False, "error": str(e)}
 
         async with db.execute("SELECT last_insert_rowid()") as cur:
             podcast_id = (await cur.fetchone())[0]
@@ -594,21 +632,52 @@ async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
         # On the first subscribe, only pull in the 3 newest episodes so the
         # Neuzugänge inbox isn't flooded with a feed's entire back catalogue.
         # Later scheduler runs use the podcast's own max_episodes unchanged.
-        initial_limit = min(3, data.max_episodes) if data.max_episodes > 0 else 3
+        initial_limit = min(3, max_episodes) if max_episodes > 0 else 3
         await insert_new_episodes(
             db, podcast_id, episodes,
             feed_type=feed_type,
-            full_text_extraction=data.full_text_extraction,
-            auto_transcribe=data.auto_transcribe,
+            full_text_extraction=full_text_extraction,
+            auto_transcribe=auto_transcribe,
             limit=initial_limit,
         )
         await db.commit()
 
-    if data.auto_transcribe or (feed_type == "newsfeed" and data.full_text_extraction):
-        background_tasks.add_task(process_queued)
+    needs = auto_transcribe or (feed_type == "newsfeed" and full_text_extraction)
+    return {"url": url, "ok": True, "id": podcast_id, "title": podcast["title"],
+            "episode_count": len(episodes), "feed_type": feed_type, "needs_process": needs}
 
-    return {"id": podcast_id, "title": podcast["title"],
-            "episode_count": len(episodes), "feed_type": feed_type}
+
+@app.post("/api/podcasts", status_code=201)
+async def add_podcast(data: PodcastCreate, background_tasks: BackgroundTasks):
+    res = await _subscribe_feed(data.rss_url, data.auto_transcribe,
+                                data.max_episodes, data.full_text_extraction)
+    if not res["ok"]:
+        raise HTTPException(400, res["error"])
+    if res.get("needs_process"):
+        background_tasks.add_task(process_queued)
+    return {"id": res["id"], "title": res["title"],
+            "episode_count": res["episode_count"], "feed_type": res["feed_type"]}
+
+
+@app.post("/api/podcasts/bulk")
+async def subscribe_bulk(data: BulkSubscribe, background_tasks: BackgroundTasks):
+    """Subscribe many feed URLs at once (e.g. after an OPML import). Best-effort:
+    each URL is attempted independently; per-URL results are returned."""
+    results = []
+    any_process = False
+    seen = set()
+    for raw in data.urls:
+        u = (raw or "").strip()
+        if not u or u in seen:
+            continue
+        seen.add(u)
+        r = await _subscribe_feed(u, data.auto_transcribe)
+        any_process = any_process or r.get("needs_process", False)
+        results.append(r)
+    if any_process:
+        background_tasks.add_task(process_queued)
+    return {"subscribed": sum(1 for r in results if r["ok"]),
+            "total": len(results), "results": results}
 
 
 @app.post("/api/podcasts/opml")
@@ -652,6 +721,10 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate,
         fields["category_id"] = data.category_id if data.category_id > 0 else None
     if data.position is not None:
         fields["position"] = data.position
+    if data.feed_type is not None:
+        if data.feed_type not in ("podcast", "newsfeed", "website"):
+            raise HTTPException(400, "Ungültiger Quellen-Typ.")
+        fields["feed_type"] = data.feed_type
     if not fields:
         return {"ok": True}
     set_clause = ", ".join(f"{k}=?" for k in fields)
@@ -665,13 +738,19 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate,
             turned_on_auto = not (prev and prev[0])
         await db.execute(f"UPDATE podcasts SET {set_clause} WHERE id=?",
                          (*fields.values(), podcast_id))
+        # Switching a feed to 'newsfeed' means its unreadable 'error' entries
+        # (e.g. articles that hit yt-dlp) should be retried as articles.
+        if fields.get("feed_type") == "newsfeed":
+            await db.execute(
+                "UPDATE episodes SET status='queued', error_msg=NULL "
+                "WHERE podcast_id=? AND status='error'", (podcast_id,))
         if turned_on_auto:
             # Existing 'pending' episodes of this feed should now be processed.
             await db.execute(
                 "UPDATE episodes SET status='queued' WHERE podcast_id=? AND status='pending'",
                 (podcast_id,))
         await db.commit()
-    if turned_on_auto:
+    if turned_on_auto or fields.get("feed_type") == "newsfeed":
         background_tasks.add_task(process_queued)
     return {"ok": True}
 
@@ -834,13 +913,13 @@ async def _ensure_webclips_podcast(db) -> int:
 @app.post("/api/scrape", status_code=202)
 async def scrape_url(data: WebsiteSource, background_tasks: BackgroundTasks):
     """One-shot: fetch a web page, prepare it as an article episode under Web-Clips."""
-    from .processor import _fetch_article_text
-    url = data.url.strip()
-    if not url:
-        raise HTTPException(400, "URL fehlt.")
+    from .processor import _fetch_article_text, _looks_paywalled
+    url = _valid_source_url(data.url)
     text = await _fetch_article_text(url)
-    if not text:
-        raise HTTPException(400, "Konnte keinen Text von der Seite extrahieren.")
+    if not text or _looks_paywalled(text):
+        raise HTTPException(
+            400, "Konnte keinen lesbaren Text extrahieren (evtl. Paywall oder "
+                 "JavaScript-Seite). JS-Rendering ggf. in den Einstellungen aktivieren.")
     title = data.title.strip() or url.split("//")[-1][:120]
     async with aiosqlite.connect(DB_PATH) as db:
         podcast_id = await _ensure_webclips_podcast(db)
@@ -860,14 +939,14 @@ async def add_website_source(data: WebsiteSource, background_tasks: BackgroundTa
     """Subscribe a web page as a recurring 'website' source — the scheduler
     re-scrapes it and adds a new episode whenever the page content changes."""
     import hashlib
-    from .processor import _fetch_html, _extract_main_text, _fetch_site_image
-    url = data.url.strip()
-    if not url:
-        raise HTTPException(400, "URL fehlt.")
+    from .processor import _fetch_html, _extract_main_text, _fetch_site_image, _looks_paywalled
+    url = _valid_source_url(data.url)
     html = await _fetch_html(url)
     text = _extract_main_text(html, url) if html else ""
-    if not text:
-        raise HTTPException(400, "Konnte keinen Text von der Seite extrahieren.")
+    if not text or _looks_paywalled(text):
+        raise HTTPException(
+            400, "Konnte keinen lesbaren Text extrahieren (evtl. Paywall oder "
+                 "JavaScript-Seite). JS-Rendering ggf. in den Einstellungen aktivieren.")
     title = data.title.strip() or url.split("//")[-1][:120]
     # Best-effort logo from the same page we already fetched (og:image/favicon).
     artwork = await _fetch_site_image(url, html=html)
@@ -967,9 +1046,7 @@ async def transcribe_urls(data: TranscribeRequest, background_tasks: BackgroundT
     episode_ids = []
     async with aiosqlite.connect(DB_PATH) as db:
         for url in data.urls:
-            url = url.strip()
-            if not url:
-                continue
+            url = _valid_source_url(url)
             async with db.execute("SELECT id FROM episodes WHERE audio_url=?", (url,)) as cur:
                 existing = await cur.fetchone()
             if existing:
@@ -986,8 +1063,10 @@ async def transcribe_urls(data: TranscribeRequest, background_tasks: BackgroundT
                 async with db.execute("SELECT last_insert_rowid()") as cur:
                     ep_id = (await cur.fetchone())[0]
             episode_ids.append(ep_id)
-            background_tasks.add_task(process_episode, ep_id, url, url.split("/")[-1], "Manuell")
         await db.commit()
+    # Route through the serial drainer (one download at a time) instead of
+    # spawning a process_episode task per URL.
+    background_tasks.add_task(process_queued)
     return {"queued": len(episode_ids), "episode_ids": episode_ids}
 
 
@@ -1008,24 +1087,33 @@ async def transcribe_one(episode_id: int, background_tasks: BackgroundTasks):
 
 @app.get("/api/inbox")
 async def get_inbox():
-    """Timeline of recent arrivals across all feeds: everything added in the last
-    30 days (including already-processed 'done' items) plus any still-unprocessed
-    episode regardless of age (pending opt-in, queued/running, or failed)."""
+    """Neuzugänge, split into two sections:
+      - ready: new, already-transcribed items (status 'done') from the last 30 days,
+        i.e. things you can actually read/listen to right now.
+      - processing: anything still pending/running or failed (the operational view),
+        regardless of age — including the error message for failed items."""
+    cols = ("""e.id, e.title, e.status, e.pub_date, e.created_at, e.audio_url,
+               e.error_msg, p.id AS podcast_id, p.title AS podcast_title,
+               p.feed_type, p.artwork_url""")
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            SELECT e.id, e.title, e.status, e.pub_date, e.created_at, e.audio_url,
-                   e.error_msg, p.id AS podcast_id, p.title AS podcast_title,
-                   p.feed_type, p.artwork_url
-            FROM episodes e
-            LEFT JOIN podcasts p ON p.id = e.podcast_id
-            WHERE e.created_at >= datetime('now', '-30 days')
-               OR e.status IN ('pending','queued','downloading','transcribing','error')
+        async with db.execute(f"""
+            SELECT {cols}
+            FROM episodes e LEFT JOIN podcasts p ON p.id = e.podcast_id
+            WHERE e.status='done' AND e.created_at >= datetime('now', '-30 days')
             ORDER BY e.created_at DESC, e.pub_date DESC
             LIMIT 200
         """) as cur:
-            rows = await cur.fetchall()
-    return [dict(r) for r in rows]
+            ready = [dict(r) for r in await cur.fetchall()]
+        async with db.execute(f"""
+            SELECT {cols}
+            FROM episodes e LEFT JOIN podcasts p ON p.id = e.podcast_id
+            WHERE e.status IN ('pending','queued','downloading','transcribing','error')
+            ORDER BY (e.status='error') DESC, e.created_at DESC
+            LIMIT 200
+        """) as cur:
+            processing = [dict(r) for r in await cur.fetchall()]
+    return {"ready": ready, "processing": processing}
 
 
 @app.post("/api/feeds/check-all")
@@ -1508,6 +1596,11 @@ async def update_settings(data: SettingsUpdate):
     if data.tageszeitung_podcast_ids_json is not None:
         await set_setting("tageszeitung_podcast_ids_json",
                           _sanitize_id_json(data.tageszeitung_podcast_ids_json))
+    # Scraping & audio
+    if data.js_render_enabled is not None:
+        await set_setting("js_render_enabled", "1" if data.js_render_enabled else "0")
+    if data.max_audio_minutes is not None:
+        await set_setting("max_audio_minutes", str(max(0, min(1440, data.max_audio_minutes))))
     await _apply_runtime_config()
     # When enabling protection from open mode, keep THIS browser signed in as owner
     # so the user doesn't lock themselves out (they had no cookie before).
@@ -1757,6 +1850,25 @@ async def statistics(days: int = 30):
 
     return {"days": days, "summary": summary, "by_feed_type": by_feed_type,
             "by_feed": feeds, "timeline": timeline}
+
+
+@app.get("/api/processing-log")
+async def processing_log(limit: int = 100):
+    """Recent processing protocol: what was loaded/transcribed and whether it
+    succeeded or failed (owner-only)."""
+    limit = max(1, min(limit, 500))
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT l.id, l.episode_id, l.action, l.ok, l.detail, l.created_at,
+                   e.title AS episode_title, p.title AS podcast_title, p.feed_type
+            FROM processing_log l
+            LEFT JOIN episodes e ON e.id = l.episode_id
+            LEFT JOIN podcasts p ON p.id = l.podcast_id
+            ORDER BY l.id DESC LIMIT ?
+        """, (limit,)) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    return rows
 
 
 # ── Scheduler ──────────────────────────────────────────────────────────────────
