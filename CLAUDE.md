@@ -37,7 +37,11 @@ There is no test suite — manual testing via the browser UI is the primary veri
 The Synology NAS does **not** use `git pull`. Deployment is done by downloading a
 tarball of the branch with `wget`, extracting it with `tar`, and all commands run
 with `sudo` (the deploy user is not in the docker group / lacks write perms on the
-app dir). The current development branch is `claude/hopeful-curie-l0thft`.
+app dir). Substitute `<current-branch>` below with the active development branch
+(see your task instructions) — the examples here are templates, not a fixed branch.
+
+> See also `DEPLOY.md` and `SYNOLOGY_COMMANDS.md` (repo root) for the same procedure;
+> this section is canonical — keep those in sync if the steps change.
 
 ```bash
 # 1. Go to the app directory
@@ -45,7 +49,7 @@ cd /volume1/docker/Podcast_transcriptor
 
 # 2. Download the branch tarball from GitHub
 sudo wget -O podscribe.tar.gz \
-  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/claude/hopeful-curie-l0thft.tar.gz
+  https://github.com/publicnevs/podcast_transcriptor/archive/refs/heads/<current-branch>.tar.gz
 
 # 3. Extract, stripping the top-level folder so files land in the current dir
 sudo tar -xzf podscribe.tar.gz --strip-components=1
