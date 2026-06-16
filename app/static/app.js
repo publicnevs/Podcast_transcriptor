@@ -533,13 +533,16 @@ function enableDragScroll(el) {
   el.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch') return;   // native touch scroll already works
     down = true; moved = false; startX = e.clientX; startLeft = el.scrollLeft;
-    el.classList.add('dragging');
   });
   el.addEventListener('pointermove', e => {
     if (!down) return;
     const dx = e.clientX - startX;
-    if (Math.abs(dx) > 4) moved = true;
-    el.scrollLeft = startLeft - dx;
+    // Only mark as a drag — and disable card pointer-events — once the pointer
+    // actually moves. Adding 'dragging' on pointerdown would make the cards
+    // non-interactive during a plain click, so the click would resolve to the
+    // row instead of the card and the card's onclick would never fire.
+    if (Math.abs(dx) > 4 && !moved) { moved = true; el.classList.add('dragging'); }
+    if (moved) el.scrollLeft = startLeft - dx;
   });
   const end = () => { down = false; el.classList.remove('dragging'); };
   el.addEventListener('pointerup', end);
