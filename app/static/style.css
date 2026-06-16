@@ -898,6 +898,10 @@ details[open] summary::before { transform: rotate(90deg); }
 .app-footer a { color: var(--accent); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 .app-footer strong { color: var(--text); }
+/* The title links to the terms but stays styled as plain text — only the
+   "Sven Kompe" link should read as a link in the footer. */
+.app-footer a.footer-title { color: var(--text); cursor: pointer; }
+.app-footer a.footer-title:hover { text-decoration: none; }
 
 /* ── Light theme (CR 8) ─────────────────────────────────────────────────── */
 [data-theme="light"] {
