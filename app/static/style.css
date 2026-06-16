@@ -75,6 +75,14 @@ img { max-width: 100%; height: auto; }
   height: 58px;
 }
 
+.topbar-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.02;
+  gap: 1px;
+}
+
 .topbar-logo {
   font-size: 1.25rem;
   font-weight: 700;
@@ -84,6 +92,18 @@ img { max-width: 100%; height: auto; }
 }
 
 .topbar-logo span { color: var(--text-muted); font-weight: 400; }
+
+/* Author byline under the wordmark — the only link styled to read as a link here. */
+.topbar-byline {
+  font-size: .62rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  letter-spacing: .01em;
+}
+.topbar-byline:hover { color: var(--text); }
 
 .topbar-nav {
   display: flex;
@@ -898,10 +918,6 @@ details[open] summary::before { transform: rotate(90deg); }
 .app-footer a { color: var(--accent); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 .app-footer strong { color: var(--text); }
-/* The title links to the terms but stays styled as plain text — only the
-   "Sven Kompe" link should read as a link in the footer. */
-.app-footer a.footer-title { color: var(--text); cursor: pointer; }
-.app-footer a.footer-title:hover { text-decoration: none; }
 
 /* ── Light theme (CR 8) ─────────────────────────────────────────────────── */
 [data-theme="light"] {

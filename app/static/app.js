@@ -227,7 +227,10 @@ function renderNav(activePath) {
   return `
     <div id="read-progress"></div>
     <nav class="topbar">
-      <a class="topbar-logo" href="/">Pod<span>Scribe</span></a>
+      <div class="topbar-brand">
+        <a class="topbar-logo" href="/">Pod<span>Scribe</span></a>
+        <a class="topbar-byline" href="/about" title="Features & Infos">Sven Kompe</a>
+      </div>
       <a href="/settings" class="queue-indicator" style="font-size:.78rem;color:var(--text-muted);margin-left:.5rem;display:none;text-decoration:none" id="queue-indicator" title="Warteschlange ansehen"></a>
       <div class="search-bar" style="flex:1;max-width:280px;margin-left:1rem">
         <input type="text" id="global-search" placeholder="Transkripte durchsuchen…" autocomplete="off">
