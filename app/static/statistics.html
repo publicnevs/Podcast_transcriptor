@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PodScribe — Statistik</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#7c6ff7">
+<style>
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:.75rem; margin-bottom:1.5rem; }
+  .stat-tile { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:.9rem 1rem; }
+  .stat-tile .num { font-size:1.6rem; font-weight:700; line-height:1; }
+  .stat-tile .lbl { font-size:.74rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; margin-top:.35rem; }
+  .stat-tile.warn .num { color:var(--error); }
+  .types-row { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1.5rem; }
+  .type-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.4rem .75rem; border-radius:999px;
+    background:var(--bg-card); border:1px solid var(--border); font-size:.84rem; }
+  .type-chip b { font-weight:700; }
+  .spark { display:flex; align-items:flex-end; gap:2px; height:64px; padding:.5rem 0; }
+  .spark .bar { flex:1 1 auto; min-width:3px; background:var(--accent); border-radius:2px 2px 0 0; opacity:.85; }
+  .spark .bar:hover { opacity:1; }
+  .feed-table { width:100%; border-collapse:collapse; font-size:.86rem; }
+  .feed-table th { text-align:left; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--text-muted); padding:.5rem .6rem; border-bottom:1px solid var(--border); cursor:pointer; white-space:nowrap; }
+  .feed-table th.num, .feed-table td.num { text-align:right; }
+  .feed-table td { padding:.55rem .6rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .feed-table tr:hover td { background:var(--accent-dim); }
+  .feed-name { display:flex; align-items:center; gap:.45rem; font-weight:600; }
+  .feed-name .icon { width:15px; height:15px; color:var(--text-muted); flex:none; }
+  .err-badge { display:inline-flex; align-items:center; gap:.3rem; color:var(--error); font-size:.78rem; }
+  .muted { color:var(--text-muted); }
+  .tbl-wrap { overflow-x:auto; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); }
+  .card-h { font-size:.95rem; font-weight:600; margin:1.5rem 0 .6rem; display:flex; align-items:center; gap:.4rem; }
+</style>
+</head>
+<body>
+<div id="nav-mount"></div>
+
+<div class="main-content">
+  <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem;flex-wrap:wrap">
+    <h1 style="font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.45rem"><span id="title-icon"></span> Statistik</h1>
+    <div class="segmented" id="window-toggle" style="margin-left:auto">
+      <button data-days="7" onclick="setWindow(7)">7 Tage</button>
+      <button class="active" data-days="30" onclick="setWindow(30)">30 Tage</button>
+      <button data-days="90" onclick="setWindow(90)">90 Tage</button>
+    </div>
+  </div>
+  <p class="muted" style="font-size:.9rem;margin-bottom:1.25rem">
+    Aktivität deiner Podcasts, Feeds und Webseiten: wie viele Aktualisierungen, wann zuletzt geprüft, und der Verarbeitungsstatus.
+  </p>
+  <div id="view"><div class="empty-state"><div class="spinner"></div></div></div>
+</div>
+
+<footer class="app-footer"><strong>PodScribe</strong> · © 2026 Sven Kompe · <a href="/about">Features & Info</a> · <a href="/terms">Nutzungsbedingungen</a></footer>
+<div id="toast-container"></div>
+<script src="/static/icons.js"></script>
+<script src="/static/app.js"></script>
+<script>
+document.getElementById('nav-mount').innerHTML = renderNav('/statistik');
+initGlobalSearch();
+initReadProgress();
+document.getElementById('title-icon').innerHTML = icon('bar-chart', {size:20});
+
+let curDays = 30;
+let _data = null;
+let _sort = { key: 'added_period', dir: -1 };
+
+function setWindow(days) {
+  curDays = days;
+  document.querySelectorAll('#window-toggle button').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.days) === days));
+  load();
+}
+
+function feedIcon(f) {
+  if (f.webclips) return icon('link', {size:15});
+  const m = { newsfeed:'newspaper', newsletter:'mail', website:'link', podcast:'headphones' };
+  return icon(m[f.feed_type] || 'headphones', {size:15});
+}
+function typeLabel(t) {
+  return { podcast:'Podcasts', newsfeed:'Newsfeeds', website:'Webseiten',
+           webclips:'Web-Clips', newsletter:'Newsletter' }[t] || t;
+}
+function typeIcon(t) {
+  const m = { podcast:'headphones', newsfeed:'newspaper', website:'link',
+              webclips:'link', newsletter:'mail' };
+  return icon(m[t] || 'headphones', {size:14});
+}
+
+function fmtDate(s) {
+  if (!s) return '—';
+  const d = new Date(s.replace(' ', 'T') + (s.endsWith('Z') ? '' : 'Z'));
+  if (isNaN(d)) return '—';
+  const now = new Date();
+  const diffH = (now - d) / 3.6e6;
+  if (diffH < 1) return 'vor <1 h';
+  if (diffH < 24) return 'vor ' + Math.round(diffH) + ' h';
+  if (diffH < 24*7) return 'vor ' + Math.round(diffH/24) + ' d';
+  return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'2-digit'});
+}
+
+function sortBy(key) {
+  if (_sort.key === key) _sort.dir *= -1;
+  else _sort = { key, dir: key === 'title' ? 1 : -1 };
+  renderTable();
+}
+
+function spark(timeline) {
+  if (!timeline || !timeline.length) return '<p class="muted" style="font-size:.84rem">Keine Daten im Zeitraum.</p>';
+  const max = Math.max(...timeline.map(t => t.count), 1);
+  return '<div class="spark">' + timeline.map(t =>
+    `<div class="bar" style="height:${Math.max(4, Math.round(t.count/max*100))}%" title="${t.date}: ${t.count}"></div>`
+  ).join('') + '</div>';
+}
+
+function renderTable() {
+  const feeds = [..._data.by_feed].sort((a,b) => {
+    let av = a[_sort.key], bv = b[_sort.key];
+    if (_sort.key === 'title') return _sort.dir * String(av).localeCompare(String(bv));
+    return _sort.dir * ((av||0) - (bv||0));
+  });
+  const arrow = k => _sort.key===k ? (_sort.dir<0?' ▼':' ▲') : '';
+  const rows = feeds.map(f => `
+    <tr>
+      <td><div class="feed-name">${feedIcon(f)}<span>${escHtml(f.title)}</span></div>
+        ${f.consecutive_fetch_errors>0 ? `<div class="err-badge" title="${escHtml(f.last_fetch_error||'')}">${icon('alert-triangle',{size:13})} ${f.consecutive_fetch_errors}× Fehler</div>` : ''}
+      </td>
+      <td class="num"><b>${f.added_period}</b></td>
+      <td class="num">${f.checks}${f.failed_checks?` <span class="muted">(${f.failed_checks}✗)</span>`:''}</td>
+      <td class="num">${f.done_count}</td>
+      <td class="num">${f.unread_count}</td>
+      <td class="muted" style="white-space:nowrap">${fmtDate(f.last_checked)}</td>
+    </tr>`).join('');
+  document.getElementById('feed-tbody').innerHTML = rows ||
+    '<tr><td colspan="6" class="muted" style="text-align:center;padding:1.5rem">Noch keine Feeds.</td></tr>';
+  document.querySelectorAll('.feed-table th[data-k]').forEach(th =>
+    th.firstChild && (th.dataset.base = th.dataset.base || th.textContent));
+  document.querySelectorAll('.feed-table th[data-k]').forEach(th =>
+    th.textContent = (th.dataset.base) + arrow(th.dataset.k));
+}
+
+function render() {
+  const s = _data.summary, t = _data.by_feed_type;
+  const tiles = [
+    ['total_podcasts','Quellen'], ['total_episodes','Beiträge'],
+    ['done','Fertig'], ['unread','Ungelesen'],
+    ['queued','Warteschlange'], ['processing','In Arbeit'],
+    ['pending','Wartend'], ['error','Fehler'],
+  ].map(([k,l]) =>
+    `<div class="stat-tile ${(k==='error'&&s[k])||(k==='queued'&&s[k]>20)?'warn':''}">
+       <div class="num">${s[k]}</div><div class="lbl">${l}</div></div>`).join('');
+
+  const chips = Object.keys(t).filter(k => t[k] > 0).map(k =>
+    `<span class="type-chip">${typeIcon(k)} ${typeLabel(k)} <b>${t[k]}</b></span>`).join('') ||
+    '<span class="muted">Noch keine Quellen abonniert.</span>';
+
+  document.getElementById('view').innerHTML = `
+    <div class="stat-grid">${tiles}</div>
+    <div class="types-row">${chips}</div>
+    <div class="card-h">${icon('bar-chart',{size:16})} Neue Beiträge pro Tag (${_data.days} Tage)</div>
+    ${spark(_data.timeline)}
+    <div class="card-h">${icon('rss',{size:16})} Aktivität je Quelle</div>
+    <div class="tbl-wrap"><table class="feed-table">
+      <thead><tr>
+        <th data-k="title" onclick="sortBy('title')">Quelle</th>
+        <th class="num" data-k="added_period" onclick="sortBy('added_period')">Neu (${_data.days}d)</th>
+        <th class="num" data-k="checks" onclick="sortBy('checks')">Checks</th>
+        <th class="num" data-k="done_count" onclick="sortBy('done_count')">Fertig</th>
+        <th class="num" data-k="unread_count" onclick="sortBy('unread_count')">Ungelesen</th>
+        <th data-k="last_checked" onclick="sortBy('last_checked')">Letzter Check</th>
+      </tr></thead>
+      <tbody id="feed-tbody"></tbody>
+    </table></div>`;
+  renderTable();
+}
+
+async function load() {
+  document.getElementById('view').innerHTML = '<div class="empty-state"><div class="spinner"></div></div>';
+  try {
+    _data = await API.get('/api/statistics?days=' + curDays);
+    render();
+  } catch(e) {
+    document.getElementById('view').innerHTML =
+      '<div class="empty-state"><p>Statistik konnte nicht geladen werden.</p></div>';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

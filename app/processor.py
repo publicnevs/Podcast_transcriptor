@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -348,7 +349,14 @@ async def process_episode(episode_id: int, audio_url: str, title: str, podcast_t
             audio_path.unlink(missing_ok=True)
 
 
-async def process_queued():
+# Serialises queue draining across all callers (scheduler drain job, feed
+# checks, HTTP background tasks). A non-blocking acquire means a second caller
+# returns immediately instead of selecting the same rows — no double-processing.
+_drain_lock = asyncio.Lock()
+
+
+async def _next_queued():
+    """Fetch the oldest still-queued episode, or None when the queue is empty."""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
@@ -357,14 +365,49 @@ async def process_queued():
                LEFT JOIN podcasts p ON p.id = e.podcast_id
                WHERE e.status = 'queued'
                ORDER BY e.created_at ASC
-               LIMIT 3"""
+               LIMIT 1"""
         ) as cur:
-            rows = await cur.fetchall()
+            return await cur.fetchone()
 
-    for row in rows:
-        url = row["audio_url"] or row["episode_url"] or ""
-        await process_episode(row["id"], url, row["title"],
-                               row["podcast_title"] or "Manuell")
+
+async def process_queued(max_items: int = 500):
+    """Drain the queue: process every 'queued' episode one by one until none
+    remain (or the safety cap is hit — the next scheduler tick continues).
+
+    Guarded by a module-level lock so concurrent callers don't race on the same
+    rows; if a drain is already running this call is a no-op.
+    """
+    if _drain_lock.locked():
+        return
+    async with _drain_lock:
+        processed = 0
+        while processed < max_items:
+            row = await _next_queued()
+            if row is None:
+                break
+            url = row["audio_url"] or row["episode_url"] or ""
+            await process_episode(row["id"], url, row["title"],
+                                  row["podcast_title"] or "Manuell")
+            processed += 1
+
+
+async def requeue_stuck(stale_minutes: int = 30) -> int:
+    """Recover episodes left mid-flight (e.g. by a crash/restart): rows stuck in
+    'downloading'/'transcribing' whose processing_started_at is older than the
+    threshold are reset to 'queued' so the drainer picks them up again."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """UPDATE episodes SET status='queued', processing_started_at=NULL
+               WHERE status IN ('downloading','transcribing')
+                 AND (processing_started_at IS NULL
+                      OR processing_started_at <= datetime('now', ?))""",
+            (f"-{int(stale_minutes)} minutes",),
+        )
+        await db.commit()
+        n = cur.rowcount or 0
+    if n:
+        logger.info(f"requeue_stuck: reset {n} stuck episode(s) to 'queued'")
+    return n
 
 
 async def _set_status(episode_id: int, status: str, error_msg: str = None):

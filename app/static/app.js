@@ -267,6 +267,7 @@ function openMoreSheet() {
   ];
   if (isOwner()) {
     items.splice(3, 0, { icon: 'plus', label: 'Abonnieren', onClick: () => location.href = '/?add=1' });
+    items.push({ icon: 'bar-chart', label: 'Statistik', onClick: () => location.href = '/statistik' });
     items.push({ icon: 'settings', label: 'Einstellungen', onClick: () => location.href = '/settings' });
   } else {
     const who = (window.ME && window.ME.username) ? `Abmelden (${window.ME.username})` : 'Anmelden';

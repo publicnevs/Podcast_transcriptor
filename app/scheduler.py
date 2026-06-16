@@ -11,6 +11,21 @@ logger = logging.getLogger(__name__)
 _scheduler = AsyncIOScheduler()
 
 
+async def _log_check(db, podcast_id: int, new_episodes: int, ok: bool = True,
+                     error_msg: str = None):
+    """Record a single feed poll in feed_check_log (powers the statistics page)."""
+    try:
+        await db.execute(
+            """INSERT INTO feed_check_log (podcast_id, new_episodes, ok, error_msg)
+               VALUES (?, ?, ?, ?)""",
+            (podcast_id, int(new_episodes), 1 if ok else 0,
+             (error_msg or "")[:300] or None),
+        )
+        await db.commit()
+    except Exception as e:
+        logger.warning(f"feed_check_log insert failed: {e}")
+
+
 def _feed_due(podcast) -> bool:
     """True if a feed is due for a check based on its check_interval_hours.
     The job runs hourly; feeds with a longer interval are skipped until due."""
@@ -101,13 +116,17 @@ async def check_all_feeds(force: bool = False) -> int:
                 continue
             try:
                 async with aiosqlite.connect(DB_PATH) as db:
-                    new_count += await _check_website(db, podcast)
+                    found = await _check_website(db, podcast)
+                    new_count += found
                     await db.execute(
                         "UPDATE podcasts SET last_checked=CURRENT_TIMESTAMP WHERE id=?",
                         (podcast["id"],))
                     await db.commit()
+                    await _log_check(db, podcast["id"], found, ok=True)
             except Exception as e:
                 logger.error(f"Website check failed for {podcast['rss_url']}: {e}")
+                async with aiosqlite.connect(DB_PATH) as db:
+                    await _log_check(db, podcast["id"], 0, ok=False, error_msg=str(e))
             continue
         try:
             feed_data = await parse_rss_feed(podcast["rss_url"])
@@ -128,6 +147,7 @@ async def check_all_feeds(force: bool = False) -> int:
                     (podcast["id"],),
                 )
                 await db.commit()
+                await _log_check(db, podcast["id"], inserted, ok=True)
         except Exception as e:
             logger.error(f"Feed check failed for {podcast['rss_url']}: {e}")
             try:
@@ -140,6 +160,7 @@ async def check_all_feeds(force: bool = False) -> int:
                         (str(e)[:300], podcast["id"]),
                     )
                     await db.commit()
+                    await _log_check(db, podcast["id"], 0, ok=False, error_msg=str(e))
             except Exception:
                 pass
 
@@ -352,6 +373,27 @@ def start_scheduler():
         replace_existing=True,
         max_instances=1,
     )
+    # Dedicated queue drainer: keeps the 'queued' backlog moving independently of
+    # feed checks (manual transcribe, retranscribe, auto-transcribe toggle, etc.).
+    _scheduler.add_job(
+        drain_queue,
+        trigger=IntervalTrigger(minutes=2),
+        id="drain_queue",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
     if not _scheduler.running:
         _scheduler.start()
+
+
+async def drain_queue():
+    """Scheduled queue drainer (every 2 min). Recovers stuck items first, then
+    processes all queued episodes via the lock-guarded processor.process_queued."""
+    from .processor import process_queued, requeue_stuck
+    try:
+        await requeue_stuck()
+        await process_queued()
+    except Exception as e:
+        logger.error(f"drain_queue failed: {e}")
     logger.info("Scheduler started")

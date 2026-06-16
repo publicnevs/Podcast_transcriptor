@@ -1212,6 +1212,19 @@ body.role-guest [data-guest-only] { display: flex; }
 }
 
 /* ── Takeaway ticker (start screen) ───────────────────────────────────────── */
+.ticker-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .75rem; margin-bottom: .6rem;
+}
+.tz-shortcut {
+  display: inline-flex; align-items: center; gap: .35rem; flex: none;
+  padding: .35rem .7rem; border-radius: 999px;
+  background: var(--accent-dim); color: var(--accent);
+  border: 1px solid var(--border); font-size: .8rem; font-weight: 600;
+  text-decoration: none; transition: border-color var(--transition), background var(--transition);
+}
+.tz-shortcut:hover { border-color: var(--accent); }
+.tz-shortcut .icon { width: 15px; height: 15px; }
 .ticker {
   display: flex; gap: .75rem; overflow-x: auto; padding-bottom: .5rem;
   scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
@@ -1239,6 +1252,11 @@ body.role-guest [data-guest-only] { display: flex; }
   color: var(--text-muted);
 }
 .ticker-source .icon { width: 13px; height: 13px; }
+.ticker-source span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ticker-date {
+  margin-left: auto; flex: none; text-transform: none; letter-spacing: 0;
+  font-size: .7rem; color: var(--text-muted); opacity: .85;
+}
 .ticker-takeaway {
   font-size: .9rem; line-height: 1.35; color: var(--text);
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
