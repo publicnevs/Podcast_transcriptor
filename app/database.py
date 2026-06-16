@@ -157,6 +157,18 @@ CREATE TABLE IF NOT EXISTS episode_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_episode_chunks_ep ON episode_chunks(episode_id);
 
+-- Per-feed check history: one row per poll (RSS / website / newsletter), so the
+-- statistics page can show how many updates each feed produced and when.
+CREATE TABLE IF NOT EXISTS feed_check_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    podcast_id INTEGER REFERENCES podcasts(id) ON DELETE CASCADE,
+    checked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    new_episodes INTEGER DEFAULT 0,
+    ok INTEGER DEFAULT 1,
+    error_msg TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_feed_check_log ON feed_check_log(podcast_id, checked_at);
+
 -- Named read-only "friend" logins (up to 10). Owner stays in the settings table.
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

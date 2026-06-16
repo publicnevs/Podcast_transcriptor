@@ -73,7 +73,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Verwandte Folgen** — zu jeder Folge passende andere Folgen (über gemeinsame Themen & inhaltliche Ähnlichkeit).
 - **Themen-Explorer** — pro Schlagwort eine chronologische Zeitleiste aller Folgen plus optionale themenübergreifende Zusammenfassung.
 - **Ungelesen-Tracking** — Badge pro Podcast, gespeicherte Lese-/Scroll-Position, „als gelesen" markieren.
-- **Takeaway-Ticker** — auf der Startseite eine wischbare Reihe der neuesten Erkenntnisse.
+- **Aktuelles-Ticker** — auf der Startseite eine wischbare Reihe der neuesten Beiträge, jeweils mit **Quelle und Datum** (heute/gestern/Datum); ein Klick springt direkt in die Folge bzw. den Artikel. Daneben ein **Tageszeitung-Shortcut**, der bei vorhandener heutiger Ausgabe direkt zu ihr führt (sonst zur Redaktion).
 - **Filter & Sortierung** — nach Podcast, Zeitraum, Lese- und Transkriptions-Status.
 - **Notizen** — persönliche Notizen pro Folge.
 
@@ -108,6 +108,12 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Gast-/Lesezugriff** — Gäste/Freunde können die Bibliothek, Folgen und die Suche lesen, aber nichts ändern oder kostenpflichtige KI-Aktionen auslösen.
 - **Gast-KI optional** — KI-Chat für Gäste freischaltbar, mit Limit pro Stunde zum Kostenschutz.
 - **Nutzungsbedingungen** — eigene Seite (`/terms`): Privatnutzung & Privatkopie, keine Weitergabe ohne Urheberrechtsprüfung, kostenloses Privatprojekt.
+
+## 📊 Statistik & Betrieb
+
+- **Statistikseite** — eine eigene Übersichtsseite (in den Einstellungen oben und im „Mehr"-Menü verlinkt): wie viele **Quellen, Beiträge, Fertig/Ungelesen** und der **Verarbeitungsstatus** (Warteschlange, in Arbeit, Fehler) auf einen Blick.
+- **Aktivität je Quelle** — pro Podcast/Feed/Webseite: wie viele **neue Beiträge** im gewählten Zeitraum, wie viele **Prüfungen (Checks)**, wann **zuletzt geprüft** — sortierbar, mit **Fehler-Warnung** bei wiederholt nicht erreichbaren Feeds. Zeitraum wählbar (7 / 30 / 90 Tage), inkl. Mini-Diagramm „neue Beiträge pro Tag".
+- **Zuverlässige Warteschlange** — neue Folgen werden fortlaufend und vollständig abgearbeitet (nicht mehr nur ein paar pro Durchlauf); beim Einschalten der Auto-Transkription werden wartende Folgen sofort verarbeitet, und nach einem Neustart hängengebliebene Folgen laufen automatisch weiter.
 
 ## 📱 App & Mobile (PWA)
 

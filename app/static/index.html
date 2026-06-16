@@ -88,9 +88,12 @@
     <div id="watchlist-list" class="episode-list"></div>
   </div>
 
-  <!-- Recent takeaways ticker -->
+  <!-- Recent takeaways ticker + Tageszeitung shortcut -->
   <div id="takeaways-section" style="display:none;margin-bottom:1.5rem">
-    <div class="section-title" data-icon="sparkles" data-icon-size="16">Aktuelle Erkenntnisse</div>
+    <div class="ticker-header">
+      <div class="section-title" data-icon="sparkles" data-icon-size="16" style="margin:0">Aktuelles</div>
+      <a id="tz-shortcut" class="tz-shortcut" href="/digests" title="Tageszeitung"></a>
+    </div>
     <div id="takeaways-ticker" class="ticker"></div>
   </div>
 
@@ -340,26 +343,54 @@ async function toggleWatch(id, btn) {
   await loadWatchlist();
 }
 
-// Recent-takeaways ticker (swipeable cards above the podcast grid)
+// Short relative/absolute date for ticker cards (e.g. "heute 14:20", "14.06.")
+function tickerDate(s) {
+  if (!s) return '';
+  const d = new Date(s.replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  const hm = d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+  if (sameDay) return 'heute ' + hm;
+  if (d.toDateString() === y.toDateString()) return 'gestern ' + hm;
+  return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'});
+}
+
+// Recent ticker (swipeable cards above the podcast grid): newest first, source + date
 async function loadTakeaways() {
   const sec = document.getElementById('takeaways-section');
   const row = document.getElementById('takeaways-ticker');
   if (!sec || !row) return;
   try {
-    const items = await API.get('/api/recent-takeaways?limit=12');
+    const items = await API.get('/api/recent-takeaways?limit=15');
     if (!items.length) { sec.style.display = 'none'; return; }
     sec.style.display = '';
     row.innerHTML = items.map(it => `
       <div class="ticker-card" onclick="location.href='/episode/${it.episode_id}'">
         <div class="ticker-source">
-          ${it.feed_type==='newsletter' ? icon('mail',{size:13}) : (it.feed_type==='newsfeed' ? icon('newspaper',{size:13}) : icon('headphones',{size:13}))}
+          ${it.feed_type==='newsletter' ? icon('mail',{size:13}) : (it.feed_type==='newsfeed' ? icon('newspaper',{size:13}) : (it.feed_type==='website' ? icon('link',{size:13}) : icon('headphones',{size:13})))}
           <span>${escHtml(it.podcast_title)}</span>
+          <span class="ticker-date">${escHtml(tickerDate(it.pub_date))}</span>
         </div>
         <div class="ticker-takeaway">${escHtml(it.takeaway)}</div>
         <div class="ticker-episode">${escHtml(it.title)}</div>
       </div>`).join('');
     enableDragScroll(row);   // mouse drag + wheel on desktop (touch swipes natively)
   } catch(e) { sec.style.display = 'none'; }
+}
+
+// Tageszeitung shortcut: links to today's issue if it exists, else the Redaktion.
+async function loadTageszeitungShortcut() {
+  const el = document.getElementById('tz-shortcut');
+  if (!el) return;
+  let href = '/digests', label = 'Tageszeitung';
+  try {
+    const t = await API.get('/api/tageszeitung/today');
+    if (t && t.id) { href = '/digest/' + t.id; label = 'Heutige Ausgabe'; }
+  } catch(e) {}
+  el.href = href;
+  el.innerHTML = icon('newspaper', {size:15}) + '<span>' + label + '</span>';
 }
 
 // Open add panel when arriving via ➕ Abonnieren (/?add=1)
@@ -372,6 +403,7 @@ if (new URLSearchParams(location.search).get('add') === '1') {
 loadPodcasts();
 loadWatchlist();
 loadTakeaways();
+loadTageszeitungShortcut();
 setInterval(() => { if (_dragId===null) loadPodcasts(); }, 10000);
 setInterval(loadTakeaways, 60000);
 </script>

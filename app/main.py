@@ -24,7 +24,7 @@ from .database import DB_PATH, init_db, get_setting, set_setting
 from .exporter import (bulk_export_markdown, export_ai_copy, export_chat_markdown,
                         export_markdown, export_txt)
 from .feed_parser import parse_rss_feed, parse_opml
-from .processor import process_episode, process_queued, insert_new_episodes
+from .processor import process_episode, process_queued, insert_new_episodes, requeue_stuck
 from .scheduler import start_scheduler
 from . import transcriber
 from .transcriber import (generate_digest, generate_issue, translate_to_german,
@@ -54,6 +54,12 @@ async def _apply_runtime_config():
 async def lifespan(app: FastAPI):
     await init_db()
     await _apply_runtime_config()
+    # Recover any episodes left mid-flight by a previous crash/restart so a
+    # backlog doesn't sit stuck — the scheduler's drain job picks them up.
+    try:
+        await requeue_stuck()
+    except Exception as e:
+        logger.warning(f"requeue_stuck on startup failed: {e}")
     start_scheduler()
     yield
 
@@ -366,6 +372,11 @@ async def page_settings():
     return FileResponse(STATIC_DIR / "settings.html")
 
 
+@app.get("/statistik", response_class=HTMLResponse)
+async def page_statistics():
+    return FileResponse(STATIC_DIR / "statistics.html")
+
+
 @app.get("/digests", response_class=HTMLResponse)
 async def page_digests():
     return FileResponse(STATIC_DIR / "digest.html")
@@ -619,8 +630,10 @@ async def get_podcast(podcast_id: int):
 
 
 @app.patch("/api/podcasts/{podcast_id}")
-async def update_podcast(podcast_id: int, data: PodcastUpdate):
+async def update_podcast(podcast_id: int, data: PodcastUpdate,
+                         background_tasks: BackgroundTasks):
     fields = {}
+    turned_on_auto = False
     if data.auto_transcribe is not None:
         fields["auto_transcribe"] = 1 if data.auto_transcribe else 0
     if data.max_episodes is not None:
@@ -643,9 +656,23 @@ async def update_podcast(podcast_id: int, data: PodcastUpdate):
         return {"ok": True}
     set_clause = ", ".join(f"{k}=?" for k in fields)
     async with aiosqlite.connect(DB_PATH) as db:
+        # Detect a 0→1 flip on auto_transcribe so we can drain the backlog.
+        if fields.get("auto_transcribe") == 1:
+            async with db.execute(
+                "SELECT auto_transcribe FROM podcasts WHERE id=?", (podcast_id,)
+            ) as cur:
+                prev = await cur.fetchone()
+            turned_on_auto = not (prev and prev[0])
         await db.execute(f"UPDATE podcasts SET {set_clause} WHERE id=?",
                          (*fields.values(), podcast_id))
+        if turned_on_auto:
+            # Existing 'pending' episodes of this feed should now be processed.
+            await db.execute(
+                "UPDATE episodes SET status='queued' WHERE podcast_id=? AND status='pending'",
+                (podcast_id,))
         await db.commit()
+    if turned_on_auto:
+        background_tasks.add_task(process_queued)
     return {"ok": True}
 
 
@@ -1586,13 +1613,18 @@ async def delete_user(user_id: int):
 # ── Recent takeaways (start-screen ticker) ─────────────────────────────────────
 
 @app.get("/api/recent-takeaways")
-async def recent_takeaways(limit: int = 12):
-    """Newest processed episodes with their first key takeaway (for the ticker)."""
+async def recent_takeaways(limit: int = 12, today: int = 0):
+    """Newest processed episodes with their first key takeaway (for the ticker).
+
+    Items are ordered newest-first and each carries its pub_date + feed_type so
+    the ticker can show the source and date. With today=1, only items published
+    today are returned (no fallback)."""
     limit = max(1, min(limit, 30))
+    where_today = "AND date(e.pub_date) = date('now', 'localtime')" if today else ""
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("""
-            SELECT e.id AS episode_id, e.title, p.id AS podcast_id,
+        async with db.execute(f"""
+            SELECT e.id AS episode_id, e.title, e.pub_date, p.id AS podcast_id,
                    p.title AS podcast_title, p.artwork_url, p.feed_type,
                    s.takeaways_json
             FROM episodes e
@@ -1601,6 +1633,7 @@ async def recent_takeaways(limit: int = 12):
             WHERE e.status='done'
               AND s.takeaways_json IS NOT NULL
               AND s.takeaways_json NOT IN ('', '[]')
+              {where_today}
             ORDER BY datetime(e.pub_date) DESC, e.id DESC
             LIMIT ?
         """, (limit,)) as cur:
@@ -1616,6 +1649,7 @@ async def recent_takeaways(limit: int = 12):
         out.append({
             "episode_id": r["episode_id"],
             "title": r["title"],
+            "pub_date": r["pub_date"],
             "podcast_id": r["podcast_id"],
             "podcast_title": r["podcast_title"],
             "artwork_url": r["artwork_url"],
@@ -1623,6 +1657,106 @@ async def recent_takeaways(limit: int = 12):
             "takeaway": takes[0],
         })
     return out
+
+
+# ── Statistics ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/statistics")
+async def statistics(days: int = 30):
+    """Owner dashboard: per-feed update activity, feed-type breakdown, pipeline
+    health and a daily timeline. Backed by feed_check_log + episodes/podcasts."""
+    days = max(1, min(days, 365))
+    since = f"-{days} days"
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Summary counters
+        async with db.execute("SELECT COUNT(*) AS n FROM podcasts") as cur:
+            total_podcasts = (await cur.fetchone())["n"]
+        async with db.execute(
+            """SELECT
+                 COUNT(*) AS total,
+                 SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done,
+                 SUM(CASE WHEN status='done' AND read_at IS NULL THEN 1 ELSE 0 END) AS unread,
+                 SUM(CASE WHEN status='queued' THEN 1 ELSE 0 END) AS queued,
+                 SUM(CASE WHEN status IN ('downloading','transcribing') THEN 1 ELSE 0 END) AS processing,
+                 SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) AS pending,
+                 SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) AS error
+               FROM episodes""") as cur:
+            s = await cur.fetchone()
+        summary = {
+            "total_podcasts": total_podcasts,
+            "total_episodes": s["total"] or 0,
+            "done": s["done"] or 0,
+            "unread": s["unread"] or 0,
+            "queued": s["queued"] or 0,
+            "processing": s["processing"] or 0,
+            "pending": s["pending"] or 0,
+            "error": s["error"] or 0,
+        }
+
+        # Feed-type breakdown (Web-Clips split out from regular websites)
+        by_feed_type = {"podcast": 0, "newsfeed": 0, "website": 0,
+                        "webclips": 0, "newsletter": 0}
+        async with db.execute(
+            "SELECT COALESCE(feed_type,'podcast') AS ft, rss_url FROM podcasts") as cur:
+            for r in await cur.fetchall():
+                ft = r["ft"] or "podcast"
+                if ft == "website" and r["rss_url"] == WEBCLIPS_RSS:
+                    by_feed_type["webclips"] += 1
+                elif ft in by_feed_type:
+                    by_feed_type[ft] += 1
+                else:
+                    by_feed_type["podcast"] += 1
+
+        # Per-feed activity: episodes added in window + check count/new totals
+        async with db.execute("""
+            SELECT p.id, p.title, COALESCE(p.feed_type,'podcast') AS feed_type,
+                   p.rss_url, p.last_checked, p.check_interval_hours,
+                   p.consecutive_fetch_errors, p.last_fetch_error,
+                   COUNT(CASE WHEN e.status='done' AND e.read_at IS NULL THEN 1 END) AS unread_count,
+                   COUNT(CASE WHEN e.status='done' THEN 1 END) AS done_count,
+                   COUNT(e.id) AS total_count,
+                   COUNT(CASE WHEN e.created_at >= datetime('now', ?) THEN 1 END) AS added_period
+            FROM podcasts p
+            LEFT JOIN episodes e ON e.podcast_id = p.id
+            GROUP BY p.id
+            ORDER BY added_period DESC, p.title COLLATE NOCASE
+        """, (since,)) as cur:
+            feeds = [dict(r) for r in await cur.fetchall()]
+
+        # Check log aggregates per feed within the window
+        async with db.execute("""
+            SELECT podcast_id,
+                   COUNT(*) AS checks,
+                   SUM(new_episodes) AS new_total,
+                   SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS failed_checks,
+                   MAX(checked_at) AS last_log
+            FROM feed_check_log
+            WHERE checked_at >= datetime('now', ?)
+            GROUP BY podcast_id
+        """, (since,)) as cur:
+            logs = {r["podcast_id"]: dict(r) for r in await cur.fetchall()}
+
+        for f in feeds:
+            lg = logs.get(f["id"], {})
+            f["webclips"] = (f["feed_type"] == "website" and f["rss_url"] == WEBCLIPS_RSS)
+            f["checks"] = lg.get("checks", 0) or 0
+            f["new_from_checks"] = lg.get("new_total", 0) or 0
+            f["failed_checks"] = lg.get("failed_checks", 0) or 0
+            f.pop("rss_url", None)
+
+        # Daily timeline of added episodes (oldest→newest)
+        async with db.execute("""
+            SELECT date(created_at) AS day, COUNT(*) AS n
+            FROM episodes
+            WHERE created_at >= datetime('now', ?)
+            GROUP BY day ORDER BY day ASC
+        """, (since,)) as cur:
+            timeline = [{"date": r["day"], "count": r["n"]} for r in await cur.fetchall()]
+
+    return {"days": days, "summary": summary, "by_feed_type": by_feed_type,
+            "by_feed": feeds, "timeline": timeline}
 
 
 # ── Scheduler ──────────────────────────────────────────────────────────────────
@@ -2559,6 +2693,23 @@ async def tageszeitung_run():
         raise HTTPException(
             400, "Keine am Vortag verarbeiteten Beiträge im gewählten Umfang gefunden.")
     return {"id": digest_id, "status": "generating"}
+
+
+@app.get("/api/tageszeitung/today")
+async def tageszeitung_today():
+    """Returns today's Tageszeitung issue (id + status) for the homepage shortcut,
+    or {id: null} when none was generated today."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """SELECT id, title, status FROM digests
+               WHERE mode='tageszeitung'
+                 AND date(created_at) = date('now', 'localtime')
+               ORDER BY id DESC LIMIT 1""") as cur:
+            row = await cur.fetchone()
+    if not row:
+        return {"id": None}
+    return {"id": row["id"], "title": row["title"], "status": row["status"]}
 
 
 @app.post("/api/scheduled-issues")
