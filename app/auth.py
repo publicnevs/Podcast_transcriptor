@@ -110,6 +110,16 @@ async def _get_user(username: str) -> dict | None:
     return dict(row) if row else None
 
 
+async def _touch_login(username: str):
+    """Record a successful friend login: bump last_login + login_count."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET last_login = strftime('%Y-%m-%d %H:%M:%S','now'), "
+            "login_count = COALESCE(login_count, 0) + 1 WHERE username = ?",
+            (username,))
+        await db.commit()
+
+
 def invalidate():
     """Call after any auth-related settings change."""
     _cache["loaded"] = False
@@ -170,6 +180,7 @@ async def login_user(username: str, password: str):
         return None
     row = await _get_user(username)
     if row and verify_password(password, row["password_hash"]):
+        await _touch_login(username)
         return (row["role"] or "guest"), username
     return None
 

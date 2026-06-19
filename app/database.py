@@ -188,7 +188,9 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT DEFAULT 'guest',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    login_count INTEGER DEFAULT 0
 );
 
 INSERT OR IGNORE INTO settings (key, value) VALUES ('ntfy_topic', '');
@@ -268,6 +270,9 @@ _MIGRATIONS = [
     "ALTER TABLE podcasts ADD COLUMN position INTEGER DEFAULT 0",
     # Surface why an issue/digest failed so the reader can show it + offer retry
     "ALTER TABLE digests ADD COLUMN error_msg TEXT",
+    # Friend login statistics: last login + total login count (owner-only view)
+    "ALTER TABLE users ADD COLUMN last_login TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN login_count INTEGER DEFAULT 0",
 ]
 
 

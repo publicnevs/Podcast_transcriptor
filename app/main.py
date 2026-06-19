@@ -1661,7 +1661,8 @@ async def list_users():
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT id, username, created_at FROM users ORDER BY username COLLATE NOCASE"
+            "SELECT id, username, created_at, last_login, login_count "
+            "FROM users ORDER BY username COLLATE NOCASE"
         ) as cur:
             rows = await cur.fetchall()
     return [dict(r) for r in rows]

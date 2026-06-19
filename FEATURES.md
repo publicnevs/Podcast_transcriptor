@@ -109,6 +109,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Standardmäßig offen** — solange kein Eigentümer-Passwort gesetzt ist, funktioniert alles wie gewohnt (Einzelnutzer).
 - **Eigentümer-Login** — mit gesetztem Passwort hat nur der Eigentümer Vollzugriff (transkribieren, Einstellungen, Redaktion/Ausgaben erstellen usw.).
 - **Freunde-Logins (bis zu 10)** — lege in den Einstellungen Freunde mit eigenem **Namen + Passwort** an (reiner Lesezugriff). Anmeldung auf der Login-Seite mit Name + Passwort.
+- **Login-Statistik der Freunde** — in der Freunde-Liste (Einstellungen) sieht der Eigentümer pro Freund, **wann er sich zuletzt eingeloggt hat** und **wie oft insgesamt** (oder „Noch nie eingeloggt").
 - **Zugriffsmodus wählbar** — „Nur angemeldete Nutzer" (Eigentümer + Freunde, kein anonymer Zugriff — ideal, wenn die App im Internet steht), „Offen lesbar" oder „Gemeinsames Gast-Passwort".
 - **Gast-/Lesezugriff** — Gäste/Freunde können die Bibliothek, Folgen und die Suche lesen, aber nichts ändern oder kostenpflichtige KI-Aktionen auslösen.
 - **Gast-KI optional** — KI-Chat für Gäste freischaltbar, mit Limit pro Stunde zum Kostenschutz.
