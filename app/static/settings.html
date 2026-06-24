@@ -427,12 +427,14 @@
 
   <!-- Newspaper editions (Tageszeitungen + Wochenmagazin) -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="newspaper" data-icon-size="18">Zeitungen / Editionen</h2>
+    <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="newspaper" data-icon-size="18">Tageszeitungen &amp; Wochenmagazin</h2>
     <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
-      Jede Edition erzeugt automatisch einen KI-Artikel: <strong>täglich</strong> aus den am Vortag
-      verarbeiteten Beiträgen oder <strong>wöchentlich</strong> aus der vergangenen Woche — aus den
-      gewählten Kategorien/Quellen. Sichtbar als Schaltfläche auf der Startseite und in der Redaktion;
-      optionaler E-Mail-Versand nutzt die SMTP-Einstellungen oben.
+      Hier legst du fest, <strong>welche Zeitungen es gibt</strong> und <strong>aus welchen Rubriken/Quellen</strong>
+      sie erstellt werden. Jede Edition erzeugt automatisch einen KI-Artikel: <strong>täglich</strong> aus den am
+      Vortag verarbeiteten Beiträgen oder <strong>wöchentlich</strong> aus der vergangenen Woche. Sichtbar als
+      Schaltfläche auf der Startseite und in der Redaktion; optionaler E-Mail-Versand nutzt die SMTP-Einstellungen oben.
+      <br><strong>Wichtig:</strong> Ein leerer Umfang = <em>alle Quellen</em> — deshalb erscheinen z.B. KI-News in „Sport".
+      Wähle bei „Bearbeiten" die passenden <strong>Rubriken/Quellen</strong>, um eine Ausgabe einzugrenzen.
     </p>
     <div id="ed-list" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem"></div>
     <button class="btn btn-secondary" data-icon="plus" data-icon-size="16" onclick="newEdition()">Neue Edition</button>
@@ -958,11 +960,17 @@ async function loadEditionsList() {
       const sched = e.kind === 'weekly'
         ? `wöchentlich · ${_DOW[e.schedule_dow] || ''} ${_pad2(e.schedule_hour)}:00`
         : `täglich · ${_pad2(e.schedule_hour)}:00`;
+      const nc = (e.category_ids || []).length, np = (e.podcast_ids || []).length;
+      const scope = (nc || np)
+        ? `Umfang: ${[nc ? nc + ' Rubrik' + (nc>1?'en':'') : '', np ? np + ' Quelle' + (np>1?'n':'') : ''].filter(Boolean).join(' · ')}`
+        : '⚠️ Umfang: alle Quellen';
+      const scopeColor = (nc || np) ? 'var(--text-muted)' : 'var(--accent)';
       return `<div style="display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem">
         ${icon(e.kind === 'weekly' ? 'book-open' : 'newspaper', {size:16})}
         <div style="flex:1;min-width:0">
           <div style="font-weight:600">${escHtml(e.name)}</div>
           <div style="font-size:.78rem;color:var(--text-muted)">${sched}${e.enabled ? '' : ' · pausiert'}</div>
+          <div style="font-size:.74rem;color:${scopeColor}">${scope}</div>
         </div>
         <button class="btn btn-ghost btn-sm" title="Jetzt erzeugen" onclick="runEditionNow(${e.id})">${icon('newspaper',{size:15})}</button>
         <button class="btn btn-ghost btn-sm" title="Bearbeiten" onclick="editEdition(${e.id})">${icon('pencil',{size:15})}</button>

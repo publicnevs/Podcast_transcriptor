@@ -102,6 +102,14 @@ img { max-width: 100%; height: auto; }
 .topbar-nav a:hover,
 .topbar-nav a.active { color: var(--text); background: var(--bg-hover); }
 
+.topbar-nav .topbar-more {
+  display: inline-flex; align-items: center; gap: .25rem;
+  padding: 0.4rem 0.75rem; border-radius: var(--radius-sm);
+  color: var(--text-muted); font-size: 0.9rem; font-family: inherit;
+  background: none; border: none; cursor: pointer; transition: var(--transition);
+}
+.topbar-nav .topbar-more:hover { color: var(--text); background: var(--bg-hover); }
+
 .main-content {
   flex: 1;
   padding: 1.5rem 1rem;

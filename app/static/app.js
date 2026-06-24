@@ -237,11 +237,10 @@ function renderNav(activePath) {
         <a href="/?add=1">${icon('plus')} <span>Abonnieren</span></a>
         <a href="/inbox" data-owner-only ${activePath==='/inbox'?'class="active"':''}>${icon('inbox')} <span>Neuzugänge</span></a>
         <a href="/search" ${activePath==='/search'?'class="active"':''}>${icon('sparkles')} <span>Fragen</span></a>
-        <a href="/radar" ${activePath==='/radar'?'class="active"':''}>${icon('radar')} <span>Radar</span></a>
-        <a href="/tags" ${isTags?'class="active"':''}>${icon('tag')} <span>Tags</span></a>
         <a href="/digests" ${activePath==='/digests'?'class="active"':''}>${icon('newspaper')} <span>Redaktion</span></a>
         <a href="/settings" data-owner-only ${activePath==='/settings'?'class="active"':''}>${icon('settings')} <span>Settings</span></a>
         <a href="/login" data-guest-only>${icon('lock')} <span>Anmelden</span></a>
+        <button type="button" class="topbar-more" onclick="openMoreSheet()" title="Mehr">${icon('list')} <span>Mehr</span></button>
         <button class="btn btn-ghost theme-btn" onclick="toggleTheme()" title="Design wechseln">${icon('sun')}</button>
       </nav>
     </nav>
@@ -254,22 +253,23 @@ function renderNav(activePath) {
     </nav>`;
 }
 
-// Mobile "Mehr" sheet: makes Radar/Tags/Fragen/Über + theme toggle reachable on
-// the phone and for guests (the bottom nav only has room for a few fixed items).
+// "Mehr" menu: secondary functions reachable on desktop + phone + for guests.
+// Feedback and Buy-me-a-coffee sit on top so they aren't buried in the About page.
 function openMoreSheet() {
   const light = document.documentElement.getAttribute('data-theme') === 'light';
   const items = [
-    { icon: 'sparkles', label: 'Fragen', onClick: () => location.href = '/search' },
+    { icon: 'mail',     label: 'Feedback', onClick: openFeedback },
+    { icon: 'coffee',   label: 'Buy me a coffee', onClick: () =>
+        window.open('https://www.paypal.com/donate/?business=sven@kompe.de&item_name=PodScribe&currency_code=EUR', '_blank', 'noopener') },
+    { icon: 'info',     label: 'Über',   onClick: () => location.href = '/about' },
     { icon: 'radar',    label: 'Radar',  onClick: () => location.href = '/radar' },
     { icon: 'tag',      label: 'Tags',   onClick: () => location.href = '/tags' },
-    { icon: 'info',     label: 'Über',   onClick: () => location.href = '/about' },
-    { icon: 'heart',    label: 'Unterstützen', onClick: () => location.href = '/about#friends' },
     { icon: 'file-text', label: 'Nutzungsbedingungen', onClick: () => location.href = '/terms' },
     { icon: light ? 'moon' : 'sun', label: light ? 'Dunkles Design' : 'Helles Design', onClick: toggleTheme },
   ];
   if (isOwner()) {
-    items.splice(3, 0, { icon: 'plus', label: 'Abonnieren', onClick: () => location.href = '/?add=1' });
-    items.push({ icon: 'bar-chart', label: 'Statistik', onClick: () => location.href = '/statistik' });
+    items.splice(5, 0, { icon: 'bar-chart', label: 'Statistik', onClick: () => location.href = '/statistik' });
+    items.splice(2, 0, { icon: 'plus', label: 'Abonnieren', onClick: () => location.href = '/?add=1' });
     items.push({ icon: 'settings', label: 'Einstellungen', onClick: () => location.href = '/settings' });
   } else {
     const who = (window.ME && window.ME.username) ? `Abmelden (${window.ME.username})` : 'Anmelden';
@@ -277,6 +277,53 @@ function openMoreSheet() {
       onClick: () => (window.ME && window.ME.username) ? logout() : (location.href = '/login') });
   }
   openSheet('Mehr', items);
+}
+
+// Feedback modal — usable from anywhere (the Mehr menu). Posts to /api/feedback and
+// falls back to a mailto link when the server can't send (e.g. SMTP off).
+function openFeedback() {
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay';
+  ov.innerHTML = `
+    <div class="modal">
+      <div class="modal-title">Feedback senden</div>
+      <p style="font-size:.82rem;color:var(--text-muted);margin:.4rem 0 .9rem">Lob, Wünsche, Bugs — geht direkt an den Entwickler.</p>
+      <input type="text" id="fbm-name" placeholder="Dein Name (optional)" style="width:100%;margin-bottom:.5rem">
+      <input type="text" id="fbm-contact" placeholder="E-Mail für Rückfragen (optional)" style="width:100%;margin-bottom:.5rem">
+      <textarea id="fbm-message" rows="4" placeholder="Deine Nachricht …" style="width:100%;margin-bottom:.25rem"></textarea>
+      <div id="fbm-status" style="font-size:.82rem;color:var(--text-muted);min-height:1.1em;margin-bottom:.6rem"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="fbm-cancel">Abbrechen</button>
+        <button class="btn btn-primary" id="fbm-send">Absenden</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener('click', e => { if (e.target === ov) close(); });
+  ov.querySelector('#fbm-cancel').onclick = close;
+  ov.querySelector('#fbm-message').focus();
+  ov.querySelector('#fbm-send').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const message = ov.querySelector('#fbm-message').value.trim();
+    const status = ov.querySelector('#fbm-status');
+    if (!message) { status.style.color = 'var(--error)'; status.textContent = 'Bitte eine Nachricht eingeben.'; return; }
+    btn.disabled = true; status.style.color = 'var(--text-muted)'; status.textContent = 'Senden …';
+    try {
+      await API.post('/api/feedback', {
+        message,
+        name: ov.querySelector('#fbm-name').value.trim(),
+        contact: ov.querySelector('#fbm-contact').value.trim(),
+      });
+      toast('✅ Danke für dein Feedback!', 'success');
+      close();
+    } catch(err) {
+      const body = encodeURIComponent(message);
+      status.style.color = 'var(--text-muted)';
+      status.innerHTML = 'Versand nicht möglich — <a href="mailto:sven+podscribe@kompe.de?subject=PodScribe%20Feedback&body=' +
+        body + '" style="color:var(--accent)">per E-Mail senden</a>.';
+      btn.disabled = false;
+    }
+  };
 }
 
 // ── Service worker (PWA + offline) ─────────────────────────────────────────

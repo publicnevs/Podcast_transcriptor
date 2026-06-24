@@ -628,6 +628,12 @@ async def _subscribe_feed(url: str, auto_transcribe: bool, max_episodes: int = 0
     podcast = feed_data["podcast"]
     episodes = feed_data["episodes"]
     feed_type = feed_data.get("feed_type", "podcast")
+    # Safety cap: a brand-new audio podcast with auto-transcribe on and no explicit
+    # limit defaults to at most 5 episodes, so the first scheduler pass can't queue a
+    # whole back catalogue for (costly) transcription. The user can raise this per
+    # feed later. Article/newsletter feeds and non-auto podcasts are unaffected.
+    if feed_type == "podcast" and auto_transcribe and max_episodes <= 0:
+        max_episodes = 5
     # When a web page URL was given, autodiscovery resolves the real feed URL —
     # persist that so future scheduler checks hit the feed directly.
     feed_url = podcast.get("rss_url") or url
@@ -654,10 +660,10 @@ async def _subscribe_feed(url: str, auto_transcribe: bool, max_episodes: int = 0
         async with db.execute("SELECT last_insert_rowid()") as cur:
             podcast_id = (await cur.fetchone())[0]
 
-        # On the first subscribe, only pull in the 3 newest episodes so the
+        # On the first subscribe, only pull in a few newest episodes so the
         # Neuzugänge inbox isn't flooded with a feed's entire back catalogue.
         # Later scheduler runs use the podcast's own max_episodes unchanged.
-        initial_limit = min(3, max_episodes) if max_episodes > 0 else 3
+        initial_limit = min(5, max_episodes) if max_episodes > 0 else 3
         await insert_new_episodes(
             db, podcast_id, episodes,
             feed_type=feed_type,

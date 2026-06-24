@@ -21,7 +21,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **OPML-Import mit Massen-Abo** — alle Abos aus Apple Podcasts, Pocket Casts & Co. auf einmal übernehmen: eine Datei wählen, „Alle abonnieren" — PodScribe legt jeden Feed an und zeigt, welche geklappt haben und welche nicht.
 - **Quellen-Typ pro Feed umstellbar** — falsch erkannt? In den Feed-Einstellungen zwischen **Podcast (Audio)**, **Newsfeed (Artikel/Text)** und **Website** wechseln. Gemischte Feeds (Audio + Artikel) werten Artikel automatisch als Text aus, statt sie fälschlich als Audio zu laden.
 - **Automatische Folgen-Erkennung** — neue Folgen werden stündlich im Hintergrund gefunden; wiederholt nicht erreichbare Feeds werden seltener (mit wachsendem Abstand) geprüft, statt jede Stunde erneut zu scheitern.
-- **Auto-Transkription pro Podcast** — pro Feed festlegen, ob neue Folgen automatisch transkribiert werden.
+- **Auto-Transkription pro Podcast** — pro Feed festlegen, ob neue Folgen automatisch transkribiert werden. **Schutz vor Massen-Transkription:** ein neu abonnierter Podcast mit Auto-Transkription transkribiert zunächst **maximal 5 Folgen** (später pro Feed erhöhbar).
 - **Flexible Abo-Optionen** — maximale Folgenzahl begrenzen, Prüf-Intervall einstellen, gezielt einzelne Folgen transkribieren.
 - **Sichere URL-Eingabe** — beim Abonnieren/Scrapen werden nur echte Web-Adressen akzeptiert (kein localhost/interne Adressen).
 - **Max. Audio-Länge** — sehr lange Folgen werden mit klarer Meldung übersprungen (Limit in den Einstellungen), statt erst spät am Größenlimit zu scheitern.
@@ -129,7 +129,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Als App installierbar** — auf den Homescreen (Android/iOS), ohne App Store.
 - **Offline-Lesen** — bereits geladene Transkripte sind auch ohne Internet verfügbar.
 - **Mobile-first** — Bottom-Navigation, große Touch-Flächen, Schriftgrößen-Regler.
-- **„Mehr"-Menü** — über die Bottom-Navigation sind auch am Handy (und für Gäste) Fragen, Radar, Tags, Über, **Unterstützen** und der **Design-Umschalter** erreichbar.
+- **„Mehr"-Menü (überall)** — am PC oben und am Handy unten ein **„Mehr"-Menü** mit den Zweitfunktionen: ganz oben **Feedback** und **Buy me a coffee**, dann Über, Radar, Tags, Statistik (Eigentümer) und der **Design-Umschalter** — auch für Gäste erreichbar.
 - **Helles & dunkles Design** — die App startet im **hellen Design**; per Umschalter (auch für Gäste, am PC oben und mobil im „Mehr"-Menü) jederzeit auf dunkel wechselbar, die Wahl bleibt gespeichert.
 - **Laufender News-Ticker** — der „Aktuelles"-Streifen auf der Startseite läuft automatisch durch und pausiert beim Drüberfahren/Antippen.
 - **Push-Benachrichtigungen** — via ntfy.sh aufs Handy, sobald ein Transkript fertig ist (mit tippbarem Direktlink).

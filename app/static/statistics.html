@@ -151,7 +151,7 @@ function render() {
     ['total_podcasts','Quellen'], ['total_episodes','Beiträge'],
     ['done','Fertig'], ['unread','Ungelesen'],
     ['queued','Warteschlange'], ['processing','In Arbeit'],
-    ['pending','Wartend'], ['error','Fehler'],
+    ['error','Fehler'],
   ].map(([k,l]) =>
     `<div class="stat-tile ${(k==='error'&&s[k])||(k==='queued'&&s[k]>20)?'warn':''}">
        <div class="num">${s[k]}</div><div class="lbl">${l}</div></div>`).join('');
