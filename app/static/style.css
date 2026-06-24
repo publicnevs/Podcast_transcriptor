@@ -1224,23 +1224,34 @@ body.role-guest .bottom-nav [data-guest-only] { display: flex; }
   display: flex; align-items: center; justify-content: space-between;
   gap: .75rem; margin-bottom: .6rem;
 }
-/* Newspaper edition buttons (Tageszeitungen + Wochenmagazin) */
+/* Newspaper edition buttons (Tageszeitungen + Wochenmagazin) — prominent chips */
 .editions-bar { display: flex; gap: .6rem; flex-wrap: wrap; }
 .edition-btn {
-  display: inline-flex; align-items: center; gap: .45rem; flex: none;
-  padding: .6rem 1rem; border-radius: 999px; cursor: pointer; white-space: nowrap;
-  background: var(--accent-dim); color: var(--accent);
-  border: 1px solid var(--border); font-size: .9rem; font-weight: 600;
-  font-family: inherit;
-  transition: border-color var(--transition), background var(--transition), transform var(--transition);
+  display: inline-flex; align-items: center; gap: .5rem; flex: none;
+  padding: .65rem 1.1rem; border-radius: 12px; cursor: pointer; white-space: nowrap;
+  background: var(--accent); color: #fff;
+  border: 1px solid transparent; font-size: .92rem; font-weight: 600;
+  font-family: inherit; line-height: 1;
+  box-shadow: 0 1px 3px rgba(0,0,0,.12);
+  transition: filter var(--transition), transform var(--transition), box-shadow var(--transition);
 }
-.edition-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
-.edition-btn .icon { width: 16px; height: 16px; }
-.edition-btn-empty { background: var(--bg-card); color: var(--text-muted); border-style: dashed; }
+.edition-btn:hover { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 4px 12px rgba(0,0,0,.18); }
+.edition-btn:active { transform: translateY(0); }
+.edition-btn .icon { width: 17px; height: 17px; flex: none; }
+/* "No issue yet" (owner-only build-now): muted/dashed, not a filled accent chip. */
+.edition-btn-empty {
+  background: var(--bg-card); color: var(--text-muted);
+  border: 1px dashed var(--border); box-shadow: none;
+}
+.edition-btn-empty:hover { color: var(--accent); border-color: var(--accent); filter: none; }
 .edition-btn.loading { opacity: .6; cursor: progress; }
 @media (max-width: 768px) {
-  .editions-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: .2rem; }
+  .editions-bar {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    padding-bottom: .25rem; gap: .5rem;
+  }
   .editions-bar::-webkit-scrollbar { display: none; }
+  .edition-btn { padding: .6rem .9rem; font-size: .88rem; }
 }
 
 /* Takeaway ticker — auto-scrolling marquee (seamless via a duplicated track). */

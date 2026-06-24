@@ -30,7 +30,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 ## 🗂️ Kategorien & Startseite
 
-- **Eigene Kategorien** — lege beliebige Kategorien an (z.B. Gesundheit, Finanzen, News, KI), benenne sie um oder lösche sie (in den Einstellungen).
+- **Eigene Kategorien** — lege beliebige Kategorien an (z.B. Gesundheit, Finanzen, News, KI), **benenne sie um** (Name antippen) und **sortiere sie** per ▲▼-Pfeilen; die Reihenfolge bestimmt die Anordnung auf der Startseite. (Vorangelegt: Automotive, Sport.)
 - **Podcasts zuordnen** — jedem Feed in seinen Einstellungen eine Kategorie zuweisen.
 - **Startseite nach Kategorien** — die Bibliothek ist in Kategorie-Abschnitte gegliedert; jede Überschrift führt zu einer Kategorie-Übersicht (Quellen, Themen-Tags und neueste Folgen gebündelt).
 - **Per Drag-&-Drop sortieren** — Kacheln auf der Startseite ziehen, um die Reihenfolge zu ändern oder sie in eine andere Kategorie zu verschieben.
@@ -109,7 +109,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 
 - **Standardmäßig offen** — solange kein Eigentümer-Passwort gesetzt ist, funktioniert alles wie gewohnt (Einzelnutzer).
 - **Eigentümer-Login** — mit gesetztem Passwort hat nur der Eigentümer Vollzugriff (transkribieren, Einstellungen, Redaktion/Ausgaben erstellen usw.).
-- **Freunde-Logins (bis zu 10)** — lege in den Einstellungen Freunde mit eigenem **Namen + Passwort** an (reiner Lesezugriff). Anmeldung auf der Login-Seite mit Name + Passwort.
+- **Freunde-Logins (bis zu 50)** — lege in den Einstellungen Freunde mit eigenem **Namen + Passwort** an (reiner Lesezugriff), einzeln wieder löschbar. Anmeldung auf der Login-Seite mit Name + Passwort.
 - **Zugriffsmodus wählbar** — „Nur angemeldete Nutzer" (Eigentümer + Freunde, kein anonymer Zugriff — ideal, wenn die App im Internet steht), „Offen lesbar" oder „Gemeinsames Gast-Passwort".
 - **Gast-/Lesezugriff** — Gäste/Freunde können die Bibliothek, Folgen und die Suche lesen, aber nichts ändern oder kostenpflichtige KI-Aktionen auslösen.
 - **Gast-KI optional** — KI-Chat für Gäste freischaltbar, mit Limit pro Stunde zum Kostenschutz.

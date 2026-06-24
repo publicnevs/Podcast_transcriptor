@@ -1678,7 +1678,7 @@ async def api_me(request: Request):
 # ── Friend logins (up to 10 named read-only users) ──────────────────────────────
 
 _USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{2,32}$")
-_MAX_FRIENDS = 10
+_MAX_FRIENDS = 50
 
 
 @app.get("/api/users")

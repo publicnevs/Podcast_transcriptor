@@ -86,7 +86,7 @@
   <!-- Categories (user-managed) -->
   <div class="card" style="margin-bottom:1rem">
     <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="folder" data-icon-size="18">Kategorien</h2>
-    <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.75rem">Lege Kategorien an und ordne Podcasts/Feeds in den jeweiligen Einstellungen zu. Auf der Startseite kannst du Kacheln per Drag-&amp;-Drop sortieren und verschieben.</p>
+    <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:.75rem">Lege Kategorien an und ordne Podcasts/Feeds in den jeweiligen Einstellungen zu. <strong>Umbenennen:</strong> Name antippen, ändern und wegklicken. <strong>Sortieren:</strong> mit den Pfeilen ▲▼ — die Reihenfolge bestimmt die Anordnung auf der Startseite.</p>
     <div id="cat-list" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.75rem"></div>
     <div class="input-row">
       <input type="text" id="new-cat" placeholder="z.B. Gesundheit, Finanzen, KI …">
@@ -414,7 +414,7 @@
   <div class="card" style="margin-bottom:1rem">
     <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="user" data-icon-size="18">Freunde (Lesezugriff)</h2>
     <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:.75rem">
-      Bis zu 10 Freunde mit eigenem Namen + Passwort. Jeder hat nur <strong>Lesezugriff</strong>.
+      Bis zu 50 Freunde mit eigenem Namen + Passwort. Jeder hat nur <strong>Lesezugriff</strong>.
       Vorhandenen Namen erneut anlegen = Passwort zurücksetzen. (Erfordert ein Eigentümer-Passwort oben.)
     </p>
     <div id="friend-list" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:.75rem"></div>
@@ -858,19 +858,38 @@ async function loadWhisperStatus() {
 }
 
 // ── Categories ───────────────────────────────────────────────────────────
+let _cats = [];
 async function loadCategories() {
   const wrap = document.getElementById('cat-list');
   try {
-    const cats = await API.get('/api/categories');
-    if (!cats.length) { wrap.innerHTML = '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Kategorien.</span>'; return; }
-    wrap.innerHTML = cats.map(c => `
-      <div style="display:flex;align-items:center;gap:.5rem">
-        <input type="text" value="${escHtml(c.name)}" data-id="${c.id}" style="flex:1"
+    _cats = await API.get('/api/categories');
+    if (!_cats.length) { wrap.innerHTML = '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Kategorien.</span>'; return; }
+    wrap.innerHTML = _cats.map((c, i) => `
+      <div style="display:flex;align-items:center;gap:.4rem">
+        <span style="display:flex;flex-direction:column;gap:1px">
+          <button class="btn btn-ghost btn-icon btn-sm" title="Nach oben" ${i===0?'disabled':''} onclick="moveCategory(${c.id},-1)">${icon('chevron-up',{size:14})}</button>
+          <button class="btn btn-ghost btn-icon btn-sm" title="Nach unten" ${i===_cats.length-1?'disabled':''} onclick="moveCategory(${c.id},1)">${icon('chevron-down',{size:14})}</button>
+        </span>
+        <input type="text" value="${escHtml(c.name)}" data-id="${c.id}" style="flex:1" title="Zum Umbenennen tippen und wegklicken"
                onchange="renameCategory(${c.id}, this.value)">
         <span style="color:var(--text-muted);font-size:.8rem;white-space:nowrap">${c.podcast_count} Quellen</span>
         <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="delCategory(${c.id})">${icon('trash-2',{size:16})}</button>
       </div>`).join('');
   } catch(e) { wrap.innerHTML = `<span style="color:var(--error)">${escHtml(e.message)}</span>`; }
+}
+// Swap a category with its neighbour and persist both new positions.
+async function moveCategory(id, dir) {
+  const i = _cats.findIndex(c => c.id === id);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= _cats.length) return;
+  const a = _cats[i], b = _cats[j];
+  try {
+    await Promise.all([
+      API.patch(`/api/categories/${a.id}`, { position: j }),
+      API.patch(`/api/categories/${b.id}`, { position: i }),
+    ]);
+    await loadCategories();
+  } catch(e) { toast(e.message, 'error'); }
 }
 async function addCategory() {
   const inp = document.getElementById('new-cat');
@@ -891,15 +910,16 @@ async function delCategory(id) {
 }
 
 // ── Friends (named read-only logins) ──────────────────────────────────────
+let _friends = [];
 async function loadFriends() {
   const wrap = document.getElementById('friend-list');
   try {
-    const users = await API.get('/api/users');
-    if (!users.length) { wrap.innerHTML = '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Freunde angelegt.</span>'; return; }
-    wrap.innerHTML = users.map(u => `
+    _friends = await API.get('/api/users');
+    if (!_friends.length) { wrap.innerHTML = '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Freunde angelegt.</span>'; return; }
+    wrap.innerHTML = _friends.map(u => `
       <div style="display:flex;align-items:center;gap:.5rem">
         <span style="flex:1">${icon('user',{size:15})} ${escHtml(u.username)}</span>
-        <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="delFriend(${u.id}, ${JSON.stringify(escHtml(u.username))})">${icon('trash-2',{size:16})}</button>
+        <button class="btn btn-ghost btn-icon btn-sm" title="Löschen" onclick="delFriend(${u.id})">${icon('trash-2',{size:16})}</button>
       </div>`).join('');
   } catch(e) { wrap.innerHTML = `<span style="color:var(--error)">${escHtml(e.message)}</span>`; }
 }
@@ -915,8 +935,9 @@ async function addFriend() {
     await loadFriends();
   } catch(e) { toast(e.message, 'error'); }
 }
-async function delFriend(id, name) {
-  if (!await confirmModal(`Freund „${name}" entfernen?`)) return;
+async function delFriend(id) {
+  const u = _friends.find(x => x.id === id);
+  if (!await confirmModal(`Freund „${u ? u.username : ''}" entfernen?`)) return;
   try { await API.del(`/api/users/${id}`); await loadFriends(); }
   catch(e) { toast(e.message, 'error'); }
 }
