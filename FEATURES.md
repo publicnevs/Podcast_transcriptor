@@ -78,7 +78,8 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Verwandte Folgen** — zu jeder Folge passende andere Folgen (über gemeinsame Themen & inhaltliche Ähnlichkeit).
 - **Themen-Explorer** — pro Schlagwort eine chronologische Zeitleiste aller Folgen plus optionale themenübergreifende Zusammenfassung.
 - **Ungelesen-Tracking** — Badge pro Podcast, gespeicherte Lese-/Scroll-Position, „als gelesen" markieren.
-- **Aktuelles-Ticker** — auf der Startseite eine wischbare Reihe der neuesten Beiträge, jeweils mit **Quelle und Datum** (heute/gestern/Datum); ein Klick auf die Kachel öffnet die Folge bzw. den Artikel, ein Klick auf den **Quellennamen** springt zur Podcast-/Feed-Detailseite. Daneben ein **Tageszeitung-Shortcut**, der bei vorhandener heutiger Ausgabe direkt zu ihr führt (sonst zur Redaktion).
+- **Aktuelles-Ticker** — auf der Startseite ein **automatisch laufender Nachrichten-Ticker** der neuesten Beiträge, jeweils mit **Quelle und Datum** (heute/gestern/Datum). Er läuft endlos durch (Marquee), pausiert beim Drüberfahren (Desktop) bzw. Antippen (Handy); ein Klick auf die Kachel öffnet die Folge bzw. den Artikel, ein Klick auf den **Quellennamen** springt zur Podcast-/Feed-Detailseite. Bei aktivierter Systemeinstellung „Bewegung reduzieren" wird stattdessen manuell gewischt.
+- **Zeitungs-Schaltflächen** — direkt darüber prominente Buttons für deine **Zeitungen/Editionen** (z.B. Tageszeitung Tech, Sport, Braunschweig, Wochenmagazin); ein Klick öffnet jeweils die aktuellste Ausgabe.
 - **Filter & Sortierung** — nach Podcast, Zeitraum, Lese- und Transkriptions-Status.
 - **Notizen** — persönliche Notizen pro Folge.
 
@@ -94,7 +95,7 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **TL;DR oben** — jeder Artikel startet mit dem Wichtigsten in Kürze.
 - **Rezepte & Zeitplan** — wiederkehrende Ausgaben speichern und automatisch zu festen Zeiten erzeugen lassen.
 - **Automatische Trending-Ausgabe** — wöchentlich automatisch eine Ausgabe aus den aktuell meistdiskutierten Themen (an-/abschaltbar, Wochentag & Uhrzeit wählbar).
-- **Tageszeitung (täglich)** — erzeugt jeden Tag automatisch einen KI-Artikel aus den **am Vortag verarbeiteten** Beiträgen. In den Einstellungen wählst du **Kategorien & Quellen**, Uhrzeit, Länge/Stil und optionalen Fokus; die Ausgabe erscheint in der Redaktion und kommt per E-Mail. „Jetzt erzeugen" baut sie sofort. Bereits verarbeitete Beiträge werden nicht wiederholt.
+- **Zeitungen / Editionen (automatisch)** — lege beliebig viele eigene Zeitungen an. Jede **Edition** erzeugt automatisch einen KI-Artikel: **täglich** aus den am Vortag verarbeiteten Beiträgen oder **wöchentlich** (Wochenmagazin) aus der vergangenen Woche. Pro Edition wählst du **Name, Typ (täglich/wöchentlich), Kategorien & Quellen, Uhrzeit (wöchentlich auch Wochentag), Länge/Stil** und optionalen Fokus. Ausgaben erscheinen als Schaltfläche auf der Startseite und in der Redaktion und können per E-Mail verschickt werden. „Jetzt erzeugen" baut sie sofort. Vorbefüllt mit *Tageszeitung Tech/Sport/Braunschweig* und *Wochenmagazin*.
 - **Per E-Mail zustellen** — Ausgaben automatisch oder manuell per Mail verschicken.
 - **Teilen** — Ausgabe über einen Link teilen.
 
@@ -128,10 +129,11 @@ verbindliche Feature-Liste — bei jeder neuen oder geänderten Funktion wird si
 - **Als App installierbar** — auf den Homescreen (Android/iOS), ohne App Store.
 - **Offline-Lesen** — bereits geladene Transkripte sind auch ohne Internet verfügbar.
 - **Mobile-first** — Bottom-Navigation, große Touch-Flächen, Schriftgrößen-Regler.
-- **„Mehr"-Menü** — über die Bottom-Navigation sind auch am Handy (und für Gäste) Fragen, Radar, Tags, Über und der **Design-Umschalter** erreichbar.
+- **„Mehr"-Menü** — über die Bottom-Navigation sind auch am Handy (und für Gäste) Fragen, Radar, Tags, Über, **Unterstützen** und der **Design-Umschalter** erreichbar.
 - **Helles & dunkles Design** — die App startet im **hellen Design**; per Umschalter (auch für Gäste, am PC oben und mobil im „Mehr"-Menü) jederzeit auf dunkel wechselbar, die Wahl bleibt gespeichert.
-- **Wischbare Highlights** — der News-Streifen auf der Startseite lässt sich am Handy wischen und am PC per Maus ziehen/scrollen.
+- **Laufender News-Ticker** — der „Aktuelles"-Streifen auf der Startseite läuft automatisch durch und pausiert beim Drüberfahren/Antippen.
 - **Push-Benachrichtigungen** — via ntfy.sh aufs Handy, sobald ein Transkript fertig ist (mit tippbarem Direktlink).
+- **Unterstützen & Feedback** — auf der „Über"-Seite ein **„Buy me a coffee"**-Link (PayPal) und ein **Feedback-Formular** an den Entwickler (mit E-Mail-Fallback).
 
 ---
 

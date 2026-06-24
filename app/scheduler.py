@@ -294,34 +294,42 @@ async def run_auto_digest():
         logger.error(f"Auto digest failed: {e}")
 
 
-async def run_daily_paper():
-    """Build the daily 'Tageszeitung' once per day at the configured hour. Opt-in
-    via tageszeitung_enabled; gated like run_auto_digest (hour + last_run)."""
+async def run_due_editions():
+    """Build any newspaper editions whose schedule is due. Runs every 30 min: a daily
+    edition fires when the local hour matches its schedule_hour; a weekly edition also
+    requires its schedule_dow (0=Mon … 6=Sun). A per-edition `last_run` date guard
+    keeps each to once per period even though this job ticks twice an hour."""
+    import aiosqlite
     from datetime import datetime
-    from .database import get_setting, set_setting
+    from .database import DB_PATH
 
-    if (await get_setting("tageszeitung_enabled")) != "1":
-        return
     now = datetime.now()
-    hour = int((await get_setting("tageszeitung_hour")) or "7")
-    if now.hour != hour:
-        return
     today = now.strftime("%Y-%m-%d")
-    if (await get_setting("tageszeitung_last_run")).startswith(today):
-        return  # already ran today
-    # Mark the run first so a slow/failed build can't trigger duplicates this hour.
-    await set_setting("tageszeitung_last_run", now.strftime("%Y-%m-%d %H:%M:%S"))
-    try:
-        from .main import build_daily_paper
-        digest_id = await build_daily_paper()
-        if digest_id:
-            await send_notification(
-                "📰 Deine Tageszeitung ist fertig",
-                "Die Ausgabe mit den Beiträgen von gestern wurde erstellt.",
-                click_path=f"/digest/{digest_id}",
-            )
-    except Exception as e:
-        logger.error(f"Tageszeitung job failed: {e}")
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT id, name, kind, schedule_hour, schedule_dow, last_run "
+            "FROM paper_editions WHERE enabled=1") as cur:
+            editions = [dict(r) for r in await cur.fetchall()]
+
+    for ed in editions:
+        if now.hour != int(ed["schedule_hour"] or 7):
+            continue
+        if ed["kind"] == "weekly" and now.weekday() != int(ed["schedule_dow"] or 6):
+            continue
+        if (ed["last_run"] or "").startswith(today):
+            continue  # already ran this period
+        try:
+            from .main import build_edition
+            digest_id = await build_edition(ed["id"])  # also stamps last_run
+            if digest_id:
+                await send_notification(
+                    f"📰 {ed['name']} ist fertig",
+                    "Eine neue Ausgabe wurde erstellt.",
+                    click_path=f"/digest/{digest_id}",
+                )
+        except Exception as e:
+            logger.error(f"Edition '{ed['name']}' job failed: {e}")
 
 
 async def check_newsletter_inbox():
@@ -378,9 +386,9 @@ def start_scheduler():
         max_instances=1,
     )
     _scheduler.add_job(
-        run_daily_paper,
+        run_due_editions,
         trigger=IntervalTrigger(minutes=30),
-        id="daily_paper",
+        id="paper_editions",
         replace_existing=True,
         max_instances=1,
     )

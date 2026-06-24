@@ -527,6 +527,27 @@
 
   </div>
 
+  <!-- Friends / Unterstützen -->
+  <div id="friends" class="section-title" style="margin-top:2rem;margin-bottom:1rem" data-icon="heart" data-icon-size="16">Unterstützen & Feedback</div>
+  <div class="card" style="margin-bottom:2rem">
+    <p style="font-size:.9rem;color:var(--text-muted);margin-bottom:1rem">
+      PodScribe ist ein privates Hobby-Projekt. Wenn es dir gefällt, freue ich mich über einen Kaffee —
+      oder über dein Feedback.
+    </p>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:1.25rem">
+      <a class="btn btn-primary" href="https://www.paypal.com/donate/?business=sven@kompe.de&item_name=PodScribe&currency_code=EUR" target="_blank" rel="noopener">☕ Buy me a coffee</a>
+      <a class="btn btn-secondary" href="mailto:sven+podscribe@kompe.de?subject=PodScribe%20Feedback">✉️ E-Mail schreiben</a>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:1rem">
+      <label class="form-label" style="margin-bottom:.5rem;display:block">Feedback senden</label>
+      <input type="text" id="fb-name" placeholder="Dein Name (optional)" style="width:100%;margin-bottom:.5rem">
+      <input type="text" id="fb-contact" placeholder="E-Mail für Rückfragen (optional)" style="width:100%;margin-bottom:.5rem">
+      <textarea id="fb-message" rows="4" placeholder="Deine Nachricht …" style="width:100%;margin-bottom:.6rem"></textarea>
+      <button class="btn btn-primary" data-icon="mail" data-icon-size="16" onclick="sendFeedback(this)">Absenden</button>
+      <span id="fb-status" style="margin-left:.6rem;font-size:.85rem;color:var(--text-muted)"></span>
+    </div>
+  </div>
+
   <!-- Tech-Stack -->
   <div class="section-title" style="margin-top:2rem;margin-bottom:1rem" data-icon="wrench" data-icon-size="16">Tech-Stack</div>
   <div class="card" style="margin-bottom:2rem">
@@ -598,6 +619,35 @@
 <script>
 document.getElementById('nav-mount').innerHTML = renderNav('/about');
 initReadProgress();
+
+async function sendFeedback(btn) {
+  const message = document.getElementById('fb-message').value.trim();
+  const status = document.getElementById('fb-status');
+  if (!message) { status.style.color = 'var(--error)'; status.textContent = 'Bitte eine Nachricht eingeben.'; return; }
+  btn.disabled = true; status.style.color = 'var(--text-muted)'; status.textContent = 'Senden …';
+  try {
+    await API.post('/api/feedback', {
+      message,
+      name: document.getElementById('fb-name').value.trim(),
+      contact: document.getElementById('fb-contact').value.trim(),
+    });
+    status.style.color = 'var(--success)';
+    status.textContent = '✅ Danke für dein Feedback!';
+    document.getElementById('fb-message').value = '';
+  } catch(e) {
+    // Server can't send (e.g. SMTP not configured) → offer a mailto fallback.
+    const body = encodeURIComponent(message);
+    status.style.color = 'var(--text-muted)';
+    status.innerHTML = 'Versand nicht möglich — <a href="mailto:sven+podscribe@kompe.de?subject=PodScribe%20Feedback&body=' +
+      body + '" style="color:var(--accent)">per E-Mail senden</a>.';
+  }
+  btn.disabled = false;
+}
+
+// Scroll to #friends when arriving via the "Unterstützen" nav entry.
+if (location.hash === '#friends') {
+  setTimeout(() => document.getElementById('friends')?.scrollIntoView({behavior:'smooth'}), 100);
+}
 </script>
 
 <style>

@@ -82,7 +82,7 @@ _GUEST_API_RE = re.compile(
     r"|episodes/\d+$|episodes/\d+/audio$|episodes/\d+/tags$|episodes/\d+/related$"
     r"|episodes/\d+/export$|search$|tags$|tags/\d+/episodes$|digests$|digests/\d+$"
     r"|radar$|overview/week$|recommended$|recipes$|issue-options$"
-    r"|recent-takeaways$|topics/\d+$|categories$|categories/\d+$)$"
+    r"|recent-takeaways$|topics/\d+$|categories$|categories/\d+$|paper-editions$)$"
 )
 
 
@@ -128,7 +128,7 @@ async def role_guard(request: Request, call_next):
         if method in ("GET", "HEAD") and (_GUEST_STATIC_RE.match(path)
                 or path in ("/login", "/terms", "/api/me")):
             return await call_next(request)
-        if method == "POST" and path in ("/api/login", "/api/logout"):
+        if method == "POST" and path in ("/api/login", "/api/logout", "/api/feedback"):
             return await call_next(request)
         if path.startswith("/api/"):
             return JSONResponse({"detail": "Anmeldung erforderlich"}, status_code=401)
@@ -136,7 +136,7 @@ async def role_guard(request: Request, call_next):
     # Read-only guest (incl. named friends)
     if method in ("GET", "HEAD") and _guest_get_ok(path):
         return await call_next(request)
-    if method == "POST" and path in ("/api/login", "/api/logout"):
+    if method == "POST" and path in ("/api/login", "/api/logout", "/api/feedback"):
         return await call_next(request)
     # Guest RAG/chat: opt-in via setting + per-IP rate limit (LLM cost).
     if method == "POST" and path in ("/api/ask", "/api/chat") and await auth.guest_rag_enabled():
@@ -343,6 +343,31 @@ class ScheduleUpsert(BaseModel):
     cron_dow: int = 0
     cron_hour: int = 7
     enabled: bool = True
+
+
+class EditionUpsert(BaseModel):
+    name: str
+    kind: str = "daily"            # daily | weekly
+    format: str = "magazin"
+    category_ids: List[int] = []
+    podcast_ids: List[int] = []
+    length: int = 4               # 1..5
+    style: int = 3                # 1..5
+    focus: str = ""
+    email_to: str = ""
+    schedule_hour: int = 7        # 0..23
+    schedule_dow: int = 6         # 0=Mon … 6=Sun (weekly only)
+    enabled: bool = True
+
+
+class ReorderRequest(BaseModel):
+    ids: List[int] = []
+
+
+class FeedbackRequest(BaseModel):
+    message: str
+    name: str = ""
+    contact: str = ""
 
 
 class TagRename(BaseModel):
@@ -2737,11 +2762,12 @@ async def run_recipe(recipe_id: int, background_tasks: BackgroundTasks = None):
 
 # ── Tageszeitung (daily AI newspaper) ──────────────────────────────────────────
 
-async def _select_daily_episode_ids(db, category_ids, podcast_ids):
-    """Episodes *processed yesterday* (transcripts.created_at within the previous
-    local calendar day) from the selected categories ∪ sources. Empty scope = all."""
+async def _select_daily_episode_ids(db, category_ids, podcast_ids, days: int = 1):
+    """Episodes processed within the last `days` calendar days (transcripts.created_at,
+    ending at the start of today) from the selected categories ∪ sources. Empty scope
+    = all. days=1 → yesterday only (daily paper); days=7 → past week (Wochenmagazin)."""
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    y_start = today_start - timedelta(days=1)
+    y_start = today_start - timedelta(days=days)
     where = ["e.status='done'", "t.created_at >= ?", "t.created_at < ?"]
     params = [y_start.strftime("%Y-%m-%d %H:%M:%S"),
               today_start.strftime("%Y-%m-%d %H:%M:%S")]
@@ -2767,61 +2793,168 @@ async def _select_daily_episode_ids(db, category_ids, podcast_ids):
         return [r["id"] for r in await cur.fetchall()]
 
 
-async def build_daily_paper(manual: bool = False):
-    """Assemble the Tageszeitung: a full AI magazine article from yesterday's
-    processed items in the configured categories/sources. Returns digest_id or None."""
+def _edition_slug(name: str) -> str:
+    """Lowercase ASCII-ish slug from an edition name (best-effort, for stable URLs)."""
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower().strip()).strip("-")
+    return s or "edition"
+
+
+async def build_edition(edition_id: int, manual: bool = False):
+    """Generate one newspaper edition's issue from recently processed items in its
+    scope. Daily editions cover yesterday, weekly editions the past 7 days. Sets the
+    edition's last_digest_id immediately so the homepage button opens the new issue
+    even while it is still generating. Returns digest_id, or None when nothing fits."""
     import asyncio
-    cats = json.loads((await get_setting("tageszeitung_category_ids_json")) or "[]")
-    pods = json.loads((await get_setting("tageszeitung_podcast_ids_json")) or "[]")
-    length = int((await get_setting("tageszeitung_length")) or "4")
-    style = int((await get_setting("tageszeitung_style")) or "3")
-    user_focus = (await get_setting("tageszeitung_focus")) or ""
-    email_to = (await get_setting("tageszeitung_email_to")) or ""
     async with aiosqlite.connect(DB_PATH) as db:
-        episode_ids = await _select_daily_episode_ids(db, cats, pods)
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM paper_editions WHERE id=?", (edition_id,)) as cur:
+            ed = await cur.fetchone()
+        if not ed:
+            return None
+        ed = dict(ed)
+        cats = json.loads(ed["category_ids_json"] or "[]")
+        pods = json.loads(ed["podcast_ids_json"] or "[]")
+        weekly = (ed["kind"] == "weekly")
+        episode_ids = await _select_daily_episode_ids(db, cats, pods, days=7 if weekly else 1)
         if not episode_ids:
             return None
-        title = f"Tageszeitung — {datetime.now():%d.%m.%Y}"
+        now = datetime.now()
+        if weekly:
+            iso = now.isocalendar()
+            title = f"{ed['name']} — KW {iso[1]}/{iso[0]}"
+            lead = ("Schreibe ein Wochenmagazin aus den Beiträgen der vergangenen Woche, "
+                    "klar nach Themen/Ressorts gegliedert, mit einem redaktionellen "
+                    "Aufmacher und etwas mehr Analyse und Einordnung. ")
+        else:
+            title = f"{ed['name']} — {now:%d.%m.%Y}"
+            lead = ("Schreibe eine Tageszeitung aus den Beiträgen des Vortags, klar nach "
+                    "Themen/Ressorts gegliedert, mit einem kurzen Aufmacher zu Beginn. ")
+        length, style = int(ed["length"]), int(ed["style"])
+        fmt = ed["format"] or "magazin"
+        email_to = ed["email_to"] or ""
         cur = await db.execute(
-            """INSERT INTO digests (title, mode, format, length, style, episode_ids_json, status)
-               VALUES (?, 'tageszeitung', 'magazin', ?, ?, ?, 'generating')""",
-            (title, length, style, json.dumps(episode_ids)))
-        await db.commit()
+            """INSERT INTO digests (title, mode, format, length, style,
+                                    episode_ids_json, status, edition_id)
+               VALUES (?, 'tageszeitung', ?, ?, ?, ?, 'generating', ?)""",
+            (title, fmt, length, style, json.dumps(episode_ids), edition_id))
         digest_id = cur.lastrowid
-    focus = ("Schreibe eine Tageszeitung aus den Beiträgen des Vortags, klar nach "
-             "Themen/Ressorts gegliedert, mit einem kurzen Aufmacher zu Beginn. "
-             + user_focus).strip()
+        await db.execute(
+            "UPDATE paper_editions SET last_digest_id=?, last_run=? WHERE id=?",
+            (digest_id, now.strftime("%Y-%m-%d"), edition_id))
+        await db.commit()
+    focus = (lead + (ed["focus"] or "")).strip()
     asyncio.create_task(_build_issue(
-        digest_id, episode_ids, "magazin", length, style, title,
+        digest_id, episode_ids, fmt, length, style, title,
         "", "", focus, "", "manual", email_to))
     return digest_id
 
 
-@app.post("/api/tageszeitung/run", status_code=201)
-async def tageszeitung_run():
-    """Owner-triggered immediate build (also used by the settings 'Jetzt erzeugen' button)."""
-    digest_id = await build_daily_paper(manual=True)
+@app.get("/api/paper-editions")
+async def list_paper_editions():
+    """All newspaper editions with the status/title of their latest issue. Used by the
+    homepage button bar (guest-readable) and the settings manager (owner)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT e.*, d.status AS last_status, d.title AS last_title
+            FROM paper_editions e
+            LEFT JOIN digests d ON d.id = e.last_digest_id
+            ORDER BY e.position, e.id
+        """) as cur:
+            rows = [dict(r) for r in await cur.fetchall()]
+    for r in rows:
+        r["category_ids"] = json.loads(r.pop("category_ids_json") or "[]")
+        r["podcast_ids"] = json.loads(r.pop("podcast_ids_json") or "[]")
+        r["enabled"] = bool(r["enabled"])
+    return rows
+
+
+@app.post("/api/paper-editions", status_code=201)
+async def create_paper_edition(data: EditionUpsert):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT COALESCE(MAX(position)+1, 0) FROM paper_editions") as cur:
+            pos = (await cur.fetchone())[0]
+        slug = _edition_slug(data.name) + "-" + secrets.token_hex(2)
+        cur = await db.execute(
+            """INSERT INTO paper_editions
+                   (slug, name, kind, format, category_ids_json, podcast_ids_json,
+                    length, style, focus, email_to, schedule_hour, schedule_dow,
+                    enabled, position)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (slug, data.name, data.kind, data.format,
+             json.dumps(data.category_ids), json.dumps(data.podcast_ids),
+             data.length, data.style, data.focus, data.email_to,
+             data.schedule_hour, data.schedule_dow, int(data.enabled), pos))
+        await db.commit()
+        return {"id": cur.lastrowid}
+
+
+@app.put("/api/paper-editions/{edition_id}")
+async def update_paper_edition(edition_id: int, data: EditionUpsert):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            """UPDATE paper_editions SET
+                   name=?, kind=?, format=?, category_ids_json=?, podcast_ids_json=?,
+                   length=?, style=?, focus=?, email_to=?, schedule_hour=?,
+                   schedule_dow=?, enabled=? WHERE id=?""",
+            (data.name, data.kind, data.format,
+             json.dumps(data.category_ids), json.dumps(data.podcast_ids),
+             data.length, data.style, data.focus, data.email_to,
+             data.schedule_hour, data.schedule_dow, int(data.enabled), edition_id))
+        await db.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Edition nicht gefunden")
+    return {"ok": True}
+
+
+@app.delete("/api/paper-editions/{edition_id}")
+async def delete_paper_edition(edition_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM paper_editions WHERE id=?", (edition_id,))
+        await db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/paper-editions/reorder")
+async def reorder_paper_editions(data: ReorderRequest):
+    async with aiosqlite.connect(DB_PATH) as db:
+        for pos, eid in enumerate(data.ids):
+            await db.execute("UPDATE paper_editions SET position=? WHERE id=?", (pos, eid))
+        await db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/paper-editions/{edition_id}/run", status_code=201)
+async def run_paper_edition(edition_id: int):
+    """Owner-triggered immediate build (settings 'Jetzt erzeugen' button)."""
+    digest_id = await build_edition(edition_id, manual=True)
     if digest_id is None:
         raise HTTPException(
-            400, "Keine am Vortag verarbeiteten Beiträge im gewählten Umfang gefunden.")
+            400, "Keine passenden, kürzlich verarbeiteten Beiträge im gewählten Umfang gefunden.")
     return {"id": digest_id, "status": "generating"}
 
 
-@app.get("/api/tageszeitung/today")
-async def tageszeitung_today():
-    """Returns today's Tageszeitung issue (id + status) for the homepage shortcut,
-    or {id: null} when none was generated today."""
-    async with aiosqlite.connect(DB_PATH) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            """SELECT id, title, status FROM digests
-               WHERE mode='tageszeitung'
-                 AND date(created_at) = date('now', 'localtime')
-               ORDER BY id DESC LIMIT 1""") as cur:
-            row = await cur.fetchone()
-    if not row:
-        return {"id": None}
-    return {"id": row["id"], "title": row["title"], "status": row["status"]}
+@app.post("/api/feedback")
+async def submit_feedback(data: FeedbackRequest, request: Request):
+    """Relay user feedback to the maintainer via SMTP. Reachable by guests/friends.
+    Raises 503 when SMTP is unconfigured so the UI can fall back to a mailto link."""
+    from html import escape as _esc
+    msg = (data.message or "").strip()
+    if not msg:
+        raise HTTPException(400, "Bitte eine Nachricht eingeben.")
+    from . import mailer
+    role = getattr(request.state, "role", "?")
+    name = (data.name or "").strip() or "Anonym"
+    contact = (data.contact or "").strip()
+    text = f"Feedback von {name} ({role})\nKontakt: {contact or '—'}\n\n{msg}"
+    html = (f"<p><strong>Feedback von {_esc(name)}</strong> ({role})<br>"
+            f"Kontakt: {_esc(contact) or '—'}</p>"
+            f"<p style='white-space:pre-wrap'>{_esc(msg)}</p>")
+    try:
+        await mailer.send_email("sven+podscribe@kompe.de", "PodScribe Feedback", html, text)
+    except Exception as e:
+        raise HTTPException(503, f"E-Mail-Versand nicht möglich: {e}")
+    return {"ok": True}
 
 
 @app.post("/api/scheduled-issues")

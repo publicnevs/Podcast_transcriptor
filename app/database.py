@@ -141,6 +141,32 @@ CREATE TABLE IF NOT EXISTS scheduled_issues (
     last_run_at TIMESTAMP
 );
 
+-- Named, self-scheduling AI newspaper "editions" (Tageszeitungen + Wochenmagazin).
+-- Generalizes the former single hardcoded Tageszeitung: each row is one paper with
+-- its own scope (categories ∪ podcasts), style and cadence. `kind` is 'daily'
+-- (yesterday's processed items) or 'weekly' (last 7 days). `last_digest_id` points
+-- at the most recent issue so the homepage button always opens the latest one.
+CREATE TABLE IF NOT EXISTS paper_editions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug TEXT UNIQUE,
+    name TEXT NOT NULL,
+    kind TEXT DEFAULT 'daily',
+    format TEXT DEFAULT 'magazin',
+    category_ids_json TEXT DEFAULT '[]',
+    podcast_ids_json  TEXT DEFAULT '[]',
+    length INTEGER DEFAULT 4,
+    style  INTEGER DEFAULT 3,
+    focus  TEXT DEFAULT '',
+    email_to TEXT DEFAULT '',
+    schedule_hour INTEGER DEFAULT 7,
+    schedule_dow  INTEGER DEFAULT 6,
+    enabled INTEGER DEFAULT 1,
+    position INTEGER DEFAULT 0,
+    last_run TEXT DEFAULT '',
+    last_digest_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS transcripts_fts USING fts5(
     episode_id,
     content,
@@ -268,6 +294,8 @@ _MIGRATIONS = [
     "ALTER TABLE podcasts ADD COLUMN position INTEGER DEFAULT 0",
     # Surface why an issue/digest failed so the reader can show it + offer retry
     "ALTER TABLE digests ADD COLUMN error_msg TEXT",
+    # Link an issue back to the newspaper edition that produced it (per-edition history)
+    "ALTER TABLE digests ADD COLUMN edition_id INTEGER REFERENCES paper_editions(id) ON DELETE SET NULL",
 ]
 
 
@@ -291,6 +319,44 @@ async def _backfill_pub_dates(db):
             pass  # unparseable → leave as-is
 
 
+async def _seed_defaults(db):
+    """One-time seeding of default categories + newspaper editions. Guarded by
+    marker settings so that rows the user later deletes don't resurrect on restart."""
+    # Categories: Automotive + Sport (idempotent by unique name, seeded once).
+    async with db.execute(
+        "SELECT value FROM settings WHERE key='seeded_default_categories'") as cur:
+        seeded = await cur.fetchone()
+    if not seeded:
+        await db.execute(
+            "INSERT OR IGNORE INTO categories (name, position) VALUES ('Automotive', 0)")
+        await db.execute(
+            "INSERT OR IGNORE INTO categories (name, position) VALUES ('Sport', 1)")
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('seeded_default_categories', '1')")
+
+    # Newspaper editions: 3 daily papers + 1 weekly magazine, scope left empty so
+    # the owner assigns categories/sources in Settings.
+    async with db.execute(
+        "SELECT value FROM settings WHERE key='seeded_default_editions'") as cur:
+        seeded = await cur.fetchone()
+    if not seeded:
+        editions = [
+            # slug, name, kind, schedule_hour, schedule_dow, position
+            ("tech",          "Tageszeitung Tech",         "daily",  7, 6, 0),
+            ("sport",         "Tageszeitung Sport",        "daily",  7, 6, 1),
+            ("braunschweig",  "Tageszeitung Braunschweig", "daily",  7, 6, 2),
+            ("wochenmagazin", "Wochenmagazin",             "weekly", 8, 6, 3),
+        ]
+        for slug, name, kind, hour, dow, pos in editions:
+            await db.execute(
+                """INSERT OR IGNORE INTO paper_editions
+                       (slug, name, kind, schedule_hour, schedule_dow, position)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (slug, name, kind, hour, dow, pos))
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('seeded_default_editions', '1')")
+
+
 async def init_db():
     import os
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -302,6 +368,7 @@ async def init_db():
             except Exception:
                 pass  # column already exists
         await _backfill_pub_dates(db)
+        await _seed_defaults(db)
         # Bootstrap a stable session secret so signed cookies survive restarts.
         async with db.execute("SELECT value FROM settings WHERE key='session_secret'") as cur:
             row = await cur.fetchone()

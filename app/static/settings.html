@@ -425,50 +425,70 @@
     </div>
   </div>
 
-  <!-- Tageszeitung (daily AI newspaper) -->
+  <!-- Newspaper editions (Tageszeitungen + Wochenmagazin) -->
   <div class="card" style="margin-bottom:1rem">
-    <h2 style="font-size:1rem;margin-bottom:1rem" data-icon="newspaper" data-icon-size="18">Tageszeitung (täglich)</h2>
+    <h2 style="font-size:1rem;margin-bottom:.5rem" data-icon="newspaper" data-icon-size="18">Zeitungen / Editionen</h2>
     <p style="font-size:.82rem;color:var(--text-muted);margin-bottom:1rem">
-      Erstellt täglich automatisch einen KI-Artikel aus den <strong>am Vortag verarbeiteten</strong>
-      Beiträgen der gewählten Kategorien/Quellen — sichtbar in der Redaktion und per E-Mail.
-      Versand nutzt die SMTP-Einstellungen oben.
+      Jede Edition erzeugt automatisch einen KI-Artikel: <strong>täglich</strong> aus den am Vortag
+      verarbeiteten Beiträgen oder <strong>wöchentlich</strong> aus der vergangenen Woche — aus den
+      gewählten Kategorien/Quellen. Sichtbar als Schaltfläche auf der Startseite und in der Redaktion;
+      optionaler E-Mail-Versand nutzt die SMTP-Einstellungen oben.
     </p>
-    <div style="display:flex;flex-direction:column;gap:.875rem">
-      <label style="display:flex;align-items:center;gap:.5rem;font-size:.9rem">
-        <input type="checkbox" id="tz-enabled" style="width:auto">
-        Tageszeitung aktivieren
-      </label>
+    <div id="ed-list" style="display:flex;flex-direction:column;gap:.5rem;margin-bottom:1rem"></div>
+    <button class="btn btn-secondary" data-icon="plus" data-icon-size="16" onclick="newEdition()">Neue Edition</button>
+
+    <!-- Editor (shown for create / edit) -->
+    <div id="ed-editor" style="display:none;border-top:1px solid var(--border);margin-top:1rem;padding-top:1rem">
+      <input type="hidden" id="ed-id">
+      <div class="form-group">
+        <label class="form-label">Name</label>
+        <input type="text" id="ed-name" placeholder="z.B. Tageszeitung Tech">
+      </div>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap">
         <div class="form-group">
-          <label class="form-label">Uhrzeit</label>
-          <select id="tz-hour" style="width:100px"></select>
+          <label class="form-label">Typ</label>
+          <select id="ed-kind" onchange="edKindChanged()" style="width:140px">
+            <option value="daily">Täglich</option>
+            <option value="weekly">Wöchentlich</option>
+          </select>
         </div>
-        <div class="form-group" style="flex:1;min-width:180px">
-          <label class="form-label">E-Mail-Empfänger (optional)</label>
-          <input type="text" id="tz-email" placeholder="leer = Redaktions-Adresse">
+        <div class="form-group">
+          <label class="form-label">Uhrzeit</label>
+          <select id="ed-hour" style="width:100px"></select>
+        </div>
+        <div class="form-group" id="ed-dow-wrap" style="display:none">
+          <label class="form-label">Wochentag</label>
+          <select id="ed-dow" style="width:130px"></select>
         </div>
       </div>
       <div style="display:flex;gap:.75rem;flex-wrap:wrap">
         <div class="form-group">
           <label class="form-label">Länge (1–5)</label>
-          <input type="number" id="tz-length" min="1" max="5" value="4" style="width:90px">
+          <input type="number" id="ed-length" min="1" max="5" value="4" style="width:90px">
         </div>
         <div class="form-group">
           <label class="form-label">Stil (1–5)</label>
-          <input type="number" id="tz-style" min="1" max="5" value="3" style="width:90px">
+          <input type="number" id="ed-style" min="1" max="5" value="3" style="width:90px">
+        </div>
+        <div class="form-group" style="flex:1;min-width:180px">
+          <label class="form-label">E-Mail-Empfänger (optional)</label>
+          <input type="text" id="ed-email" placeholder="leer = Redaktions-Adresse">
         </div>
       </div>
       <div class="form-group">
         <label class="form-label">Redaktioneller Fokus (optional)</label>
-        <input type="text" id="tz-focus" placeholder="z.B. Schwerpunkt auf KI & Technik">
+        <input type="text" id="ed-focus" placeholder="z.B. Schwerpunkt auf KI & Technik">
       </div>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.9rem;margin-bottom:.6rem">
+        <input type="checkbox" id="ed-enabled" style="width:auto" checked> Automatisch erzeugen
+      </label>
       <div>
         <label class="form-label" style="margin-bottom:.4rem">Quellen-Auswahl (leer = alle)</label>
-        <div id="tz-scope" style="display:flex;flex-direction:column;gap:.4rem;max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:.6rem"></div>
+        <div id="ed-scope" style="display:flex;flex-direction:column;gap:.4rem;max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:.6rem"></div>
       </div>
-      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        <button class="btn btn-primary" data-icon="save" data-icon-size="16" onclick="saveTageszeitung()">Speichern</button>
-        <button class="btn btn-secondary" data-icon="newspaper" data-icon-size="16" onclick="runTageszeitung()">Jetzt erzeugen</button>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.75rem">
+        <button class="btn btn-primary" data-icon="save" data-icon-size="16" onclick="saveEdition()">Speichern</button>
+        <button class="btn btn-secondary" onclick="closeEditor()">Abbrechen</button>
       </div>
     </div>
   </div>
@@ -546,15 +566,6 @@ async function loadSettings() {
     document.getElementById('access-mode').value = s.access_mode || 'open';
 
     // Tageszeitung
-    document.getElementById('tz-enabled').checked = s.tageszeitung_enabled === '1';
-    document.getElementById('tz-hour').value = s.tageszeitung_hour || '7';
-    document.getElementById('tz-email').value = s.tageszeitung_email_to || '';
-    document.getElementById('tz-length').value = s.tageszeitung_length || '4';
-    document.getElementById('tz-style').value = s.tageszeitung_style || '3';
-    document.getElementById('tz-focus').value = s.tageszeitung_focus || '';
-    _tzCats = JSON.parse(s.tageszeitung_category_ids_json || '[]');
-    _tzPods = JSON.parse(s.tageszeitung_podcast_ids_json || '[]');
-    loadTzScope();
   } catch {}
 }
 
@@ -581,7 +592,10 @@ async function saveAccess() {
 // Populate hour dropdowns (0–23) before loadSettings sets the value.
 const _hourOpts = Array.from({length:24}, (_,h) => `<option value="${h}">${String(h).padStart(2,'0')}:00</option>`).join('');
 document.getElementById('autodig-hour').innerHTML = _hourOpts;
-document.getElementById('tz-hour').innerHTML = _hourOpts;
+document.getElementById('ed-hour').innerHTML = _hourOpts;
+const _DOW = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag','Sonntag'];
+document.getElementById('ed-dow').innerHTML =
+  _DOW.map((d,i) => `<option value="${i}">${d}</option>`).join('');
 
 async function saveAutoDigest() {
   try {
@@ -907,20 +921,54 @@ async function delFriend(id, name) {
   catch(e) { toast(e.message, 'error'); }
 }
 
-// ── Tageszeitung scope (categories + sources) ──────────────────────────────
-let _tzCats = [], _tzPods = [];
-async function loadTzScope() {
-  const wrap = document.getElementById('tz-scope');
+// ── Newspaper editions (Tageszeitungen + Wochenmagazin) ────────────────────
+let _editions = [];
+const _pad2 = h => String(h).padStart(2, '0');
+
+async function loadEditionsList() {
+  const list = document.getElementById('ed-list');
+  try {
+    _editions = await API.get('/api/paper-editions');
+    if (!_editions.length) {
+      list.innerHTML = '<span style="color:var(--text-muted);font-size:.85rem">Noch keine Editionen — lege eine an.</span>';
+      return;
+    }
+    list.innerHTML = _editions.map(e => {
+      const sched = e.kind === 'weekly'
+        ? `wöchentlich · ${_DOW[e.schedule_dow] || ''} ${_pad2(e.schedule_hour)}:00`
+        : `täglich · ${_pad2(e.schedule_hour)}:00`;
+      return `<div style="display:flex;align-items:center;gap:.6rem;border:1px solid var(--border);border-radius:8px;padding:.5rem .7rem">
+        ${icon(e.kind === 'weekly' ? 'book-open' : 'newspaper', {size:16})}
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600">${escHtml(e.name)}</div>
+          <div style="font-size:.78rem;color:var(--text-muted)">${sched}${e.enabled ? '' : ' · pausiert'}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" title="Jetzt erzeugen" onclick="runEditionNow(${e.id})">${icon('newspaper',{size:15})}</button>
+        <button class="btn btn-ghost btn-sm" title="Bearbeiten" onclick="editEdition(${e.id})">${icon('pencil',{size:15})}</button>
+        <button class="btn btn-ghost btn-sm" title="Löschen" onclick="deleteEdition(${e.id})">${icon('trash-2',{size:15})}</button>
+      </div>`;
+    }).join('');
+  } catch(e) { list.innerHTML = `<span style="color:var(--error)">${escHtml(e.message)}</span>`; }
+}
+
+function edKindChanged() {
+  const weekly = document.getElementById('ed-kind').value === 'weekly';
+  document.getElementById('ed-dow-wrap').style.display = weekly ? '' : 'none';
+}
+
+// Renders the category/source checkbox tree into #ed-scope, pre-checking the given ids.
+async function renderEdScope(checkedCats, checkedPods) {
+  const wrap = document.getElementById('ed-scope');
   try {
     const [cats, pods] = await Promise.all([API.get('/api/categories'), API.get('/api/podcasts')]);
     const byCat = {}; pods.forEach(p => { (byCat[p.category_id || 0] = byCat[p.category_id || 0] || []).push(p); });
-    let html = '';
     const renderPod = p => `<label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;padding-left:1rem">
-        <input type="checkbox" class="tz-pod" value="${p.id}" style="width:auto" ${_tzPods.includes(p.id)?'checked':''}>
+        <input type="checkbox" class="ed-pod" value="${p.id}" style="width:auto" ${checkedPods.includes(p.id)?'checked':''}>
         ${escHtml(p.title)}</label>`;
+    let html = '';
     cats.forEach(c => {
       html += `<label style="display:flex;align-items:center;gap:.4rem;font-size:.88rem;font-weight:600">
-          <input type="checkbox" class="tz-cat" value="${c.id}" style="width:auto" ${_tzCats.includes(c.id)?'checked':''}>
+          <input type="checkbox" class="ed-cat" value="${c.id}" style="width:auto" ${checkedCats.includes(c.id)?'checked':''}>
           ${icon('folder',{size:14})} ${escHtml(c.name)} <span style="color:var(--text-muted);font-weight:400">(${c.podcast_count})</span></label>`;
       html += (byCat[c.id]||[]).map(renderPod).join('');
     });
@@ -934,25 +982,62 @@ async function loadTzScope() {
 function _collectIds(cls) {
   return Array.from(document.querySelectorAll('.' + cls + ':checked')).map(el => parseInt(el.value));
 }
-async function saveTageszeitung() {
+
+function _openEditor(ed) {
+  document.getElementById('ed-id').value    = ed.id || '';
+  document.getElementById('ed-name').value  = ed.name || '';
+  document.getElementById('ed-kind').value  = ed.kind || 'daily';
+  document.getElementById('ed-hour').value  = (ed.schedule_hour ?? 7);
+  document.getElementById('ed-dow').value   = (ed.schedule_dow ?? 6);
+  document.getElementById('ed-length').value = ed.length ?? 4;
+  document.getElementById('ed-style').value  = ed.style ?? 3;
+  document.getElementById('ed-email').value  = ed.email_to || '';
+  document.getElementById('ed-focus').value  = ed.focus || '';
+  document.getElementById('ed-enabled').checked = ed.enabled !== false;
+  edKindChanged();
+  renderEdScope(ed.category_ids || [], ed.podcast_ids || []);
+  document.getElementById('ed-editor').style.display = '';
+  document.getElementById('ed-name').focus();
+}
+function newEdition() { _openEditor({ kind:'daily', schedule_hour:7, schedule_dow:6, length:4, style:3, enabled:true }); }
+function editEdition(id) { const ed = _editions.find(e => e.id === id); if (ed) _openEditor(ed); }
+function closeEditor() { document.getElementById('ed-editor').style.display = 'none'; }
+
+async function saveEdition() {
+  const id = document.getElementById('ed-id').value;
+  const body = {
+    name: document.getElementById('ed-name').value.trim(),
+    kind: document.getElementById('ed-kind').value,
+    format: 'magazin',
+    category_ids: _collectIds('ed-cat'),
+    podcast_ids: _collectIds('ed-pod'),
+    length: parseInt(document.getElementById('ed-length').value) || 4,
+    style: parseInt(document.getElementById('ed-style').value) || 3,
+    focus: document.getElementById('ed-focus').value.trim(),
+    email_to: document.getElementById('ed-email').value.trim(),
+    schedule_hour: parseInt(document.getElementById('ed-hour').value),
+    schedule_dow: parseInt(document.getElementById('ed-dow').value),
+    enabled: document.getElementById('ed-enabled').checked,
+  };
+  if (!body.name) { toast('Bitte einen Namen angeben', 'error'); return; }
   try {
-    await API.put('/api/settings', {
-      tageszeitung_enabled: document.getElementById('tz-enabled').checked,
-      tageszeitung_hour: parseInt(document.getElementById('tz-hour').value),
-      tageszeitung_email_to: document.getElementById('tz-email').value.trim(),
-      tageszeitung_length: parseInt(document.getElementById('tz-length').value) || 4,
-      tageszeitung_style: parseInt(document.getElementById('tz-style').value) || 3,
-      tageszeitung_focus: document.getElementById('tz-focus').value.trim(),
-      tageszeitung_category_ids_json: JSON.stringify(_collectIds('tz-cat')),
-      tageszeitung_podcast_ids_json: JSON.stringify(_collectIds('tz-pod')),
-    });
-    toast('✅ Tageszeitung gespeichert', 'success');
+    if (id) await API.put(`/api/paper-editions/${id}`, body);
+    else    await API.post('/api/paper-editions', body);
+    toast('✅ Edition gespeichert', 'success');
+    closeEditor();
+    await loadEditionsList();
   } catch(e) { toast(e.message, 'error'); }
 }
-async function runTageszeitung() {
+async function deleteEdition(id) {
+  const ed = _editions.find(e => e.id === id);
+  if (!await confirmModal(`Edition „${ed ? ed.name : ''}" löschen?`)) return;
+  try { await API.del(`/api/paper-editions/${id}`); await loadEditionsList(); }
+  catch(e) { toast(e.message, 'error'); }
+}
+async function runEditionNow(id) {
   try {
-    const r = await API.post('/api/tageszeitung/run', {});
-    toast('📰 Tageszeitung wird erstellt …', 'success');
+    const r = await API.post(`/api/paper-editions/${id}/run`, {});
+    toast('📰 Ausgabe wird erstellt …', 'success');
     if (r.id) location.href = `/digest/${r.id}`;
   } catch(e) { toast(e.message, 'error'); }
 }
@@ -962,6 +1047,7 @@ loadQueue();
 loadWhisperStatus();
 loadCategories();
 loadFriends();
+loadEditionsList();
 setInterval(loadQueue, 8000);
 </script>
 </body>

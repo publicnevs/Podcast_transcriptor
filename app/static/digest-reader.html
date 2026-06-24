@@ -118,16 +118,28 @@ function render() {
     <div id="reader-body" class="digest-body fs-md">${digest.content_html || '<p style="color:var(--text-muted)">Kein Inhalt</p>'}</div>`;
 }
 
+// Minimal inline-markdown → HTML. Input MUST already be escHtml-escaped; we only
+// turn **bold**/*italic*/_italic_ markers into tags so the TL;DR doesn't show raw
+// asterisks (the model often returns "**Lead:** text" bullet/paragraph lines).
+function inlineMd(escaped) {
+  return (escaped || '')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\s][^*]*?)\*/g, '$1<em>$2</em>')
+    .replace(/_([^_]+)_/g, '<em>$1</em>');
+}
+
 function renderTldr(md) {
   const lines = (md||'').split('\n').map(l=>l.trim()).filter(Boolean);
   let html = '', inList = false;
-  for (const l of lines) {
+  for (let l of lines) {
+    l = l.replace(/^#{1,6}\s+/, '');   // drop a stray markdown heading marker
+    if (!l) continue;
     if (l.startsWith('- ') || l.startsWith('* ')) {
       if (!inList) { html += '<ul style="padding-left:1.25rem;line-height:1.8">'; inList = true; }
-      html += '<li>' + escHtml(l.slice(2)) + '</li>';
+      html += '<li>' + inlineMd(escHtml(l.slice(2))) + '</li>';
     } else {
       if (inList) { html += '</ul>'; inList = false; }
-      html += '<p>' + escHtml(l) + '</p>';
+      html += '<p>' + inlineMd(escHtml(l)) + '</p>';
     }
   }
   if (inList) html += '</ul>';

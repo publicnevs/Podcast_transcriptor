@@ -1224,30 +1224,45 @@ body.role-guest .bottom-nav [data-guest-only] { display: flex; }
   display: flex; align-items: center; justify-content: space-between;
   gap: .75rem; margin-bottom: .6rem;
 }
-.tz-shortcut {
-  display: inline-flex; align-items: center; gap: .35rem; flex: none;
-  padding: .35rem .7rem; border-radius: 999px;
+/* Newspaper edition buttons (Tageszeitungen + Wochenmagazin) */
+.editions-bar { display: flex; gap: .6rem; flex-wrap: wrap; }
+.edition-btn {
+  display: inline-flex; align-items: center; gap: .45rem; flex: none;
+  padding: .6rem 1rem; border-radius: 999px; cursor: pointer; white-space: nowrap;
   background: var(--accent-dim); color: var(--accent);
-  border: 1px solid var(--border); font-size: .8rem; font-weight: 600;
-  text-decoration: none; transition: border-color var(--transition), background var(--transition);
+  border: 1px solid var(--border); font-size: .9rem; font-weight: 600;
+  font-family: inherit;
+  transition: border-color var(--transition), background var(--transition), transform var(--transition);
 }
-.tz-shortcut:hover { border-color: var(--accent); }
-.tz-shortcut .icon { width: 15px; height: 15px; }
-.ticker {
-  display: flex; gap: .75rem; overflow-x: auto; padding-bottom: .5rem;
-  scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
+.edition-btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+.edition-btn .icon { width: 16px; height: 16px; }
+.edition-btn-empty { background: var(--bg-card); color: var(--text-muted); border-style: dashed; }
+.edition-btn.loading { opacity: .6; cursor: progress; }
+@media (max-width: 768px) {
+  .editions-bar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: .2rem; }
+  .editions-bar::-webkit-scrollbar { display: none; }
 }
-.ticker::-webkit-scrollbar { display: none; }
-/* Desktop: no touch swipe — show a thin scrollbar + grab cursor (JS adds drag-to-scroll). */
-@media (min-width: 769px) {
-  .ticker { scrollbar-width: thin; cursor: grab; }
-  .ticker::-webkit-scrollbar { display: block; height: 8px; }
-  .ticker.dragging { cursor: grabbing; scroll-snap-type: none; user-select: none; }
-  .ticker.dragging .ticker-card { pointer-events: none; }
+
+/* Takeaway ticker — auto-scrolling marquee (seamless via a duplicated track). */
+.ticker { overflow: hidden; padding-bottom: .5rem; }
+.ticker-track {
+  display: flex; width: max-content;
+  animation: ticker-scroll 60s linear infinite;
+}
+.ticker:hover .ticker-track,
+.ticker.paused .ticker-track { animation-play-state: paused; }
+@keyframes ticker-scroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }   /* exactly one card-set (incl. trailing margin) */
+}
+/* Accessibility / opt-out: no crawl — fall back to a manual horizontal scroll. */
+@media (prefers-reduced-motion: reduce) {
+  .ticker { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .ticker::-webkit-scrollbar { display: none; }
+  .ticker-track { animation: none; width: auto; }
 }
 .ticker-card {
-  flex: 0 0 clamp(220px, 72vw, 290px); scroll-snap-align: start;
+  flex: 0 0 clamp(200px, 58vw, 270px); margin-right: .75rem;
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: .85rem .95rem; cursor: pointer;
   transition: border-color var(--transition), transform var(--transition);

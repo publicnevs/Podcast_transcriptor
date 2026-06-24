@@ -89,13 +89,17 @@
     <div id="watchlist-list" class="episode-list"></div>
   </div>
 
-  <!-- Recent takeaways ticker + Tageszeitung shortcut -->
+  <!-- Newspaper editions (Tageszeitungen + Wochenmagazin) as prominent buttons -->
+  <div id="editions-section" style="display:none;margin-bottom:1.25rem">
+    <div id="editions-bar" class="editions-bar"></div>
+  </div>
+
+  <!-- Recent takeaways ticker (auto-scrolling marquee) -->
   <div id="takeaways-section" style="display:none;margin-bottom:1.5rem">
     <div class="ticker-header">
       <div class="section-title" data-icon="sparkles" data-icon-size="16" style="margin:0">Aktuelles</div>
-      <a id="tz-shortcut" class="tz-shortcut" href="/digests" title="Tageszeitung"></a>
     </div>
-    <div id="takeaways-ticker" class="ticker"></div>
+    <div id="takeaways-ticker" class="ticker"><div id="ticker-track" class="ticker-track"></div></div>
   </div>
 
   <!-- Podcasts grouped by category (drag a tile to reorder / move) -->
@@ -367,16 +371,19 @@ function tickerDate(s) {
   return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit'});
 }
 
-// Recent ticker (swipeable cards above the podcast grid): newest first, source + date
+// Recent ticker: an auto-scrolling marquee. Cards are duplicated so the loop is
+// seamless; the CSS animation pauses on hover (desktop) and on touch (mobile), and
+// is disabled entirely under prefers-reduced-motion (then it's a manual scroll).
 async function loadTakeaways() {
   const sec = document.getElementById('takeaways-section');
   const row = document.getElementById('takeaways-ticker');
-  if (!sec || !row) return;
+  const track = document.getElementById('ticker-track');
+  if (!sec || !row || !track) return;
   try {
     const items = await API.get('/api/recent-takeaways?limit=15');
     if (!items.length) { sec.style.display = 'none'; return; }
     sec.style.display = '';
-    row.innerHTML = items.map(it => `
+    const cards = items.map(it => `
       <div class="ticker-card" onclick="location.href='/episode/${it.episode_id}'">
         <div class="ticker-source">
           ${it.feed_type==='newsletter' ? icon('mail',{size:13}) : (it.feed_type==='newsfeed' ? icon('newspaper',{size:13}) : (it.feed_type==='website' ? icon('link',{size:13}) : icon('headphones',{size:13})))}
@@ -386,21 +393,50 @@ async function loadTakeaways() {
         <div class="ticker-takeaway">${escHtml(it.takeaway)}</div>
         <div class="ticker-episode">${escHtml(it.title)}</div>
       </div>`).join('');
-    enableDragScroll(row);   // mouse drag + wheel on desktop (touch swipes natively)
+    // Duplicate the set; the keyframe slides the track by -50% for a seamless loop.
+    track.innerHTML = cards + cards;
+    track.style.animationDuration = Math.max(20, items.length * 4) + 's';
+    // Touch: pause while the finger is down so a tap reliably opens the card.
+    row.ontouchstart = () => row.classList.add('paused');
+    row.ontouchend = () => setTimeout(() => row.classList.remove('paused'), 1500);
+    enableDragScroll(row);   // only bites under reduced-motion (manual scroll) fallback
   } catch(e) { sec.style.display = 'none'; }
 }
 
-// Tageszeitung shortcut: links to today's issue if it exists, else the Redaktion.
-async function loadTageszeitungShortcut() {
-  const el = document.getElementById('tz-shortcut');
-  if (!el) return;
-  let href = '/digests', label = 'Tageszeitung';
+// Newspaper editions as prominent buttons. Each opens its latest issue; an edition
+// without an issue yet only shows for owners (data-owner-only) and generates on tap.
+async function loadEditions() {
+  const sec = document.getElementById('editions-section');
+  const bar = document.getElementById('editions-bar');
+  if (!sec || !bar) return;
   try {
-    const t = await API.get('/api/tageszeitung/today');
-    if (t && t.id) { href = '/digest/' + t.id; label = 'Heutige Ausgabe'; }
-  } catch(e) {}
-  el.href = href;
-  el.innerHTML = icon('newspaper', {size:15}) + '<span>' + label + '</span>';
+    const eds = (await API.get('/api/paper-editions') || []).filter(e => e.enabled);
+    if (!eds.length) { sec.style.display = 'none'; return; }
+    const html = eds.map(e => {
+      const icn = e.kind === 'weekly' ? 'book-open' : 'newspaper';
+      if (e.last_digest_id) {
+        return `<button class="edition-btn" onclick="location.href='/digest/${e.last_digest_id}'" title="${escHtml(e.name)}">${icon(icn,{size:16})}<span>${escHtml(e.name)}</span></button>`;
+      }
+      // No issue yet → owner-only "generate now" button.
+      return `<button class="edition-btn edition-btn-empty" data-owner-only onclick="runEdition(${e.id}, this)" title="${escHtml(e.name)} — jetzt erzeugen">${icon(icn,{size:16})}<span>${escHtml(e.name)}</span></button>`;
+    }).join('');
+    if (!html.trim()) { sec.style.display = 'none'; return; }
+    bar.innerHTML = html;
+    sec.style.display = '';   // body.role-guest CSS auto-hides owner-only buttons
+  } catch(e) { sec.style.display = 'none'; }
+}
+
+async function runEdition(id, btn) {
+  try {
+    btn.disabled = true;
+    btn.classList.add('loading');
+    const r = await API.post(`/api/paper-editions/${id}/run`, {});
+    if (r && r.id) { location.href = '/digest/' + r.id; return; }
+  } catch(e) {
+    toast(e.message || 'Konnte Ausgabe nicht erzeugen', 'error');
+  }
+  btn.disabled = false;
+  btn.classList.remove('loading');
 }
 
 // Open add panel when arriving via ➕ Abonnieren (/?add=1)
@@ -413,7 +449,7 @@ if (new URLSearchParams(location.search).get('add') === '1') {
 loadPodcasts();
 loadWatchlist();
 loadTakeaways();
-loadTageszeitungShortcut();
+loadEditions();
 setInterval(() => { if (_dragId===null) loadPodcasts(); }, 10000);
 setInterval(loadTakeaways, 60000);
 </script>

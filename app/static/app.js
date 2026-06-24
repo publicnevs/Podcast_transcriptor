@@ -263,6 +263,7 @@ function openMoreSheet() {
     { icon: 'radar',    label: 'Radar',  onClick: () => location.href = '/radar' },
     { icon: 'tag',      label: 'Tags',   onClick: () => location.href = '/tags' },
     { icon: 'info',     label: 'Über',   onClick: () => location.href = '/about' },
+    { icon: 'heart',    label: 'Unterstützen', onClick: () => location.href = '/about#friends' },
     { icon: 'file-text', label: 'Nutzungsbedingungen', onClick: () => location.href = '/terms' },
     { icon: light ? 'moon' : 'sun', label: light ? 'Dunkles Design' : 'Helles Design', onClick: toggleTheme },
   ];
