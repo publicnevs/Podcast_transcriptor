@@ -1,9 +1,12 @@
 /* PodScribe Service Worker — app shell cache + offline transcript reading */
-const CACHE = 'podscribe-v18';
+const CACHE = 'podscribe-v19';
+// Shell assets are loaded with a ?v= query string in the HTML (cache-bust on
+// deploy); precache the same versioned URLs so offline reads hit the cache.
+const ASSET_V = '19';
 const SHELL = [
-  '/static/style.css',
-  '/static/icons.js',
-  '/static/app.js',
+  `/static/style.css?v=${ASSET_V}`,
+  `/static/icons.js?v=${ASSET_V}`,
+  `/static/app.js?v=${ASSET_V}`,
   '/static/icon.svg',
   '/manifest.json',
 ];
