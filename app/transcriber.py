@@ -52,6 +52,23 @@ _runtime = {
 }
 
 
+async def _with_retry(fn, max_attempts: int = 3, base_delay: float = 5.0):
+    """Retry an async callable on transient Gemini API errors (429, 5xx)."""
+    for attempt in range(max_attempts):
+        try:
+            return await fn()
+        except Exception as e:
+            if attempt == max_attempts - 1:
+                raise
+            code = getattr(e, 'status_code', None) or getattr(e, 'code', None)
+            # Retry on rate-limit and server errors; re-raise everything else immediately
+            if code not in (429, 500, 502, 503, 504):
+                raise
+            wait = base_delay * (2 ** attempt)
+            logger.warning(f"Gemini API error {code} (attempt {attempt+1}/{max_attempts}), retrying in {wait:.0f}s")
+            await asyncio.sleep(wait)
+
+
 def configure(gemini_api_key=None, backend=None, whisper_model=None, digest_model=None):
     if gemini_api_key is not None:
         _runtime["gemini_api_key"] = gemini_api_key
@@ -392,14 +409,14 @@ async def transcribe_audio(audio_path: Path) -> dict:
 
     if not _configure_gemini():
         raise RuntimeError("Kein Gemini API Key konfiguriert (Settings oder .env)")
-    return await loop.run_in_executor(None, _gemini_full_sync, audio_path)
+    return await _with_retry(lambda: loop.run_in_executor(None, _gemini_full_sync, audio_path))
 
 
 async def enrich_text(transcript: str) -> dict:
     if not _configure_gemini():
         return {}
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _enrich_sync, transcript)
+    return await _with_retry(lambda: loop.run_in_executor(None, _enrich_sync, transcript))
 
 
 async def translate_to_german(text: str) -> str:

@@ -1,5 +1,5 @@
 /* PodScribe Service Worker — app shell cache + offline transcript reading */
-const CACHE = 'podscribe-v15';
+const CACHE = 'podscribe-v16';
 const SHELL = [
   '/static/style.css',
   '/static/icons.js',
@@ -50,8 +50,25 @@ self.addEventListener('fetch', e => {
       return resp;
     }).catch(() => caches.match(e.request).then(hit =>
       hit || new Response(
-        JSON.stringify({ offline: true, detail: 'Offline — nur bereits geladene Inhalte verfügbar' }),
-        { status: 503, headers: { 'Content-Type': 'application/json' } }
+        `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PodScribe – Offline</title>
+<style>
+  body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;
+       height:100vh;margin:0;background:#f0eff8}
+  .box{text-align:center;padding:2rem 2.5rem;background:#fff;border-radius:16px;
+       box-shadow:0 4px 24px rgba(0,0,0,.1);max-width:340px}
+  h1{color:#7c6ff7;margin-top:0}p{color:#555;line-height:1.5}
+  button{margin-top:1rem;padding:.6rem 1.4rem;background:#7c6ff7;color:#fff;
+         border:none;border-radius:8px;font-size:1rem;cursor:pointer}
+  button:hover{background:#6a5fd6}
+</style></head>
+<body><div class="box">
+  <h1>Offline</h1>
+  <p>Keine Internetverbindung. Bereits geöffnete Episoden und Transkripte sind weiterhin lesbar.</p>
+  <button onclick="location.reload()">Erneut versuchen</button>
+</div></body></html>`,
+        { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
       )
     ))
   );

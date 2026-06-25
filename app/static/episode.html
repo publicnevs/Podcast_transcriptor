@@ -316,7 +316,7 @@ function renderPendingContent(ep) {
     return `<div class="card" style="text-align:center;padding:2rem">
       <div class="spinner" style="width:36px;height:36px;margin:0 auto 1rem"></div>
       <p>${statusBadge(ep.status)}</p>
-      <p style="color:var(--text-muted);font-size:.875rem;margin-top:.5rem">Diese Seite aktualisiert sich automatisch…</p>
+      <p class="poll-elapsed" style="color:var(--text-muted);font-size:.875rem;margin-top:.5rem">Diese Seite aktualisiert sich automatisch…</p>
     </div>`;
   }
   return `<div class="card" style="text-align:center;padding:2rem">
@@ -503,6 +503,8 @@ async function retranscribe() {
 }
 
 async function pollStatus() {
+  const STATUS_LABEL = { queued: 'Warte auf Verarbeitung', downloading: 'Lade Audio herunter', transcribing: 'Transkribiere…' };
+  const startTs = Date.now();
   for (let i=0; i<200; i++) {
     await new Promise(r=>setTimeout(r, i<5 ? 2000 : 4000));
     const ep = await API.get(`/api/episodes/${episodeId}`).catch(()=>null);
@@ -510,9 +512,18 @@ async function pollStatus() {
     epData = ep;
     if (ep.status === 'done') { render(ep); toast('✅ Transkription fertig!','success'); return; }
     if (ep.status === 'error') { render(ep); toast('❌ Fehler bei der Transkription','error'); return; }
-    // Update status badge in page
+    // Update status display with elapsed time
+    const elapsed = Math.floor((Date.now() - startTs) / 1000);
+    const mm = String(Math.floor(elapsed/60)).padStart(2,'0');
+    const ss = String(elapsed%60).padStart(2,'0');
+    const label = STATUS_LABEL[ep.status] || ep.status;
     const statusEl = document.querySelector('.status');
     if (statusEl) statusEl.outerHTML = statusBadge(ep.status);
+    const pendingCard = document.querySelector('.card .spinner');
+    if (pendingCard) {
+      const timeEl = pendingCard.closest('.card').querySelector('.poll-elapsed');
+      if (timeEl) timeEl.textContent = `${label} · ${mm}:${ss}`;
+    }
   }
 }
 

@@ -4,7 +4,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && addgroup --system appuser && adduser --system --ingroup appuser appuser
 
 WORKDIR /app
 
@@ -28,9 +29,11 @@ RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
         playwright install --with-deps chromium; \
     fi
 
-COPY app/ ./app/
+COPY --chown=appuser:appuser app/ ./app/
 
-RUN mkdir -p /app/data /app/downloads
+RUN mkdir -p /app/data /app/downloads && chown -R appuser:appuser /app/data /app/downloads
+
+USER appuser
 
 EXPOSE 7878
 

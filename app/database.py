@@ -268,6 +268,10 @@ _MIGRATIONS = [
     "ALTER TABLE podcasts ADD COLUMN position INTEGER DEFAULT 0",
     # Surface why an issue/digest failed so the reader can show it + offer retry
     "ALTER TABLE digests ADD COLUMN error_msg TEXT",
+    # Performance: composite index for the inbox and per-podcast episode listings
+    "CREATE INDEX IF NOT EXISTS idx_episodes_podcast_status ON episodes(podcast_id, status, pub_date DESC)",
+    # Performance: episode_tags was only indexed by tag_id; episode_id lookups were full scans
+    "CREATE INDEX IF NOT EXISTS idx_episode_tags_episode ON episode_tags(episode_id)",
 ]
 
 

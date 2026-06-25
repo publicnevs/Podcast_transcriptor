@@ -105,7 +105,9 @@ function confirmModal(title, body, confirmLabel = 'Löschen') {
         </div>
       </div>`;
     document.body.appendChild(ov);
-    const close = (val) => { ov.remove(); resolve(val); };
+    const close = (val) => { document.removeEventListener('keydown', onKey); ov.remove(); resolve(val); };
+    const onKey = e => { if (e.key === 'Escape') close(false); };
+    document.addEventListener('keydown', onKey);
     ov.querySelector('#cm-cancel').onclick = () => close(false);
     ov.querySelector('#cm-confirm').onclick = () => close(true);
     ov.addEventListener('click', e => { if (e.target === ov) close(false); });
@@ -379,16 +381,17 @@ const AudioPlayer = {
     player.className = 'audio-player visible';
     player.innerHTML = `
       <div class="ap-row">
-        <button class="ap-btn small" id="ap-back" title="15s zurück">«15</button>
-        <button class="ap-btn" id="ap-play" title="Abspielen">▶</button>
-        <button class="ap-btn small" id="ap-fwd" title="15s vor">15»</button>
-        <span class="ap-time" id="ap-cur">0:00</span>
-        <div class="ap-scrubber" id="ap-scrub">
+        <button class="ap-btn small" id="ap-back" title="15s zurück" aria-label="15 Sekunden zurück">«15</button>
+        <button class="ap-btn" id="ap-play" title="Abspielen" aria-label="Abspielen">▶</button>
+        <button class="ap-btn small" id="ap-fwd" title="15s vor" aria-label="15 Sekunden vor">15»</button>
+        <span class="ap-time" id="ap-cur" aria-live="off">0:00</span>
+        <div class="ap-scrubber" id="ap-scrub" role="slider" aria-label="Wiedergabefortschritt"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
           <div class="ap-scrubber-fill" id="ap-fill"></div>
           <div class="ap-scrubber-thumb" id="ap-thumb"></div>
         </div>
         <span class="ap-time" id="ap-dur">--:--</span>
-        <button class="ap-speed" id="ap-speed">1×</button>
+        <button class="ap-speed" id="ap-speed" aria-label="Wiedergabegeschwindigkeit">1×</button>
       </div>
       <div class="ap-row">
         <span class="ap-title">🎧 ${escHtml(title)}</span>
@@ -419,8 +422,8 @@ const AudioPlayer = {
     };
     player.querySelector('#ap-autoscroll').onchange = (e) => { this.autoScroll = e.target.checked; };
 
-    this.audio.addEventListener('play', () => playBtn.textContent = '⏸');
-    this.audio.addEventListener('pause', () => playBtn.textContent = '▶');
+    this.audio.addEventListener('play', () => { playBtn.textContent = '⏸'; playBtn.setAttribute('aria-label', 'Pause'); });
+    this.audio.addEventListener('pause', () => { playBtn.textContent = '▶'; playBtn.setAttribute('aria-label', 'Abspielen'); });
     this.audio.addEventListener('loadedmetadata', () => durEl.textContent = fmtClock(this.audio.duration));
     this.audio.addEventListener('error', () => { toast('Audio konnte nicht geladen werden', 'error'); });
     this.audio.addEventListener('timeupdate', () => {
@@ -429,6 +432,7 @@ const AudioPlayer = {
       const pct = d ? (t / d) * 100 : 0;
       fill.style.width = pct + '%';
       thumb.style.left = pct + '%';
+      scrub.setAttribute('aria-valuenow', Math.round(pct));
       this.syncSegment(t);
     });
 

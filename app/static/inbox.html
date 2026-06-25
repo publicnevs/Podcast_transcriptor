@@ -89,7 +89,10 @@ function actionFor(e) {
   if (e.status === 'error')
     return `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();transcribe(this, ${e.id})">${icon('refresh-cw',{size:15})} Erneut</button>`;
   if (e.status === 'queued' || e.status === 'downloading' || e.status === 'transcribing')
-    return `<span class="spinner" style="width:18px;height:18px"></span>`;
+    return `<span style="display:inline-flex;align-items:center;gap:.4rem">
+      <span class="spinner" style="width:18px;height:18px"></span>
+      <button class="btn btn-secondary btn-sm" style="font-size:.72rem;padding:.2rem .5rem" onclick="event.stopPropagation();cancelEpisode(this,${e.id})" title="Abbrechen">✕</button>
+    </span>`;
   return '';  // done — row click opens the episode
 }
 
@@ -122,6 +125,18 @@ function renderItem(e) {
       </div>
       <div style="flex-shrink:0;display:flex;align-items:center">${actionFor(e)}</div>
     </div>`;
+}
+
+async function cancelEpisode(btn, id) {
+  btn.disabled = true;
+  try {
+    await API.patch(`/api/episodes/${id}`, { status: 'pending' });
+    toast('Verarbeitung abgebrochen', 'success');
+    setTimeout(load, 500);
+  } catch(e) {
+    toast(e.message, 'error');
+    btn.disabled = false;
+  }
 }
 
 async function transcribe(btn, id) {

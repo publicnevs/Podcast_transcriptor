@@ -1174,7 +1174,10 @@ async def stream_audio(episode_id: int, request: Request):
     if "range" in request.headers:
         fwd_headers["Range"] = request.headers["range"]
 
-    client = httpx.AsyncClient(follow_redirects=True, timeout=None)
+    client = httpx.AsyncClient(
+        follow_redirects=True,
+        timeout=httpx.Timeout(connect=10.0, read=None, write=None, pool=10.0),
+    )
     req = client.build_request("GET", audio_url, headers=fwd_headers)
     upstream = await client.send(req, stream=True)
 
@@ -2289,21 +2292,22 @@ async def _build_issue(digest_id: int, episode_ids: list, fmt: str, length: int,
                 logger.warning(f"AI episode selection failed: {e}")
 
         episode_data = []
-        async with aiosqlite.connect(DB_PATH) as db:
-            db.row_factory = aiosqlite.Row
-            for ep_id in episode_ids:
-                async with db.execute("""
+        if episode_ids:
+            async with aiosqlite.connect(DB_PATH) as db:
+                db.row_factory = aiosqlite.Row
+                placeholders = ",".join("?" * len(episode_ids))
+                async with db.execute(f"""
                     SELECT e.id, e.podcast_id, e.title, e.pub_date, p.title AS podcast_title,
                            t.content AS transcript, s.summary, s.takeaways_json
                     FROM episodes e
                     LEFT JOIN podcasts p ON p.id=e.podcast_id
                     LEFT JOIN transcripts t ON t.episode_id=e.id
                     LEFT JOIN summaries s ON s.episode_id=e.id
-                    WHERE e.id=?
-                """, (ep_id,)) as cur:
-                    row = await cur.fetchone()
-                    if row:
-                        episode_data.append(dict(row))
+                    WHERE e.id IN ({placeholders})
+                """, episode_ids) as cur:
+                    rows = await cur.fetchall()
+                by_id = {row["id"]: dict(row) for row in rows}
+                episode_data = [by_id[eid] for eid in episode_ids if eid in by_id]
 
         # Auto-title if empty. Wrapped in a timeout so a stalled Gemini call can
         # never leave the digest stuck on 'generating' (frontend polls forever).
