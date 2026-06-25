@@ -1,3 +1,27 @@
+# ── Stage 1: dependency builder ─────────────────────────────────────────────
+# Installs Python packages into /root/.local so they can be copied to the
+# runtime stage without dragging pip/wheel/build tools along.
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY requirements.txt requirements-whisper.txt ./
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Optional local Whisper backend:
+#   docker-compose build --build-arg INSTALL_WHISPER=true
+ARG INSTALL_WHISPER=false
+RUN if [ "$INSTALL_WHISPER" = "true" ]; then \
+        pip install --user --no-cache-dir -r requirements-whisper.txt; \
+    fi
+
+
+# ── Stage 2: runtime image ───────────────────────────────────────────────────
+# Only runtime system deps (ffmpeg, curl). Build tools are NOT present here.
 FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -9,15 +33,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt requirements-whisper.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Optional local Whisper backend:
-#   docker-compose build --build-arg INSTALL_WHISPER=true
-ARG INSTALL_WHISPER=false
-RUN if [ "$INSTALL_WHISPER" = "true" ]; then \
-        pip install --no-cache-dir -r requirements-whisper.txt; \
-    fi
+# Copy Python packages installed by the builder stage
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
+ENV PATH=/home/appuser/.local/bin:$PATH
 
 # Optional headless browser for JS-rendered/paywalled page scraping (heavy —
 # pulls in Chromium + system libs). Enable the "Scraping & Audio → JavaScript-

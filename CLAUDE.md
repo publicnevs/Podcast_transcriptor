@@ -73,7 +73,7 @@ curl http://localhost:7878/health
 
 Notes:
 - DB schema changes apply automatically via `init_db()` on startup — no manual migration.
-- The service-worker cache bumps with each shell change (currently `v15`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
+- The service-worker cache bumps with each shell change (currently `v16`); browsers auto-refresh, but a hard-refresh (`Ctrl+Shift+R`) speeds it up.
 - Keep `.env` (with `GEMINI_API_KEY`) in the app dir — `--strip-components=1` only overwrites files present in the tarball, so `.env` is preserved.
 
 **ALWAYS provide these Synology deploy commands at the end of every work block** (each
